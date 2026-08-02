@@ -1,0 +1,76 @@
+{
+  "name": "@lhellemons/ground-types",
+  "version": "0.1.0",
+  "description": "Tactical DDD building blocks and the functional primitives they stand on.",
+  "license": "MIT",
+  "author": "Laurens Hellemons",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lhellemons/ground-types.git"
+  },
+  "keywords": [
+    "ddd",
+    "value-object",
+    "entity",
+    "branded-types",
+    "maybe",
+    "result",
+    "typescript"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    "./brand": {
+      "types": "./dist/brand/index.d.ts",
+      "default": "./dist/brand/index.js"
+    },
+    "./domain": {
+      "types": "./dist/domain/index.d.ts",
+      "default": "./dist/domain/index.js"
+    },
+    "./fn": {
+      "types": "./dist/fn/index.d.ts",
+      "default": "./dist/fn/index.js"
+    },
+    "./intern-registry": {
+      "types": "./dist/intern-registry/index.d.ts",
+      "default": "./dist/intern-registry/index.js"
+    },
+    "./maybe": {
+      "types": "./dist/maybe/index.d.ts",
+      "default": "./dist/maybe/index.js"
+    },
+    "./result": {
+      "types": "./dist/result/index.d.ts",
+      "default": "./dist/result/index.js"
+    },
+    "./value-object": {
+      "types": "./dist/value-object/index.d.ts",
+      "default": "./dist/value-object/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --check .",
+    "fix": "prettier --write .",
+    "check": "pnpm format && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "prettier": "^3.8.1",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.5"
+  },
+  "packageManager": "pnpm@10.8.1",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
