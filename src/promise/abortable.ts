@@ -154,6 +154,16 @@ function isThenable<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
  * share that source, so aborting either branch aborts the other. Use
  * {@link AbortablePromise.detach} at the branch point when that is not what
  * you want. See docs/adr/0002-abort-propagation.md.
+ *
+ * **An abort is a rejection, and an unhandled rejection is fatal.** Node exits
+ * non-zero on one by default, so aborting a promise nothing is awaiting kills
+ * the process. The shapes that matter are already safe: a chain's head is
+ * handled by the chain, and `all`, `race`, `any` and `allSettled` handle their
+ * members. What is not safe is aborting a promise you are holding but not
+ * consuming — see {@link AbortablePromise.abort},
+ * {@link AbortablePromise.abortOn} and {@link AbortablePromise.peer}, each of
+ * which can reach one. Attach a `catch` to anything you may abort without
+ * awaiting.
  */
 export class AbortablePromise<T> extends Promise<T> {
   /**
@@ -193,7 +203,15 @@ export class AbortablePromise<T> extends Promise<T> {
     ) as AbortablePromise<Awaited<T> | void>
   }
 
-  /** An AbortablePromise that has already been aborted. */
+  /**
+   * An AbortablePromise that has already been aborted.
+   *
+   * It is rejected the moment it exists, so a caller that drops it rather than
+   * consuming it has produced an unhandled rejection — `AbortablePromise.abort()`
+   * on a line of its own exits the process. Use it as a value something awaits:
+   * a stub for an operation that was cancelled before it started, or the branch
+   * of a factory that declines to do any work.
+   */
   static abort<T = never>(): AbortablePromise<T> {
     const aborted = new AbortablePromise<T>(() => {})
     aborted.abort()
@@ -376,6 +394,11 @@ export class AbortablePromise<T> extends Promise<T> {
    * signal aborts this promise. Returns this promise, so it can be bound
    * inline.
    *
+   * Binding is not consuming. When the signal fires, this promise rejects
+   * wherever it happens to be, so a promise bound and then dropped is an
+   * unhandled rejection waiting for the signal — fatal in Node. Bind promises
+   * you go on to await or catch, not ones you start and forget.
+   *
    * The listener is registered `{ once: true }`, so it is released as soon as
    * the signal aborts. It is deliberately *not* also released when this
    * promise settles: observing settlement means attaching a rejection handler,
@@ -414,6 +437,13 @@ export class AbortablePromise<T> extends Promise<T> {
   /**
    * Creates a new AbortablePromise as a peer of this one. The peer shares this
    * promise's AbortController, so aborting either aborts both.
+   *
+   * Both, therefore, reject — and unlike a chain, neither is handled by the
+   * other: peers are siblings, not links, so nothing attaches a handler on
+   * your behalf. Aborting one while the other is unconsumed is an unhandled
+   * rejection, and fatal in Node. Await or catch both, or reach for
+   * {@link AbortablePromise.detach} if the two lifetimes should be separate
+   * after all.
    *
    * Unlike `then`, this forces a controller into existence, since sharing one
    * is the whole point.

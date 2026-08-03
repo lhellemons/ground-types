@@ -626,3 +626,78 @@ describe('AbortablePromise.peer', () => {
     }
   })
 })
+
+// Whether a rejection goes unhandled is a host behaviour, so the suite below
+// is the one place that reaches for Node. The library's `lib` is ES2022 + DOM
+// by the choice recorded in tsconfig, which leaves `process` out of scope;
+// declaring the two methods used here keeps that choice rather than adding
+// @types/node for one event listener.
+declare const process: {
+  on(event: 'unhandledRejection', listener: (reason: unknown) => void): void
+  off(event: 'unhandledRejection', listener: (reason: unknown) => void): void
+}
+
+describe('AbortablePromise unhandled rejections', () => {
+  /**
+   * Reports the rejections Node found nobody handling while `body` ran. An
+   * abort *is* a rejection, and an unhandled rejection ends a Node process, so
+   * "who attaches the handler" is a real property of each shape rather than a
+   * detail — this is what the class docblock's safe/unsafe split rests on.
+   */
+  async function unhandledDuring(body: () => void): Promise<unknown[]> {
+    vi.useRealTimers()
+    const seen: unknown[] = []
+    const record = (reason: unknown) => seen.push(reason)
+
+    process.on('unhandledRejection', record)
+    try {
+      body()
+      // Node decides a rejection is unhandled at the end of a macrotask turn.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    } finally {
+      process.off('unhandledRejection', record)
+    }
+
+    return seen
+  }
+
+  it('leaves none behind when an aborted chain is consumed at its tail', async () => {
+    // The head is rejected by the propagation, and handled by the chain that
+    // rejected it. A caller holding only the tail is not leaking anything.
+    const unhandled = await unhandledDuring(() => {
+      const head = new AbortablePromise<string>(() => {})
+      const tail = head.then((value) => value).then((value) => value)
+      tail.abort()
+      void tail.catch(() => {})
+    })
+
+    expect(unhandled).toEqual([])
+  })
+
+  it('leaves none behind when an aborted fan-in is consumed', async () => {
+    // Every member is rejected by the abort, and every member was handled by
+    // the combinator when it took them in.
+    const unhandled = await unhandledDuring(() => {
+      const combined = AbortablePromise.all([
+        new AbortablePromise<string>(() => {}),
+        new AbortablePromise<string>(() => {}),
+      ])
+      combined.abort()
+      void combined.catch(() => {})
+    })
+
+    expect(unhandled).toEqual([])
+  })
+
+  it('leaves none behind when a detached branch is aborted', async () => {
+    const unhandled = await unhandledDuring(() => {
+      const source = new AbortablePromise<string>(() => {})
+      const branch = source.detach()
+      branch.abort()
+      void branch.catch(() => {})
+      void source.catch(() => {})
+    })
+
+    expect(unhandled).toEqual([])
+  })
+})

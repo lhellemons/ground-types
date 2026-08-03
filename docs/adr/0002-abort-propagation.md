@@ -171,6 +171,19 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   it through with its concrete class intact rather than wrapping it in a
   `RejectionError`. A test pins that inheritance, since the encoding
   depends on it silently.
+- An abort is a rejection, so aborting a promise nothing is consuming is
+  an unhandled rejection, which Node treats as fatal. This falls out of
+  rejecting rather than resolving on abort, and rejecting is what lets an
+  abort travel through ordinary promise machinery at all — the
+  alternative, resolving with some cancelled sentinel, would put a check
+  for it in front of every `await`. The shapes this design is built around
+  are safe, because something has attached a handler by construction: a
+  chain handles its own head, `all`, `race`, `any` and `allSettled` handle
+  their members, and `detach` leaves its source alone. Tests pin all
+  three. What is exposed is holding a promise without consuming it —
+  `AbortablePromise.abort()`, `abortOn` on a fire-and-forget promise, and
+  `peer`, whose two promises are siblings rather than links and so handle
+  nothing for each other. Each of those docblocks says so.
 - Wrapping asynchronous work by delegating to it keeps the abort, so the
   obvious way to write such a promise is also the correct one. The price
   is a microtask: an adopted resolution reaches the underlying promise a
