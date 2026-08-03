@@ -1,8 +1,7 @@
 /** A function of concrete argument tuple `Args` returning `Return`. */
-export type Function<
-  Return extends unknown = unknown,
-  Args extends unknown[] = unknown[],
-> = (...args: Args) => Return
+export type Function<Return = unknown, Args extends unknown[] = unknown[]> = (
+  ...args: Args
+) => Return
 
 /**
  * A function of exactly one argument: the unary special case of

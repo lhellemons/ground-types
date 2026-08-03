@@ -129,6 +129,7 @@ describe('tryCatch', () => {
     class ParseError extends Error {}
     const boom = tryCatch(
       () => {
+        // eslint-disable-next-line @typescript-eslint/only-throw-error -- the point of this test is a non-Error throw
         throw 'not an error object'
       },
       () => new ParseError('normalized'),
