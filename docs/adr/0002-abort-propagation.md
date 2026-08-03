@@ -148,18 +148,36 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   `fetch` and other signal-aware platform APIs that never construct our
   subclass.
 
-- **`abortOn` does not release its listener when the promise settles.**
-  It registers `{ once: true }`, so the listener goes as soon as the
-  signal aborts. Releasing it on settlement would mean attaching a
-  rejection handler to observe settlement, which marks the promise as
-  handled — either suppressing a genuine unhandled-rejection warning, or,
-  if the handler rethrows to avoid that, manufacturing a spurious one
-  from the promise the rethrow creates. The cost of not releasing is that
-  binding many short-lived promises to one long-lived signal accumulates
-  listeners on that signal until it aborts, which the docblock states.
+- **Every signal binding is released when the promise settles.** This
+  supersedes an earlier ruling that it could not be, which said: releasing
+  on settlement would mean attaching a rejection handler to observe
+  settlement, marking the promise as handled — either suppressing a
+  genuine unhandled-rejection warning, or, if the handler rethrows to
+  avoid that, manufacturing a spurious one from the promise the rethrow
+  creates. Both consequences are real. The premise is not: they follow
+  from observing settlement _from outside_, and `AbortState` is not
+  outside. It is the bookkeeping that decides settlement —
+  `claimSettlement` and `abort` are the moments themselves — so it can
+  release from there with no handler attached and no effect on whether the
+  promise counts as handled.
 
-  `then` does not go through `abortOn` at all, for a stronger reason
-  given below: it links by plain callback and never touches a signal.
+  What the earlier ruling accepted as its cost is therefore no longer
+  paid: binding many short-lived promises to one long-lived signal used to
+  accumulate a listener per promise, each pinning its closure and its
+  whole `AbortState` until the signal aborted, which for an
+  application-lifetime signal means never.
+
+  The release is a plain `removeEventListener`, not a second
+  `AbortController` passed as `addEventListener`'s `signal` option. That
+  option reads better but costs an `AbortController` — and an
+  `EventTarget` inside it — per binding, which is the allocation the
+  ruling below exists to avoid.
+
+  This covers both ways a foreign signal gets in: `abortOn`, and a
+  controller handed to the constructor. `peer` shares a controller rather
+  than binding to a signal, and `then` does not go through either, for a
+  stronger reason given below: it links by plain callback and never
+  touches a signal at all.
 
 - **The `AbortController` is allocated lazily, and the executor receives a
   context rather than a signal.** An `AbortController` carries an

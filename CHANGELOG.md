@@ -141,6 +141,16 @@ contracts, and closed them.
   `isAbortError` documents why narrowing to `AbortError` is sound for a
   platform `DOMException`, and `Call` documents why its output is named
   before its input.
+- **A signal binding is released when the promise settles**, so binding
+  many short-lived promises to one long-lived signal no longer
+  accumulates a listener per promise, each pinning its closure and its
+  abort state until the signal aborts — which for an application-lifetime
+  signal means never. Covers both `abortOn` and a controller handed to
+  the constructor, whose identical retention was undocumented. Nothing
+  observes the settlement to do this; the release happens inside the
+  bookkeeping that decides it, so the promise's handled-ness is
+  untouched. ADR-0002's ruling that this could not be done is superseded
+  there.
 - **`tryCatch`'s default handler no longer lets a non-`Error` throw pass
   as a `Success`.** `throw` accepts any value and a `Result` is
   discriminated by `instanceof Error`, so a thrown string was returned

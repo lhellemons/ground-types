@@ -107,6 +107,29 @@ describe('AbortablePromise', () => {
     await expect(ap).rejects.toSatisfy(isAbortError)
     expect(controller.signal.aborted).toBe(true)
   })
+  it('releases its listener on a passed AbortController when it settles', async () => {
+    // Same retention as abortOn's, and it was undocumented here: a controller
+    // handed in may govern many promises over its lifetime.
+    const controller = new AbortController()
+    const removeEventListener = vi.spyOn(
+      controller.signal,
+      'removeEventListener',
+    )
+
+    const ap = new AbortablePromise<string>(
+      (resolve) => resolve('value'),
+      controller,
+    )
+    await ap
+
+    expect(removeEventListener).toHaveBeenCalledWith(
+      'abort',
+      expect.any(Function),
+    )
+    // Releasing does not disarm the controller for anything else it governs.
+    controller.abort()
+    await expect(ap).resolves.toEqual('value')
+  })
   it('obeys the passed AbortController', async () => {
     const controller = new AbortController()
     const ap = new AbortablePromise(() => {}, controller)
@@ -497,9 +520,6 @@ describe('AbortablePromise.abortOn', () => {
   })
 
   it('leaves a promise that settled first alone when the signal aborts', async () => {
-    // The listener is deliberately not released on settlement — observing
-    // settlement would mark the promise handled. See ADR-0002. What matters is
-    // that a late abort cannot disturb an already-settled promise.
     const controller = new AbortController()
     const ap = AbortablePromise.resolve('value').abortOn(controller.signal)
 
@@ -508,6 +528,69 @@ describe('AbortablePromise.abortOn', () => {
     controller.abort()
 
     await expect(ap).resolves.toEqual('value')
+  })
+
+  it('releases the listener when the promise settles', async () => {
+    // A signal outlives the promises bound to it, so a binding that is never
+    // released pins its listener — and this whole promise — for the signal's
+    // lifetime. Nothing observes the settlement to release it: the release
+    // happens inside the bookkeeping that decides settlement.
+    const controller = new AbortController()
+    const removeEventListener = vi.spyOn(
+      controller.signal,
+      'removeEventListener',
+    )
+
+    const ap = AbortablePromise.resolve('value').abortOn(controller.signal)
+    await ap
+
+    expect(removeEventListener).toHaveBeenCalledWith(
+      'abort',
+      expect.any(Function),
+    )
+  })
+
+  it('releases the listener when the promise is aborted', async () => {
+    const controller = new AbortController()
+    const removeEventListener = vi.spyOn(
+      controller.signal,
+      'removeEventListener',
+    )
+
+    const ap = new AbortablePromise<string>(() => {}).abortOn(controller.signal)
+    ap.abort()
+
+    await expect(ap).rejects.toSatisfy(isAbortError)
+    expect(removeEventListener).toHaveBeenCalledWith(
+      'abort',
+      expect.any(Function),
+    )
+  })
+
+  it('does not accumulate listeners on a long-lived signal', async () => {
+    // The shape that used to leak: one signal governing a run of short-lived
+    // promises, each of which settles long before the signal ever aborts.
+    const controller = new AbortController()
+    const added = vi.spyOn(controller.signal, 'addEventListener')
+    const removed = vi.spyOn(controller.signal, 'removeEventListener')
+
+    await Promise.all(
+      Array.from({ length: 50 }, (_, index) =>
+        AbortablePromise.resolve(index).abortOn(controller.signal),
+      ),
+    )
+
+    expect(added).toHaveBeenCalledTimes(50)
+    expect(removed).toHaveBeenCalledTimes(50)
+  })
+
+  it('still binds a promise that never settles, until it does', async () => {
+    const controller = new AbortController()
+    const ap = new AbortablePromise<string>(() => {}).abortOn(controller.signal)
+
+    controller.abort()
+
+    await expect(ap).rejects.toSatisfy(isAbortError)
   })
 })
 

@@ -30,6 +30,7 @@ class AbortState {
   #settled = false
   #aborted = false
   #linked: Array<() => void> = []
+  #releases: Array<() => void> = []
 
   constructor(controller?: AbortController) {
     this.#controller = controller
@@ -66,9 +67,46 @@ class AbortState {
    * sharing this one, reaches this promise.
    */
   watchController(): void {
-    this.#controller?.signal.addEventListener('abort', () => this.abort(), {
-      once: true,
+    if (this.#controller) {
+      this.watchSignal(this.#controller.signal)
+    }
+  }
+
+  /**
+   * Aborts this promise when `signal` fires, and stops listening once this
+   * promise settles — whichever comes first.
+   *
+   * The release is the point. A signal may outlive by far the promises bound
+   * to it, and each binding that is never released pins its listener, its
+   * closure and this whole object for the signal's lifetime; binding many
+   * short-lived promises to one long-lived signal is an ordinary thing to do
+   * and used to accumulate all of them.
+   *
+   * Releasing is safe here, and only here, because this object *is* the
+   * settlement bookkeeping — {@link claimSettlement} and {@link abort} are the
+   * moments themselves, not observations of them. Attaching a promise handler
+   * to learn the same thing would mark the promise handled, and either
+   * suppress a real unhandled-rejection report or manufacture a spurious one.
+   */
+  watchSignal(signal: AbortSignal): void {
+    if (signal.aborted) {
+      this.abort()
+      return
+    }
+
+    const onAbort = () => this.abort()
+    signal.addEventListener('abort', onAbort, { once: true })
+    this.#releases.push(() => {
+      signal.removeEventListener('abort', onAbort)
     })
+  }
+
+  /** Stops listening to every signal this promise was bound to. */
+  #release(): void {
+    for (const release of this.#releases) {
+      release()
+    }
+    this.#releases.length = 0
   }
 
   captureReject(reject: (reason?: unknown) => void): void {
@@ -85,6 +123,9 @@ class AbortState {
     // returns early once `#settled`. Dropping them here releases the chain a
     // retained tail would otherwise keep reachable all the way to its head.
     this.#linked.length = 0
+    // Same reasoning one step out: a settled promise can no longer be aborted,
+    // so every signal it is bound to is now listening for nothing.
+    this.#release()
     return true
   }
 
@@ -124,6 +165,9 @@ class AbortState {
       onAbort()
     }
     this.#linked.length = 0
+    // Last, so that a signal firing into this call has already been handled by
+    // the listener that is about to be removed.
+    this.#release()
   }
 }
 
@@ -333,7 +377,12 @@ export class AbortablePromise<T> extends Promise<T> {
    * {@link AbortContext} passed as a third argument.
    * @param controller If given, this AbortablePromise is governed by that
    * controller rather than one of its own. Aborting the promise then aborts
-   * the passed controller too, and so everything else it governs.
+   * the passed controller too, and so everything else it governs — which cuts
+   * both ways: a controller is a shared thing, and handing one in is handing
+   * over the right to reject this promise from anywhere else that holds it.
+   * The listener this costs on the controller's signal is removed when this
+   * promise settles, exactly as {@link AbortablePromise.abortOn}'s is, so a
+   * long-lived controller does not collect one per promise it ever governed.
    */
   constructor(
     executor: (
@@ -423,20 +472,15 @@ export class AbortablePromise<T> extends Promise<T> {
    * unhandled rejection waiting for the signal — fatal in Node. Bind promises
    * you go on to await or catch, not ones you start and forget.
    *
-   * The listener is registered `{ once: true }`, so it is released as soon as
-   * the signal aborts. It is deliberately *not* also released when this
-   * promise settles: observing settlement means attaching a rejection handler,
-   * which would mark this promise as handled and either suppress a genuine
-   * unhandled-rejection warning or manufacture a spurious one. Binding many
-   * short-lived promises to one long-lived signal therefore accumulates
-   * listeners on that signal until it aborts.
+   * The listener is registered `{ once: true }` and removed again when this
+   * promise settles, so binding many short-lived promises to one long-lived
+   * signal does not accumulate listeners on it. Nothing observes the
+   * settlement to do that: the release happens inside the bookkeeping that
+   * *decides* settlement, so no rejection handler is attached and this
+   * promise's handled-ness is untouched.
    */
   abortOn(signal: AbortSignal): AbortablePromise<T> {
-    if (signal.aborted) {
-      this.abort()
-    } else {
-      signal.addEventListener('abort', () => this.abort(), { once: true })
-    }
+    this.#state.watchSignal(signal)
     return this
   }
 
