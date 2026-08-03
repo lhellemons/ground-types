@@ -1,4 +1,4 @@
-import type { CurryableMapper, Mapper } from '../mapper/index.js'
+import type { CurryableMapper, Mapper } from '../fn/index.js'
 import type { Result } from '../result/index.js'
 import type { Call } from './types.js'
 import { resultify } from '../promise/index.js'
