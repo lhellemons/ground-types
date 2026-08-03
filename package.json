@@ -76,8 +76,9 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "prepare": "tsc -p tsconfig.build.json",
+    "clean": "node scripts/clean.mjs",
+    "build": "pnpm clean && tsc -p tsconfig.build.json",
+    "prepare": "pnpm build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "format": "prettier --check .",

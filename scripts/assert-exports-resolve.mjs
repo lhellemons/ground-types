@@ -8,6 +8,11 @@
 // Two directions are checked, because each catches a different mistake:
 //   - every declared subpath resolves, and its JS entry really imports;
 //   - every built module is reachable through some subpath.
+//
+// The second direction is only meaningful against a build with nothing stale
+// in it, which is why `pnpm build` clears dist first: `tsc` never removes its
+// own output, so a renamed module would otherwise be reported as one the
+// exports map forgot, long after it stopped existing.
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'

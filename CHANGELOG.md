@@ -141,6 +141,12 @@ contracts, and closed them.
   `isAbortError` documents why narrowing to `AbortError` is sound for a
   platform `DOMException`, and `Call` documents why its output is named
   before its input.
+- **`pnpm build` clears `dist` first**, so `pnpm assert:exports` cannot
+  report a module that no longer exists. `tsc` only ever adds to its
+  outDir, so a renamed or dropped module left its old directory behind,
+  and the check that every built module is exported then failed on it —
+  on the one machine that did the rename, and never in CI, which always
+  starts from an empty checkout.
 - **A signal binding is released when the promise settles**, so binding
   many short-lived promises to one long-lived signal no longer
   accumulates a listener per promise, each pinning its closure and its
