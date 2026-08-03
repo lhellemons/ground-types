@@ -3,6 +3,15 @@ import type { Mapper } from '../fn/index.js'
 
 declare const _phantom: unique symbol
 
+/* Inference handles. `Success`'s value sits behind a conditional type and
+   `Failure`'s error behind an intersection, and TypeScript can infer through
+   neither — which is why combinators that tried to pattern-match `Result<U, E>`
+   at an inference site silently produced `unknown`. These optional markers give
+   `ValueOf`/`ErrorOf` a plain position to `infer` from. Like `_phantom` they are
+   compile-time only and never present on a value. */
+declare const _value: unique symbol
+declare const _error: unique symbol
+
 /**
  * The value-carrying case of a {@link Result}, unboxed — a `Success<T>`
  * *is* the `T`. `T extends Error` collapses to `never`, so a `Success` can
@@ -11,7 +20,7 @@ declare const _phantom: unique symbol
  */
 export type Success<T, E extends Error = Error> = (T extends Error
   ? never
-  : T) & { readonly [_phantom]?: E }
+  : T) & { readonly [_phantom]?: E; readonly [_value]?: T }
 
 /**
  * The `Error`-carrying case of a {@link Result}, unboxed — a `Failure` *is*
@@ -20,7 +29,33 @@ export type Success<T, E extends Error = Error> = (T extends Error
  */
 export type Failure<T, E extends Error = Error> = E & {
   readonly [_phantom]?: T
+  readonly [_error]?: E
 }
+
+/**
+ * Recovers the value type carried by a {@link Success} arm, discarding any
+ * {@link Failure} arms. Used to type a combinator's output from whatever its
+ * callback actually returned, rather than inferring into `Result<U, E>`.
+ */
+type ValueOf<R> =
+  Exclude<R, Error> extends infer S
+    ? S extends { readonly [_value]?: infer U }
+      ? // A plain value carries no `_value` handle, so `U` infers as
+        // `unknown`; fall back to the value's own type. Without this a
+        // callback that cannot fail loses its Success type entirely.
+        unknown extends U
+        ? S
+        : U
+      : S
+    : never
+
+/** Recovers the `Error` type carried by a {@link Failure} arm, if any. */
+type ErrorOf<R> =
+  Extract<R, Error> extends { readonly [_error]?: infer F }
+    ? F extends Error
+      ? F
+      : never
+    : never
 
 /**
  * The outcome of a fallible operation: either a {@link Success} carrying
@@ -157,19 +192,30 @@ export function assertSuccess<T, E extends Error = Error>(
 }
 
 /**
+ * Rejects a callback return type that carries an `Error` arm — which is what
+ * a `Result` is. Surfaces the diagnostic as a readable string rather than a
+ * structural mismatch, so the compiler names the fix instead of describing
+ * the encoding.
+ */
+type NotAResult<R> = [Extract<R, Error>] extends [never]
+  ? unknown
+  : 'This callback returns a Result — use andThen, not map'
+
+/**
  * Applies `fn` to a `Success`, passing a `Failure` through unchanged. `fn`
  * must return a plain value, not a `Result` — because `Result<Result<T>>`
  * cannot be represented, running a `Result`-returning callback through
- * `map` is a trap, not a shortcut. Use {@link andThen} to chain a second
- * fallible step.
+ * `map` is a trap, not a shortcut. That trap is a compile error: the
+ * constraint rejects any callback whose return type has an `Error` arm. Use
+ * {@link andThen} to chain a second fallible step.
  */
-export function map<T, U, E extends Error = Error>(
-  fn: (value: Success<T, E>) => U,
-): (value: Result<T, E>) => Result<U, E> {
-  return (value: Result<T, E>) =>
-    isSuccess(value)
-      ? result<U, E>(fn(value))
-      : (value as unknown as Failure<U, E>)
+export function map<A, U extends NotAResult<U>>(
+  fn: (value: A) => U,
+): <T extends A, E extends Error = Error>(value: Result<T, E>) => Result<U, E> {
+  return <T extends A, E extends Error = Error>(value: Result<T, E>) =>
+    (isSuccess(value)
+      ? result(fn(value as unknown as A))
+      : value) as unknown as Result<U, E>
 }
 
 /**
@@ -206,11 +252,16 @@ export function orElse<T, E extends Error = Error>(
  * input's, short-circuiting before `fn` ever runs. Unlike `maybe/andThen`,
  * this is genuinely distinct from `map`, not an alias of it.
  */
-export function andThen<T, U, E extends Error = Error>(
-  fn: (value: Success<T, E>) => Result<U, E>,
-): (value: Result<T, E>) => Result<U, E> {
-  return (value: Result<T, E>) =>
-    isSuccess(value) ? fn(value) : (value as unknown as Failure<U, E>)
+export function andThen<A, R>(
+  fn: (value: A) => R,
+): <T extends A, E extends Error = Error>(
+  value: Result<T, E>,
+) => Result<ValueOf<R>, E | ErrorOf<R>> {
+  return <T extends A, E extends Error = Error>(value: Result<T, E>) =>
+    (isSuccess(value) ? fn(value as unknown as A) : value) as unknown as Result<
+      ValueOf<R>,
+      E | ErrorOf<R>
+    >
 }
 
 /**

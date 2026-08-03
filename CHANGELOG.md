@@ -178,6 +178,44 @@ contracts, and closed them.
   logged and swallowed, so every assertion in it threw into the `catch`
   and the test passed whatever the class did. The `try` is gone.
 
+A further pass then fixed the Result combinators' type inference, which
+had been collapsing silently.
+
+### Fixed
+
+- **Breaking:** `result/andThen` no longer collapses its `Success` type to
+  `unknown`. Chaining a callback that can itself fail — the ordinary case —
+  inferred `Result<unknown, Error>`, because `Result<U, E>` was used as an
+  inference site and TypeScript cannot infer `U` out of a union whose arms
+  hide it behind a conditional (`Success`) and an intersection (`Failure`).
+  The callback's return type is now captured whole and decomposed
+  afterwards. The existing tests missed this: every one of them used a
+  callback with a single return path, which infers correctly.
+- **Breaking:** `result/andThen`'s error type now widens to the union of the
+  input's error and the callback's, `Result<U, E | F>`, rather than forcing
+  both to a single `E`. The curried function is generic, so `E` is inferred
+  when the `Result` is applied instead of defaulting to `Error`.
+- **Breaking:** `result/map` now rejects a `Result`-returning callback at
+  compile time, naming `andThen` as the fix. This was already documented as
+  a trap; in practice it inferred `any` and silently erased all downstream
+  type checking.
+
+### Changed
+
+- `Success` and `Failure` carry two additional compile-time-only phantom
+  markers (`_value`, `_error`) giving the combinators a plain position to
+  infer from. The unboxed encoding is unchanged, and both invariants
+  ADR-0001 rests on still hold: `Result<Result<T>>` remains distinct from
+  `Result<T>`, and a `Success` can never be an `Error`. Dropping either
+  original phantom was measured and does fix inference, but collapses
+  `Result<Result<T>>` into `Result<T>` — so the phantoms stayed.
+
+### Added
+
+- Type-level tests now run as real tests via Vitest's `typecheck` mode
+  (`src/**/*.test-d.ts`), so a broken inference fails the suite instead of
+  surfacing as a bare `tsc` error.
+
 ## [0.2.0] - 2026-08-03
 
 ### Added
