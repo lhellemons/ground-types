@@ -87,3 +87,69 @@ dist/maybe/index.js dist/result/index.js` after building must show
   explicitly.
 - `dist/maybe/index.js` and `dist/result/index.js` stay free of runtime
   imports of each other, verified after every build.
+
+## Amendments
+
+### 2026-08-04 — `Success`'s error phantom is invariant in `E`; accepted as a known sharp edge (#17)
+
+`Success<T, E>` carries `readonly [_phantom]?: E` purely to give `E` a
+position in the type — `Success` never holds an `Error` value, so nothing
+else in its shape mentions `E` at all. That phantom makes `Success`
+(and therefore `Result`) invariant in `E`: a `Success<T, Error>` is not
+assignable to `Success<T, Invalid>` even when `Invalid extends Error`, so
+code that constructs a `Result` at a call site typed to a narrower error
+class has to spell it out:
+
+```ts
+class Invalid extends Error {
+  readonly code = 'invalid' as const
+}
+
+const step: (n: number) => Result<number, Invalid> = (n) => success(n * 2)
+// Type 'Success<number, Error>' is not assignable to type 'Result<number, Invalid>'.
+//   Types of property '[_phantom]' are incompatible.
+
+const step: (n: number) => Result<number, Invalid> = (n) =>
+  success<number, Invalid>(n * 2) // works
+```
+
+(An `Invalid` with no added members doesn't trigger this — TypeScript
+treats it as structurally identical to `Error`. It takes a distinguishing
+field, which is the common case for a real domain error.)
+
+**This is not unsound.** The same invariance that produces the annotation
+burden also rejects a plain `Error` masquerading as `Invalid`, which is the
+property the phantom exists to enforce — confirmed by probing the compiler
+directly rather than assumed.
+
+**Decision: keep the phantom, accept the annotation as a sharp edge.**
+Two things were checked, not assumed, before settling this:
+
+- The annotation is now rare. It used to be the workaround for `andThen`
+  collapsing chained inference to `unknown`; that was fixed separately, so
+  ordinary `map`/`andThen` chains infer the narrower error type on their
+  own. The phantom only bites when a `Result`/`Success`/`Failure` is
+  constructed directly at a site typed to an error class narrower than the
+  constructor call's own default.
+- Dropping the phantom does not buy as much as it looks like. Measured by
+  editing a copy of `Success`'s definition, emitting declarations, and
+  running the full test suite against it: `Success<Result<T, E>, E>` does
+  become mutually assignable with `Success<T, E>` — a real, if narrow,
+  collapse — but `Failure` carries its own separate `[_phantom]?: T`
+  marker, so the ADR's core invariant (`Result<Result<T>>` is not
+  assignable back to `Result<T>`) survives untouched, and every existing
+  type-level test — including the one encoding `map`'s nesting trap — stays
+  green. `andThen`'s distinctness from `map` doesn't depend on this
+  phantom either; that guard runs through `NotAResult`, `ValueOf`, and
+  `ErrorOf`, none of which read `Success`'s `E` phantom. On top of that,
+  removing the field leaves `E` unused in `Success`'s definition, which
+  fails this repo's `noUnusedLocals` — not the clean one-line deletion it
+  looks like.
+
+So the fix would touch real type-checking behavior for a case the codebase
+rarely hits anymore, in exchange for a partial, narrow relaxation. Not
+worth it before 1.0. No code changes as a result of this amendment — call
+sites that hit this still need an explicit `success<T, E>(...)` /
+`failure<T, E>(...)` / `result<T, E>(...)` annotation when constructing a
+`Result` typed to an error class narrower than the constructor's own
+inference would produce.
