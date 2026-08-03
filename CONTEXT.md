@@ -25,8 +25,9 @@ laid before any domain modelling starts.
 
 A value that may be absent, encoded unboxed as `T | undefined`. `Maybe`
 is the type; **Just** is the present case and **Nothing** the absent
-one. A Maybe never wraps another Maybe in practice — `flatten` exists to
-collapse the nesting that generic code can produce.
+one. A Maybe never wraps another Maybe — `Maybe<Maybe<T>>` and `Maybe<T>`
+are mutually assignable, so nesting cannot be represented, not merely
+avoided by convention.
 
 _Avoid_: Option, Some, None, nullable.
 

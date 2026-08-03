@@ -21,15 +21,15 @@ Not published to npm yet.
 
 Each module is a separate subpath export; there is no root entry point.
 
-| Subpath            | Exports                                                                                                                                             |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/maybe`           | `Maybe`, `Just`, `Nothing`, `maybe`, `just`, `nothing`, `isJust`, `isNothing`, `orElse`, `map`, `flatten`, `flatMap`                                |
-| `/result`          | `Result`, `Success`, `Failure`, `result`, `success`, `failure`, `isSuccess`, `isFailure`, `tryCatch`, `assertSuccess`, `map`, `fallback`, `andThen` |
-| `/brand`           | `Brand`, `Branded`                                                                                                                                  |
-| `/value-object`    | `Primitive`, `PrimitiveValueObject`, `definePrimitiveValueObject`                                                                                   |
-| `/domain`          | `Entity`, `CompoundValueObject`, `DomainObjectDTO`, `DomainObjectFactory`                                                                           |
-| `/intern-registry` | `InternRegistry`                                                                                                                                    |
-| `/fn`              | `Function`, `compose`                                                                                                                               |
+| Subpath            | Exports                                                                                                                                                                    |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/maybe`           | `Maybe`, `Just`, `Nothing`, `maybe`, `just`, `nothing`, `isJust`, `isNothing`, `orElse`, `fallback`, `map`, `andThen`, `assertJust`, `fromResult`                          |
+| `/result`          | `Result`, `Success`, `Failure`, `result`, `success`, `failure`, `isSuccess`, `isFailure`, `tryCatch`, `assertSuccess`, `map`, `fallback`, `orElse`, `andThen`, `fromMaybe` |
+| `/brand`           | `Brand`, `Branded`                                                                                                                                                         |
+| `/value-object`    | `Primitive`, `PrimitiveValueObject`, `definePrimitiveValueObject`                                                                                                          |
+| `/domain`          | `Entity`, `CompoundValueObject`, `DomainObjectDTO`, `DomainObjectFactory`                                                                                                  |
+| `/intern-registry` | `InternRegistry`                                                                                                                                                           |
+| `/fn`              | `Function`, `compose`                                                                                                                                                      |
 
 ```ts
 import { andThen, isFailure } from '@lhellemons/ground-types/result'
@@ -66,11 +66,16 @@ merely happens to be Error-shaped.
 
 ## Status
 
-v0.1.x. Extracted from a working codebase rather than designed in the
-abstract, so the API is coherent but not yet uniform across modules —
-`maybe` and `result` do not offer identical combinator sets. Rounding
-that out, and documenting each export, is the current work. Expect
-breaking changes within 0.x.
+v0.2.x. `maybe` and `result` now offer a matching combinator set — `map`
+and `andThen`, eager `orElse` and lazy `fallback`, and a bridge each way
+between the two modules (`maybe/fromResult`, `result/fromMaybe`) — and
+every export carries a docblock. The names match, but one pair does not:
+`maybe/andThen` is a true alias of `maybe/map`, because a `Maybe` cannot
+nest, whereas `result/andThen` is genuinely distinct from `result/map`,
+because a `Result` can. See
+[docs/adr/0001-unboxed-maybe-and-result.md](./docs/adr/0001-unboxed-maybe-and-result.md)
+for the rationale behind the encoding and these symmetry choices. Not yet
+published to npm; expect breaking changes within 0.x.
 
 ## Licence
 

@@ -1,11 +1,31 @@
 import type { Result } from '../result/index.js'
 
+/**
+ * A domain object with identity: it carries a readonly `id`, and identity
+ * — not value — decides sameness as its values change.
+ */
 export type Entity<TId> = { readonly id: TId }
 
+/**
+ * A Value Object defined by several values at once, carrying a readonly
+ * `key` that expresses them as one. Use `value-object`'s
+ * `PrimitiveValueObject` instead for the single-primitive case.
+ */
 export type CompoundValueObject<TKey> = { readonly key: TKey }
 
+/**
+ * The plain, untrusted data shape a domain object is constructed from and
+ * serialised to. A DTO carries no invariants; a {@link DomainObjectFactory}
+ * is what validates one into a domain object.
+ */
 export type DomainObjectDTO<TDTO> = { readonly dto: TDTO }
 
+/**
+ * The construction seam of a domain object: takes a DTO (plus any `extra`
+ * arguments the construction needs) and returns either the domain object or
+ * a `Failure` explaining why the DTO was not admissible. The only
+ * sanctioned way to turn untrusted data into a domain object.
+ */
 export type DomainObjectFactory<
   TDomain,
   TDTO,
