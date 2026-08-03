@@ -134,6 +134,19 @@ describe('tryCatch', () => {
     )
     expect(boom()).toBeInstanceOf(ParseError)
   })
+
+  it('lets the errorHandler recover, since it returns a whole Result', () => {
+    // The same handler shape promise/resultify takes, which is what makes
+    // tryCatch and resultify the sync and async forms of one lift.
+    const parse = tryCatch(
+      (raw: string) => JSON.parse(raw) as { id: number },
+      () => success<{ id: number }>({ id: -1 }),
+    )
+
+    expect(parse('{"id":7}')).toEqual({ id: 7 })
+    expect(parse('not json')).toEqual({ id: -1 })
+    expect(isSuccess(parse('not json'))).toBe(true)
+  })
 })
 
 describe('assertSuccess', () => {

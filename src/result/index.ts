@@ -1,4 +1,5 @@
 import type { Maybe } from '../maybe/index.js'
+import type { Mapper } from '../fn/index.js'
 
 declare const _phantom: unique symbol
 
@@ -67,16 +68,27 @@ export function isFailure<T, E extends Error = Error>(
  * default `errorHandler` passes the thrown value through unchanged (cast to
  * `E`); supply one to normalise non-`Error` throws or to translate the
  * caught error into a specific `Error` subclass.
+ *
+ * `errorHandler` returns a whole `Result`, not just an `Error`, so it may
+ * also recover — turning a throw into a `Success`. This is the same handler
+ * shape `promise/resultify` takes for a rejection, which makes `tryCatch` and
+ * `resultify` the synchronous and asynchronous forms of one lift, and lets
+ * `promise/fail` and `promise/recoverWith` serve both.
+ *
+ * A handler that returns a bare `E` still satisfies it: `Failure<T, E>` is
+ * `E` intersected with an optional phantom property, so every `E` is already
+ * a `Result<T, E>`.
  */
 export function tryCatch<T, Args extends unknown[], E extends Error = Error>(
   fn: (...args: Args) => T,
-  errorHandler: (error: unknown) => E = (error) => error as E,
+  errorHandler: Mapper<unknown, Result<T, E>> = (error) =>
+    error as Failure<T, E>,
 ): (...args: Args) => Result<T, E> {
   return function (...args: Args) {
     try {
       return fn(...args) as Result<T, E>
     } catch (error) {
-      return errorHandler(error) as unknown as Failure<T, E>
+      return errorHandler(error)
     }
   }
 }
