@@ -4,7 +4,15 @@
 
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+
+    /* DOM is here for AbortController, AbortSignal and DOMException, which
+       `promise` and `abort` are built on. Despite the lib's name those are
+       WHATWG platform standards rather than document APIs, present in
+       browsers, Node 20+, Deno and Bun alike, so depending on them keeps the
+       library runtime-agnostic where @types/node would assert Node.
+       They reach the emitted .d.ts, so consumers need DOM or @types/node
+       in their own lib as well — see the README. */
+    "lib": ["ES2022", "DOM"],
 
     /* Emitted as ESM consumed by Node's resolver, so relative imports carry
        explicit .js extensions and NodeNext resolution enforces that. */
