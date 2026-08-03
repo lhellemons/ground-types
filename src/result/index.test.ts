@@ -11,6 +11,7 @@ import {
   orElse,
   result,
   success,
+  ThrownError,
   tryCatch,
 } from './index.js'
 import type { Failure, Result, Success } from './index.js'
@@ -133,6 +134,50 @@ describe('tryCatch', () => {
       () => new ParseError('normalized'),
     )
     expect(boom()).toBeInstanceOf(ParseError)
+  })
+
+  it('wraps a non-Error throw so the default still produces a Failure', () => {
+    // The hole this closes: a thrown string was passed straight through, and a
+    // Result is discriminated by `instanceof Error`, so the "Failure" read as
+    // a Success — the failure vanishing into the channel the lift exists to
+    // keep it out of.
+    const boom = tryCatch(() => {
+      throw 'not an error object'
+    })
+    const outcome = boom()
+
+    expect(isFailure(outcome)).toBe(true)
+    expect(isSuccess(outcome)).toBe(false)
+    expect(outcome).toBeInstanceOf(ThrownError)
+    expect((outcome as ThrownError).thrown).toBe('not an error object')
+    expect((outcome as Error).message).toBe('threw not an error object')
+  })
+
+  it('keeps a thrown Error as it was thrown, with its subclass intact', () => {
+    class ParseError extends Error {}
+    const boom = tryCatch(() => {
+      throw new ParseError('kaboom')
+    })
+    const outcome = boom()
+
+    expect(outcome).toBeInstanceOf(ParseError)
+    expect(outcome).not.toBeInstanceOf(ThrownError)
+  })
+
+  it('describes a thrown value that cannot be rendered', () => {
+    // Same defence promise/RejectionError needs, and now the same code: a
+    // symbol throws when interpolated, and a null-prototype object has no
+    // `toString` to call at all.
+    const symbol = Symbol('unrenderable')
+    const noPrototype = Object.create(null) as object
+
+    expect(new ThrownError(symbol).message).toBe('threw Symbol(unrenderable)')
+    expect(new ThrownError(noPrototype).message).toBe('threw [object Object]')
+
+    const boom = tryCatch(() => {
+      throw symbol
+    })
+    expect((boom() as ThrownError).thrown).toBe(symbol)
   })
 
   it('lets the errorHandler recover, since it returns a whole Result', () => {

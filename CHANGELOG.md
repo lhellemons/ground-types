@@ -34,6 +34,10 @@ and [docs/adr/0003-currying.md](./docs/adr/0003-currying.md).
 - `State` gains constructors, guards, `settledResult` — the bridge to the
   primitives, `Nothing` while the operation is unfinished and a `Result`
   once it settles — and `stateOf`, a live view of a promise's State.
+- `result/ThrownError` — the Error a thrown value is wrapped in when it
+  was not already one, so a `Failure` always carries an `Error`. The
+  synchronous case of `promise/RejectionError`, which now extends it
+  rather than keeping a second copy of the same defensive rendering.
 - `pnpm assert:exports`, run in CI, checks that every subpath in
   `package.json`'s `exports` resolves and imports, and that every built
   module is reachable through one. `pnpm install` already builds through
@@ -137,6 +141,15 @@ contracts, and closed them.
   `isAbortError` documents why narrowing to `AbortError` is sound for a
   platform `DOMException`, and `Call` documents why its output is named
   before its input.
+- **`tryCatch`'s default handler no longer lets a non-`Error` throw pass
+  as a `Success`.** `throw` accepts any value and a `Result` is
+  discriminated by `instanceof Error`, so a thrown string was returned
+  unchanged and read as a `Success` — the failure vanishing into the very
+  channel the lift exists to keep it out of. A thrown `Error` still passes
+  through with its concrete subclass intact; anything else is wrapped in
+  the new `result/ThrownError`, which is what `promise/fail` has always
+  done with a rejection. The two lifts now agree in their defaults, not
+  only in their handler shape.
 - One imported test could never fail. `AbortablePromise.peer`'s
   "aborts the original one when aborted" wrapped its body in a `try` that
   logged and swallowed, so every assertion in it threw into the `catch`

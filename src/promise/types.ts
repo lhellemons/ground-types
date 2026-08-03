@@ -1,37 +1,31 @@
+import { ThrownError } from '../result/index.js'
+
 /**
  * The Error a rejection is wrapped in when the rejection reason was not
  * already an `Error`. A `Failure` must carry an `Error`, and a promise may
  * reject with anything at all; this preserves whatever it was on `reason`.
  *
+ * The asynchronous case of {@link ThrownError}, which `result/tryCatch` uses
+ * for the same purpose on a synchronous throw. A rejection *is* a throw that
+ * crossed a promise boundary, so the wrapping is one idea; only the message
+ * and the name of the payload change, to say which channel it came from.
+ *
  * `T` defaults to `unknown` because that is what a rejection reason is where
  * `promise/fail` constructs one: a caller naming this type in an annotation
  * should not have to supply an argument the encoding never knows.
  */
-export class RejectionError<T = unknown> extends Error {
-  readonly reason: T
-
+export class RejectionError<T = unknown> extends ThrownError<T> {
   constructor(reason: T) {
-    super(`promise rejected with ${describeReason(reason)}`)
-    this.reason = reason
+    // The renderer is ThrownError's because interpolating an untrusted value
+    // is what both classes must survive: a reason may be a symbol, an object
+    // with a null prototype, or one whose `toString` throws, and a throw here
+    // escapes `promise/resultify` as a rejection — breaking the one promise it
+    // makes.
+    super(reason, `promise rejected with ${ThrownError.describe(reason)}`)
   }
-}
 
-/**
- * Renders a rejection reason for the message without trusting it to be
- * renderable. This Error exists precisely for reasons that are *not*
- * well-behaved Errors, and a reason may be a symbol, an object with a null
- * prototype, or one whose `toString` throws. Interpolating such a reason
- * directly throws from the constructor, and that throw escapes
- * `promise/resultify` as a rejection — breaking the one promise it makes.
- *
- * `String` is tried first because it is special-cased for symbols, where
- * template interpolation is not; `Object.prototype.toString` is the fallback
- * because it reads no property of the reason at all.
- */
-function describeReason(reason: unknown): string {
-  try {
-    return String(reason)
-  } catch {
-    return Object.prototype.toString.call(reason)
+  /** The rejection reason, named for the channel it arrived on. */
+  get reason(): T {
+    return this.thrown
   }
 }
