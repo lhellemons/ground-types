@@ -112,12 +112,27 @@ contracts, and closed them.
   whole chain reachable.
 - `call/resultify`'s overloads are ordered applied-form-first, matching
   `promise/resultify`, and it no longer hand-rolls a `Promise` normaliser.
+- An abort is a rejection, so aborting a promise nothing is consuming
+  ends a Node process. The shapes the design is built around are safe —
+  a chain handles its own head, the fan-in combinators handle their
+  members, and `detach` leaves its source alone, all three now pinned by
+  tests — but `AbortablePromise.abort()`, `abortOn` and `peer` can each
+  reach an unconsumed promise, and now say so.
 - Docblocks: `call/abortable` (a stub) and `promise/fake` are brought to
   the standard of the rest of the library, `settledResult` documents that
   it cannot distinguish a fulfilled `void` from an unfinished operation,
   `isAbortError` documents why narrowing to `AbortError` is sound for a
   platform `DOMException`, and `Call` documents why its output is named
   before its input.
+
+### Added
+
+- `pnpm assert:exports`, run in CI, checks that every subpath in
+  `package.json`'s `exports` resolves and imports, and that every built
+  module is reachable through one. `pnpm install` already builds through
+  `prepare`, so a broken emit fails the job; nothing checked that the
+  entry points the package advertises matched what came out of the build,
+  which is what four new subpaths made worth checking.
 
 ## [0.2.0] - 2026-08-03
 

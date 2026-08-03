@@ -21,3 +21,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm check
+
+      # `pnpm install` already builds, via `prepare`, so a broken emit fails
+      # above. This checks the thing the build cannot: that the subpaths in
+      # package.json match the package that came out of it.
+      - run: pnpm assert:exports
