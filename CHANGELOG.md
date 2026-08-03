@@ -178,6 +178,57 @@ contracts, and closed them.
   logged and swallowed, so every assertion in it threw into the `catch`
   and the test passed whatever the class did. The `try` is gone.
 
+A further pass then fixed the Result combinators' type inference, which
+had been collapsing silently.
+
+### Fixed
+
+- **Breaking:** `result/andThen` no longer collapses its `Success` type to
+  `unknown`. Chaining a callback that can itself fail — the ordinary case —
+  inferred `Result<unknown, Error>`, because `Result<U, E>` was used as an
+  inference site and TypeScript cannot infer `U` out of a union whose arms
+  hide it behind a conditional (`Success`) and an intersection (`Failure`).
+  The callback's return type is now captured whole and decomposed
+  afterwards. The existing tests missed this: every one of them used a
+  callback with a single return path, which infers correctly.
+- **Breaking:** `result/andThen`'s error type now widens to the union of the
+  input's error and the callback's, `Result<U, E | F>`, rather than forcing
+  both to a single `E`. The curried function is generic, so `E` is inferred
+  when the `Result` is applied instead of defaulting to `Error`.
+- **Breaking:** `result/map` now rejects a `Result`-returning callback at
+  compile time, naming `andThen` as the fix. This was already documented as
+  a trap; in practice it inferred `any` and silently erased all downstream
+  type checking.
+- **Breaking:** `result/map` and `result/andThen` now take two type
+  parameters rather than three. Call sites that passed type arguments
+  explicitly — `map<number, string, MyError>(fn)` — no longer compile.
+  Inferred call sites, which is nearly all of them, are unaffected.
+- `result/andThen` keeps the `Failure` arm of a callback that returns a raw
+  `Error` subclass instead of routing it through `failure()`. The two are
+  the same value at runtime — both are identity casts, and discrimination
+  is `instanceof Error` — but the error type was dropped from the union
+  entirely, so a caller exhausting over the error type was wrong at
+  runtime. Found in review of this change.
+
+### Changed
+
+- `Success` and `Failure` carry two additional compile-time-only phantom
+  markers (`_value`, `_error`) giving the combinators a plain position to
+  infer from. The unboxed encoding is unchanged, and both invariants
+  ADR-0001 rests on still hold: `Result<Result<T>>` remains distinct from
+  `Result<T>`, and a `Success` can never be an `Error`. Of the two
+  original phantoms, only `Failure`'s `T` marker is what keeps
+  `Result<Result<T>>` distinct from `Result<T>` — dropping it collapses
+  the two, measured by emitting declarations. `Success`'s `E` marker is
+  not load-bearing for that invariant; it is what makes `Success`
+  invariant in `E`, tracked separately as issue #17.
+
+### Added
+
+- Type-level tests now run as real tests via Vitest's `typecheck` mode
+  (`src/**/*.test-d.ts`), so a broken inference fails the suite instead of
+  surfacing as a bare `tsc` error.
+
 ## [0.2.0] - 2026-08-03
 
 ### Added
