@@ -11,7 +11,12 @@
        browsers, Node 20+, Deno and Bun alike, so depending on them keeps the
        library runtime-agnostic where @types/node would assert Node.
        They reach the emitted .d.ts, so consumers need DOM or @types/node
-       in their own lib as well — see the README. */
+       in their own lib as well — see the README.
+       The cost, paid across all of src: DOM also declares ambient globals
+       like `name`, `status`, `origin`, `self` and `close`, so a typo that
+       would otherwise be an unresolved identifier can quietly resolve to one
+       of them instead. Worth knowing when a reference in this library
+       typechecks and you cannot see where it comes from. */
     "lib": ["ES2022", "DOM"],
 
     /* Emitted as ESM consumed by Node's resolver, so relative imports carry

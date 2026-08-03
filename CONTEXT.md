@@ -194,6 +194,10 @@ in its failing case — a rejection can carry anything at all, which is
 what `fail` exists to narrow. The **settled Result** of a State is
 therefore a Maybe: Nothing while the operation is still running, because
 a Result answers a question an unfinished operation has not yet answered.
+An operation that produces nothing is the exception the encoding cannot
+express: its Success is absent, and so is Nothing, so the settled Result
+of a finished action is indistinguishable from that of a running one.
+Ask whether such an operation is settled, not what its Result is.
 
 Unlike Maybe and Result, State is boxed. Four cases cannot be
 discriminated by a primitive check on an unboxed value.

@@ -87,6 +87,20 @@ describe('settledResult', () => {
   })
 })
 
+describe('settledResult when the value can be absent', () => {
+  it('cannot tell a fulfilled void from an operation still running', () => {
+    // The one hole the unboxed encoding cannot close: a Success that *is*
+    // `undefined` and a `Nothing` are the same value. `Call`'s output defaults
+    // to `void`, so this is the action case rather than an exotic one — which
+    // is why settledResult's docblock sends such callers to isSettled first.
+    const done = fulfilled<void>(undefined)
+
+    expect(isSettled(done)).toBe(true)
+    expect(isNothing(settledResult(done))).toBe(true)
+    expect(isNothing(settledResult<void>(pending()))).toBe(true)
+  })
+})
+
 describe('stateOf', () => {
   it('starts pending and never reports initial', () => {
     const tracked = stateOf(new Promise<string>(() => {}))

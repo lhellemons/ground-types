@@ -30,6 +30,13 @@ export class AbortError extends DOMException {
  * particular instance. Each abort constructs its own Error so that it carries
  * its own stack, and platform aborts are plain `DOMException`s that were
  * never instances of our subclass at all.
+ *
+ * The predicate is therefore deliberately wider than the class it names: it
+ * narrows to {@link AbortError} for values that are only `DOMException`s.
+ * That is sound because `AbortError` adds nothing to `DOMException` — it fixes
+ * the `name` and stops — so there is no member the narrowing could promise and
+ * fail to deliver. Naming the concept is worth more here than naming the
+ * class, and `AbortError` is the concept this library's vocabulary uses.
  */
 export function isAbortError(error: unknown): error is AbortError {
   return error instanceof DOMException && error.name === ABORT_ERROR_NAME
