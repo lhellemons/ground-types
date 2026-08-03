@@ -12,7 +12,7 @@ Every term used here is defined in [CONTEXT.md](./CONTEXT.md).
 ## Install
 
 ```sh
-pnpm add github:lhellemons/ground-types#semver:^0.1.0
+pnpm add github:lhellemons/ground-types#semver:^0.2.0
 ```
 
 Not published to npm yet.
