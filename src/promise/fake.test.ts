@@ -1,7 +1,8 @@
+import { describe, expect, it } from 'vitest'
+import { isAbortError } from '../abort/index.js'
 import { fakeAbortablePromise, fakePromise } from './fake.js'
-import { AbortablePromise } from './abortable.js'
 
-describe(`${fakePromise.name}`, () => {
+describe('fakePromise', () => {
   it('creates a Promise with manual resolve and reject methods', async () => {
     const p1 = fakePromise()
 
@@ -14,7 +15,7 @@ describe(`${fakePromise.name}`, () => {
   })
 })
 
-describe(`${fakeAbortablePromise.name}`, () => {
+describe('fakeAbortablePromise', () => {
   it('creates an AbortablePromise with manual resolve and reject methods', async () => {
     const p1 = fakeAbortablePromise()
 
@@ -27,6 +28,6 @@ describe(`${fakeAbortablePromise.name}`, () => {
 
     const p3 = fakeAbortablePromise()
     p3.abort()
-    await expect(p3).rejects.toEqual(AbortablePromise.AbortError)
+    await expect(p3).rejects.toSatisfy(isAbortError)
   })
 })

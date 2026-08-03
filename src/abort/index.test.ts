@@ -1,14 +1,15 @@
+import { expect, test } from 'vitest'
 import { AbortError, isAbortError } from './index.js'
 
 test('isAbortError', () => {
-  expect(isAbortError(new DOMException('', 'AbortError'))).toBeTrue()
-  expect(isAbortError(new AbortError())).toBeTrue()
-  expect(isAbortError(new AbortError('some message'))).toBeTrue()
-  expect(isAbortError(new DOMException('', 'SomethingElse'))).toBeFalse()
-  expect(isAbortError(new Error('AbortError'))).toBeFalse()
-  expect(isAbortError('AbortError')).toBeFalse()
-  expect(isAbortError(null)).toBeFalse()
-  expect(isAbortError(undefined)).toBeFalse()
+  expect(isAbortError(new DOMException('', 'AbortError'))).toBe(true)
+  expect(isAbortError(new AbortError())).toBe(true)
+  expect(isAbortError(new AbortError('some message'))).toBe(true)
+  expect(isAbortError(new DOMException('', 'SomethingElse'))).toBe(false)
+  expect(isAbortError(new Error('AbortError'))).toBe(false)
+  expect(isAbortError('AbortError')).toBe(false)
+  expect(isAbortError(null)).toBe(false)
+  expect(isAbortError(undefined)).toBe(false)
 })
 
 test('AbortError is an Error, so it can be a Failure', () => {

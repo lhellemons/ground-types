@@ -1,3 +1,5 @@
+import { describe, expect, it } from 'vitest'
+import { isAbortError } from '../abort/index.js'
 import { fail, recoverWith, resultify } from './resultify.js'
 import { failure, success } from '../result/index.js'
 import type { Result } from '../result/index.js'
@@ -6,7 +8,7 @@ import { AbortablePromise } from './abortable.js'
 import type { AbortableCall } from '../call/index.js'
 import { resultifyCall } from '../call/index.js'
 
-describe(resultify, () => {
+describe('resultify', () => {
   it('always resolves, with a Result', async () => {
     await expect(resultify(fail, Promise.resolve('success'))).resolves.toEqual(
       success('success'),
@@ -35,7 +37,7 @@ describe(resultify, () => {
   })
 })
 
-describe(resultifyCall, () => {
+describe('resultifyCall', () => {
   it('never rejects, but resolves with a Result', async () => {
     const resolvingCallWithInput = (input: string) => Promise.resolve(input)
     const rejectingCallWithInput = (input: string) => Promise.reject(input)
@@ -74,7 +76,7 @@ describe(resultifyCall, () => {
     const promise = resultifiedAbortableCallWithoutInput()
     promise.abort()
 
-    await expect(promise).rejects.toBe(AbortablePromise.AbortError) // The AbortError passes through fail because it's an Error
+    await expect(promise).rejects.toSatisfy(isAbortError) // The AbortError passes through fail because it's an Error
 
     const resultifiedAbortableCallWithInput = resultifyCall(
       fail,
@@ -84,6 +86,6 @@ describe(resultifyCall, () => {
     const promise2 = resultifiedAbortableCallWithInput('some input')
     promise2.abort()
 
-    await expect(promise2).rejects.toBe(AbortablePromise.AbortError) // The AbortError passes through fail because it's an Error
+    await expect(promise2).rejects.toSatisfy(isAbortError) // The AbortError passes through fail because it's an Error
   })
 })
