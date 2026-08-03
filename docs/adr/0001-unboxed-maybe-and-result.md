@@ -70,9 +70,12 @@ type`, erased entirely at emit by `verbatimModuleSyntax`), and each
   bridge's runtime check is an inlined primitive (`value instanceof
 Error`, `value === undefined`) rather than a call to the other module's
   `isSuccess`/`isNothing` guard — calling those across the boundary
-  would create a real runtime import cycle. `grep -n "^import"
-dist/maybe/index.js dist/result/index.js` after building must show
-  neither module importing the other; this is checked, not assumed.
+  would create a real runtime import cycle. This is maintained by
+  convention, not enforced: nothing in `pnpm check` or CI builds and
+  inspects the emitted output, so a contributor who "tidies" a bridge by
+  importing the other module's guard as a value would create the cycle
+  silently, with every existing check still passing. Both bridge
+  functions carry an inline comment saying so, next to the check itself.
 
 ## Consequences
 
@@ -86,7 +89,10 @@ dist/maybe/index.js dist/result/index.js` after building must show
   is a documented trap, not an oversight, and both docblocks say so
   explicitly.
 - `dist/maybe/index.js` and `dist/result/index.js` stay free of runtime
-  imports of each other, verified after every build.
+  imports of each other, by convention rather than an automated gate:
+  each bridge's inlined runtime check is what keeps it that way, not a
+  build step that verifies it. Confirming it means building and running
+  `grep -n "^import" dist/maybe/index.js dist/result/index.js` by hand.
 
 ## Amendments
 

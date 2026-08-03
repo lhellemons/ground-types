@@ -275,6 +275,16 @@ docs/adr/0001-unboxed-maybe-and-result.md'` — instead of misdirecting to
   `keyof` on a branded value. Legitimate construction (`value as T`
   inside a validating constructor) is unaffected. (#9)
 
+### Fixed
+
+- README install line pinned a stale `^0.1.0`; now matches the current
+  `0.2.0` release (#13).
+- ADR-0001 claimed the maybe/result no-runtime-cycle invariant was
+  "checked, not assumed" and "verified after every build" — nothing runs
+  that check. Reworded to describe the invariant as convention-maintained
+  and documented in the bridge functions' inline comments, not automated
+  (#14).
+
 ## [0.2.0] - 2026-08-03
 
 ### Added
