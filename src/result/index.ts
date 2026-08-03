@@ -210,14 +210,25 @@ export function assertSuccess<T, E extends Error = Error>(
 }
 
 /**
- * Rejects a callback return type that carries an `Error` arm — which is what
- * a `Result` is. Surfaces the diagnostic as a readable string rather than a
- * structural mismatch, so the compiler names the fix instead of describing
- * the encoding.
+ * Rejects a callback return type that carries an `Error`. Surfaces the
+ * diagnostic as a readable string rather than a structural mismatch, so the
+ * compiler names the problem instead of describing the encoding. Exported so
+ * its exact wording can be pinned by type-level tests. Two distinct shapes
+ * are rejected, each with its own message, so the reader is pointed at a fix
+ * that actually applies:
+ *
+ * - `R` itself is an `Error` subclass — there is no fix, because
+ *   `Success<T, E>` collapses to `never` for `T extends Error` (see
+ *   docs/adr/0001-unboxed-maybe-and-result.md); a `Success` can never be an
+ *   `Error`.
+ * - `R` has a `Failure` arm alongside other arms — the callback returns a
+ *   {@link Result}, and `andThen` is the fix.
  */
-type NotAResult<R> = [Extract<R, Error>] extends [never]
-  ? unknown
-  : 'This callback returns a Result — use andThen, not map'
+export type NotAResult<R> = [R] extends [Error]
+  ? 'A Success can never be an Error — see docs/adr/0001-unboxed-maybe-and-result.md'
+  : [Extract<R, Error>] extends [never]
+    ? unknown
+    : 'This callback returns a Result — use andThen, not map'
 
 /**
  * Applies `fn` to a `Success`, passing a `Failure` through unchanged. `fn`
