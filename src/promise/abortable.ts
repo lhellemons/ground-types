@@ -1,4 +1,4 @@
-import { AbortError } from '../util/abort.js'
+import { AbortError } from '../abort/index.js'
 
 /**
  * An AbortablePromise is a Promise that can be aborted at any point prior to resolving.
