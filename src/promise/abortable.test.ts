@@ -613,17 +613,16 @@ describe('AbortablePromise.peer', () => {
     await expect(originalAP).rejects.toSatisfy(isAbortError)
   })
   it('Creates an AbortablePromise that aborts the original one when aborted', async () => {
-    try {
-      const originalAP = new AbortablePromise(() => {})
-      const peerAP = originalAP.peer(() => {})
+    // No try/catch here. The imported version wrapped this body in one that
+    // logged and swallowed, so every assertion in it threw into the catch and
+    // the test passed whatever the class did.
+    const originalAP = new AbortablePromise(() => {})
+    const peerAP = originalAP.peer(() => {})
 
-      peerAP.abort()
+    peerAP.abort()
 
-      await expect(originalAP).rejects.toSatisfy(isAbortError)
-      await expect(peerAP).rejects.toSatisfy(isAbortError)
-    } catch (e) {
-      console.log('error during test: ', e)
-    }
+    await expect(originalAP).rejects.toSatisfy(isAbortError)
+    await expect(peerAP).rejects.toSatisfy(isAbortError)
   })
 })
 
