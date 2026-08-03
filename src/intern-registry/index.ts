@@ -16,14 +16,19 @@ export class InternRegistry<K, V> {
    * the exact same reference without invoking `create` again.
    */
   getOrCreate(key: K, create: () => V): V {
-    const existing = this.#map.get(key)
-    if (existing !== undefined) return existing
+    if (this.#map.has(key)) return this.#map.get(key) as V
     const value = create()
     this.#map.set(key, value)
     return value
   }
 
-  /** Looks up the canonical instance for `key` without creating one. */
+  /**
+   * Looks up the canonical instance for `key` without creating one. If `V`
+   * itself includes `undefined`, a key interned as `undefined` is
+   * indistinguishable from a key that was never interned — inherent to
+   * `Maybe`'s unboxed encoding, not a defect of this method. Use
+   * `getOrCreate` when that distinction matters.
+   */
   get(key: K): Maybe<V> {
     return maybe(this.#map.get(key))
   }

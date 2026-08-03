@@ -38,4 +38,18 @@ describe('InternRegistry', () => {
     expect(isJust(found)).toBe(true)
     expect(found).toBe(42)
   })
+
+  it('interns undefined without recreating on a second call', () => {
+    const registry = new InternRegistry<string, number | undefined>()
+    let calls = 0
+    registry.getOrCreate('a', () => {
+      calls++
+      return undefined
+    })
+    registry.getOrCreate('a', () => {
+      calls++
+      return undefined
+    })
+    expect(calls).toBe(1)
+  })
 })
