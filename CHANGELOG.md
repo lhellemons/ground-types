@@ -22,8 +22,9 @@ and [docs/adr/0003-currying.md](./docs/adr/0003-currying.md).
 - `promise/fake` — `fakePromise` and `fakeAbortablePromise`, manually
   settleable promises for testing. A separate subpath, so test doubles
   cannot reach a production bundle by accident.
-- `call` — `Call` and `AbortableCall`, plus `abortable` and `resultify`
-  for lifting a Call into an abortable or Result-returning one.
+- `call` — `Call`, `AsyncCall` and `AbortableCall`, plus `abortable` and
+  `resultify` for lifting a Call into an abortable or Result-returning
+  one.
 - `abort` — `AbortError`, `isAbortError` and `ABORT_ERROR_NAME`. Because
   `DOMException` inherits from `Error`, an `AbortError` is already a
   valid `Failure`.
@@ -141,6 +142,12 @@ contracts, and closed them.
   `isAbortError` documents why narrowing to `AbortError` is sound for a
   platform `DOMException`, and `Call` documents why its output is named
   before its input.
+- **`call/resultify` is typed as returning an `AsyncCall`**, not a
+  `Call`. It builds a promise whatever it was handed, including for a
+  Call that settles synchronously, so `Call`'s `O | Promise<O>` declared
+  a union whose left branch cannot occur and left every caller to
+  collapse it. `AbortableCall` is now defined as the abortable case of
+  the same idea.
 - **`pnpm build` clears `dist` first**, so `pnpm assert:exports` cannot
   report a module that no longer exists. `tsc` only ever adds to its
   outDir, so a renamed or dropped module left its old directory behind,

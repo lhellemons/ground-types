@@ -1,7 +1,7 @@
 import { curry } from '../fn/index.js'
 import type { CurryableMapper, Mapper } from '../fn/index.js'
 import type { Result } from '../result/index.js'
-import type { Call } from './types.js'
+import type { AsyncCall, Call } from './types.js'
 import { resultify as resultifyPromise } from '../promise/index.js'
 
 /**
@@ -19,7 +19,12 @@ import { resultify as resultifyPromise } from '../promise/index.js'
  * settled-or-rejecting promise, this one lifts the function that produces it,
  * so the lifted Call can still be invoked with its input.
  *
- * The lifted Call returns a plain Promise, so it is not cancellable even when
+ * The result is an {@link AsyncCall} rather than a `Call`: this lift builds a
+ * promise whatever it was handed, including for a Call that settled
+ * synchronously, so saying `O | Promise<O>` would declare a union whose left
+ * branch can never occur and leave every caller to collapse it.
+ *
+ * That promise is a plain one, so the lifted Call is not cancellable even when
  * the Call it lifts is: the AbortablePromise is created inside, leaving the
  * caller no handle to abort. Keep both by lifting at the point of use —
  * `const p = call(input)`, then `promise/resultify(fail, p)`, then `p.abort()`.
@@ -33,15 +38,15 @@ import { resultify as resultifyPromise } from '../promise/index.js'
 export function resultify<O = void, E extends Error = Error, I = void>(
   mapRejection: Mapper<unknown, Result<O, E>>,
   call: Call<O, I>,
-): Call<Result<O, E>, I>
+): AsyncCall<Result<O, E>, I>
 export function resultify<O = void, E extends Error = Error, I = void>(
   mapRejection: Mapper<unknown, Result<O, E>>,
-): Mapper<Call<O, I>, Call<Result<O, E>, I>>
+): Mapper<Call<O, I>, AsyncCall<Result<O, E>, I>>
 export function resultify<O = void, E extends Error = Error, I = void>(
   mapRejection: Mapper<unknown, Result<O, E>>,
   ...call: [] | [Call<O, I>]
-): CurryableMapper<Call<O, I>, Call<Result<O, E>, I>> {
-  const mapper = (call: Call<O, I>): Call<Result<O, E>, I> => {
+): CurryableMapper<Call<O, I>, AsyncCall<Result<O, E>, I>> {
+  const mapper = (call: Call<O, I>): AsyncCall<Result<O, E>, I> => {
     return (input: I) =>
       resultifyPromise<O, E>(mapRejection, invoke(call, input))
   }

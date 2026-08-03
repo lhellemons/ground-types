@@ -144,8 +144,15 @@ not about avoiding recomputation).
 
 A function that performs an action, produces data, or both. A Call may
 take an input or not, may produce an output or not, and may settle
-synchronously or asynchronously. An **Abortable Call** is one that always
-returns an Abortable Promise.
+synchronously or asynchronously. An **Async Call** is one that always
+returns a Promise, and an **Abortable Call** is an Async Call whose
+promise is abortable.
+
+The freedom to settle either way belongs to the Call a consumer writes: a
+lookup that happens to be in memory should not have to pretend otherwise.
+It does not belong to a Call this library hands back from a lift, where
+the answer is known and always the same one — hence the two narrower
+names.
 
 A Call is the thing you invoke, never the work in flight — the work in
 flight is an Abortable Promise.

@@ -32,7 +32,7 @@ Each module is a separate subpath export; there is no root entry point.
 | `/fn`              | `Function`, `Mapper`, `CurryableMapper`, `compose`, `pipe`, `curry`, `identity`, `constant`                                                                                               |
 | `/promise`         | `AbortablePromise`, `AbortContext`, `RejectionError`, `resultify`, `fail`, `recoverWith`, `State` with its constructors and guards, `settledResult`, `stateOf`                            |
 | `/promise/fake`    | `fakePromise`, `fakeAbortablePromise`                                                                                                                                                     |
-| `/call`            | `Call`, `AbortableCall`, `abortable`, `resultify`                                                                                                                                         |
+| `/call`            | `Call`, `AsyncCall`, `AbortableCall`, `abortable`, `resultify`                                                                                                                            |
 | `/abort`           | `AbortError`, `isAbortError`, `ABORT_ERROR_NAME`                                                                                                                                          |
 
 ```ts

@@ -7,7 +7,7 @@ import type { Result } from '../result/index.js'
 import { RejectionError } from '../promise/index.js'
 import { abortable } from './abortable.js'
 import { resultify } from './resultify.js'
-import type { AbortableCall } from './types.js'
+import type { AbortableCall, AsyncCall } from './types.js'
 
 describe('resultify', () => {
   it('never rejects, but resolves with a Result', async () => {
@@ -64,6 +64,21 @@ describe('resultify', () => {
     await expect(lifted('input')).resolves.toEqual(
       failure(new RejectionError('input')),
     )
+  })
+
+  it('types the lifted Call as always returning a Promise', async () => {
+    // The lift builds a promise whatever it was handed, so `Call`'s
+    // `O | Promise<O>` declared a union whose left branch cannot occur and
+    // left every caller to collapse it. A synchronous Call is the case that
+    // proves it: even that one comes back as a promise.
+    const lifted: AsyncCall<Result<string>, string> = resultify(
+      fail,
+      (input: string) => input,
+    )
+    const outcome: Promise<Result<string>> = lifted('input')
+
+    expect(outcome).toBeInstanceOf(Promise)
+    await expect(outcome).resolves.toEqual(success('input'))
   })
 
   it('produces a Call whose promise is not abortable', () => {
