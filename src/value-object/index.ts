@@ -27,5 +27,6 @@ export function definePrimitiveValueObject<
   P extends Primitive,
   T extends Branded<P, unknown>,
 >(construct: (value: P) => T): PrimitiveValueObject<T, P> {
-  return Object.assign(construct, { from: tryCatch(construct) })
+  const factory = (value: P) => construct(value)
+  return Object.assign(factory, { from: tryCatch(construct) })
 }
