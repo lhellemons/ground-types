@@ -185,11 +185,17 @@ _Avoid_: Cancel, cancellation, terminate, kill, interrupt.
 ### State
 
 Where an asynchronous operation currently is: initial, pending,
-fulfilled, or rejected.
+fulfilled, or rejected. An operation that has finished, either way, is
+**settled**.
 
 State is about time; Result is about outcome. Only State has a case for
 an operation that has not finished, and only Result guarantees an Error
 in its failing case — a rejection can carry anything at all, which is
-what `fail` exists to narrow.
+what `fail` exists to narrow. The **settled Result** of a State is
+therefore a Maybe: Nothing while the operation is still running, because
+a Result answers a question an unfinished operation has not yet answered.
+
+Unlike Maybe and Result, State is boxed. Four cases cannot be
+discriminated by a primitive check on an unboxed value.
 
 _Avoid_: Status, Loading, Idle, AsyncState, RemoteData.

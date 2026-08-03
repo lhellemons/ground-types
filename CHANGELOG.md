@@ -31,9 +31,39 @@ and [docs/adr/0003-currying.md](./docs/adr/0003-currying.md).
   can be cancelled without cancelling the source it shares.
 - `fn` gains `Mapper`, `CurryableMapper`, `curry`, `identity`, `constant`
   and `pipe`.
+- `State` gains constructors, guards, `settledResult` — the bridge to the
+  primitives, `Nothing` while the operation is unfinished and a `Result`
+  once it settles — and `stateOf`, a live view of a promise's State.
+
+A second pass then reviewed how the ported modules sit against the
+existing primitives, and closed the gaps it found.
 
 ### Changed
 
+- **`resultify` returns a plain `Promise`, never an `AbortablePromise`.**
+  Previously an abort meant two different things depending on which
+  handle you held: aborting the source resolved with a `Failure`, while
+  aborting the lifted promise rejected with an `AbortError`. There is now
+  one abortable handle, so abort has one outcome. A lifted `Call` is
+  correspondingly not cancellable; hold the promise and lift where you
+  consume it.
+- **`all`, `race`, `any` and `allSettled` abort their members.**
+  Inherited from `Promise`, they returned something whose `abort()` ran
+  and left every member going. Plain-`Promise` members are skipped, and
+  the losers of a `race` are not aborted.
+- **The executor's third argument is an `AbortContext`, not an
+  `AbortSignal`.** `context.signal` is a lazy getter, so the
+  `AbortController` and its `EventTarget` are allocated only when
+  something actually reads it — a `resolve().then().then()` chain now
+  allocates none, where it previously allocated four.
+- `result/tryCatch`'s `errorHandler` returns a `Result` rather than an
+  `Error`, matching `resultify`'s rejection mapper, so one handler
+  vocabulary covers both and a handler may now recover. Backward
+  compatible: every `E` is already a `Result<T, E>`.
+- `call/resultify` takes its type parameters as `<O, E, I>`, so the two
+  it shares with `promise/resultify<O, E>` keep their positions.
+- `promise/recoverWith` delegates to `fn/constant` instead of
+  reimplementing it.
 - `tsconfig` `lib` now includes `DOM`, for `AbortController`,
   `AbortSignal` and `DOMException`. These reach the emitted declarations,
   so consumers need `DOM` or `@types/node` in their own `lib`.

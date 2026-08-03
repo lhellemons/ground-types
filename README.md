@@ -30,7 +30,7 @@ Each module is a separate subpath export; there is no root entry point.
 | `/domain`          | `Entity`, `CompoundValueObject`, `DomainObjectDTO`, `DomainObjectFactory`                                                                                                  |
 | `/intern-registry` | `InternRegistry`                                                                                                                                                           |
 | `/fn`              | `Function`, `Mapper`, `CurryableMapper`, `compose`, `pipe`, `curry`, `identity`, `constant`                                                                                |
-| `/promise`         | `AbortablePromise`, `State`, `RejectionError`, `resultify`, `fail`, `recoverWith`                                                                                          |
+| `/promise`         | `AbortablePromise`, `AbortContext`, `RejectionError`, `resultify`, `fail`, `recoverWith`, `State` with its constructors and guards, `settledResult`, `stateOf`             |
 | `/promise/fake`    | `fakePromise`, `fakeAbortablePromise`                                                                                                                                      |
 | `/call`            | `Call`, `AbortableCall`, `abortable`, `resultify`                                                                                                                          |
 | `/abort`           | `AbortError`, `isAbortError`, `ABORT_ERROR_NAME`                                                                                                                           |
@@ -48,6 +48,35 @@ rather than flattening them into one namespace.
 
 `/promise/fake` is a separate subpath rather than part of `/promise` so
 that test doubles cannot reach a production bundle by accident.
+
+## The asynchrony layer composes with the primitives
+
+There is no `mapAsync`, no `AsyncResult`, and no second combinator set for
+asynchronous code. There does not need to be: every `Result` combinator is
+a unary function, so `.then` already composes with them.
+
+```ts
+import { fail, resultify } from '@lhellemons/ground-types/promise'
+import { map, orElse } from '@lhellemons/ground-types/result'
+
+const label = await resultify(fail, fetchWidgetCode())
+  .then(map((code: number) => `widget-${code}`))
+  .then(orElse('no widget'))
+```
+
+`resultify` turns a promise that may reject into one that always resolves
+with a `Result`; `map` and `orElse` are the same functions you would use
+on a synchronous `Result`. The same holds for `andThen`, `fallback`, and
+the `Maybe` combinators.
+
+Going the other way, `State` bridges back:
+
+```ts
+import { settledResult, stateOf } from '@lhellemons/ground-types/promise'
+
+const tracked = stateOf(fetchWidget())
+settledResult(tracked.current) // Nothing while pending, a Result once settled
+```
 
 ## Requirements
 

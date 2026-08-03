@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { fail, recoverWith, resultify } from './resultify.js'
 import { AbortablePromise } from './abortable.js'
 import { isAbortError } from '../abort/index.js'
-import { failure, isFailure, success } from '../result/index.js'
+import { failure, isFailure, map, orElse, success } from '../result/index.js'
 import { RejectionError } from './types.js'
 
 describe('resultify', () => {
@@ -31,6 +31,23 @@ describe('resultify', () => {
     await expect(
       resultifyRecover(Promise.reject('some reason')),
     ).resolves.toEqual(success('recovered'))
+  })
+
+  it('lets the Result combinators drop straight into a promise chain', async () => {
+    // The point of the asynchrony layer standing on the primitives: because
+    // every Result combinator is unary, `.then` composes with them directly.
+    // No mapAsync, no AsyncResult type, no second vocabulary.
+    const label = (code: number) => `widget-${code}`
+
+    await expect(
+      resultify(fail, Promise.resolve(7)).then(map(label)),
+    ).resolves.toEqual('widget-7')
+
+    await expect(
+      resultify(fail, Promise.reject('gone'))
+        .then(map(label))
+        .then(orElse('no widget')),
+    ).resolves.toEqual('no widget')
   })
 
   it('hands back a plain Promise even when lifting an AbortablePromise', () => {
