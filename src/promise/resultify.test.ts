@@ -18,6 +18,29 @@ describe('resultify', () => {
     ).resolves.toEqual(success('recovered'))
   })
 
+  it('resolves even when the rejection reason cannot be rendered', async () => {
+    // RejectionError exists for reasons that are not well-behaved Errors — and
+    // a symbol or a null-prototype object throws when interpolated into a
+    // message. That throw escaped `fail` and rejected the lifted promise,
+    // breaking the one thing resultify promises.
+    const symbol = Symbol('unrenderable')
+    const noPrototype = Object.create(null) as object
+
+    expect(new RejectionError(symbol).message).toBe(
+      'promise rejected with Symbol(unrenderable)',
+    )
+    expect(new RejectionError(noPrototype).message).toBe(
+      'promise rejected with [object Object]',
+    )
+
+    await expect(resultify(fail, Promise.reject(symbol))).resolves.toEqual(
+      failure(new RejectionError(symbol)),
+    )
+    await expect(resultify(fail, Promise.reject(noPrototype))).resolves.toEqual(
+      failure(new RejectionError(noPrototype)),
+    )
+  })
+
   it('works in curried mode', async () => {
     const resultifyFail = resultify<string, Error>(fail) // as Mapper<Promise<string>, Promise<Result<string>>;
     const resultifyRecover = resultify(recoverWith('recovered'))
