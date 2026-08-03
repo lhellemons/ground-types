@@ -31,4 +31,14 @@ describe('definePrimitiveValueObject', () => {
     const outcome = Email.from('not-an-email')
     expect(isFailure(outcome)).toBe(true)
   })
+
+  it('does not mutate the constructor passed in, and returns a new factory', () => {
+    const construct = (value: string) => value as Branded<string, 'Email'>
+    const factory = definePrimitiveValueObject<
+      string,
+      Branded<string, 'Email'>
+    >(construct)
+    expect(factory).not.toBe(construct)
+    expect('from' in construct).toBe(false)
+  })
 })
