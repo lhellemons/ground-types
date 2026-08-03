@@ -127,6 +127,46 @@ describe('AbortablePromise', () => {
   })
 })
 
+describe('AbortablePromise delegated resolution', () => {
+  it('stays abortable while the promise it resolved with is pending', async () => {
+    // Resolving with a promise is not settling — the outcome has been handed
+    // to that promise, which may take a long time or never arrive. This is the
+    // shape the class exists for, and abort silently did nothing for it while
+    // resolution alone counted as settlement. Contrast the plain-value case
+    // above, where resolving really does settle and abort is a no-op.
+    let finishWork!: (value: string) => void
+    const work = new Promise<string>((resolve) => {
+      finishWork = resolve
+    })
+    const ap = new AbortablePromise<string>((resolve) => resolve(work))
+
+    ap.abort()
+    finishWork('work finished anyway')
+
+    await expect(ap).rejects.toSatisfy(isAbortError)
+  })
+
+  it('settles from the promise it resolved with when it is not aborted', async () => {
+    let finishWork!: (value: string) => void
+    const work = new Promise<string>((resolve) => {
+      finishWork = resolve
+    })
+    const ap = new AbortablePromise<string>((resolve) => resolve(work))
+
+    finishWork('work finished')
+
+    await expect(ap).resolves.toEqual('work finished')
+  })
+
+  it('takes the rejection of the promise it resolved with', async () => {
+    const ap = new AbortablePromise<string>((resolve) =>
+      resolve(Promise.reject('work failed')),
+    )
+
+    await expect(ap).rejects.toEqual('work failed')
+  })
+})
+
 describe('AbortablePromise.of', () => {
   it('constructs an AbortablePromise that rejects on abort', async () => {
     const pThatResolves = new Promise((resolve) => {
@@ -260,13 +300,25 @@ describe('AbortablePromise fan-in combinators', () => {
     ).resolves.toEqual([{ status: 'rejected', reason: 'nope' }])
   })
 
-  it.each(['all', 'race', 'any', 'allSettled'] as const)(
+  // Called through wrappers rather than indexed off the class: each is
+  // overloaded, and indexed access gives a union of overload sets TypeScript
+  // will not call — while extracting one loses the receiver `Promise.all` and
+  // friends need.
+  const combinators = {
+    all: (values: AbortablePromise<string>[]) => AbortablePromise.all(values),
+    race: (values: AbortablePromise<string>[]) => AbortablePromise.race(values),
+    any: (values: AbortablePromise<string>[]) => AbortablePromise.any(values),
+    allSettled: (values: AbortablePromise<string>[]) =>
+      AbortablePromise.allSettled(values),
+  }
+
+  it.each(Object.keys(combinators) as (keyof typeof combinators)[])(
     'aborting the promise returned by %s aborts its members',
     async (combinator) => {
       const a = new AbortablePromise<string>(() => {})
       const b = new AbortablePromise<string>(() => {})
 
-      const combined = AbortablePromise[combinator]([a, b])
+      const combined = combinators[combinator]([a, b])
       combined.abort()
 
       await expect(combined).rejects.toSatisfy(isAbortError)
@@ -300,6 +352,104 @@ describe('AbortablePromise fan-in combinators', () => {
     // Settling first says the result is unwanted, not that the remaining work
     // should be cancelled.
     await expect(loser).resolves.toEqual('loser finished anyway')
+  })
+})
+
+describe('AbortablePromise fan-in typing', () => {
+  it('keeps each member’s type in position, as Promise does', async () => {
+    // The regression these annotations guard: with only the iterable overload
+    // declared, a mixed-type call was a type error rather than a tuple, and a
+    // same-type call degraded from [number, number] to number[].
+    const all: AbortablePromise<[number, string]> = AbortablePromise.all([
+      Promise.resolve(1),
+      Promise.resolve('a'),
+    ])
+    await expect(all).resolves.toEqual([1, 'a'])
+
+    const allSettled: AbortablePromise<
+      [PromiseSettledResult<number>, PromiseSettledResult<string>]
+    > = AbortablePromise.allSettled([Promise.resolve(1), Promise.resolve('a')])
+    await expect(allSettled).resolves.toEqual([
+      { status: 'fulfilled', value: 1 },
+      { status: 'fulfilled', value: 'a' },
+    ])
+
+    const race: AbortablePromise<number | string> = AbortablePromise.race([
+      Promise.resolve(1),
+      Promise.resolve('a'),
+    ])
+    await expect(race).resolves.toEqual(1)
+
+    const any: AbortablePromise<number | string> = AbortablePromise.any([
+      Promise.resolve(1),
+      Promise.resolve('a'),
+    ])
+    await expect(any).resolves.toEqual(1)
+  })
+
+  it('still accepts a homogeneous iterable that is not an array', async () => {
+    const members = new Set([Promise.resolve(1), Promise.resolve(2)])
+    const combined: AbortablePromise<number[]> = AbortablePromise.all(members)
+
+    await expect(combined).resolves.toEqual([1, 2])
+  })
+})
+
+describe('AbortablePromise.abortOn', () => {
+  it('aborts when the signal it is bound to aborts', async () => {
+    const controller = new AbortController()
+    const ap = new AbortablePromise<string>(() => {}).abortOn(controller.signal)
+
+    controller.abort()
+
+    await expect(ap).rejects.toSatisfy(isAbortError)
+  })
+
+  it('aborts at once when the signal has already aborted', async () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    const ap = new AbortablePromise<string>(() => {}).abortOn(controller.signal)
+
+    await expect(ap).rejects.toSatisfy(isAbortError)
+  })
+
+  it('returns the same promise, so it can be bound inline', () => {
+    const controller = new AbortController()
+    const ap = AbortablePromise.resolve('value')
+
+    expect(ap.abortOn(controller.signal)).toBe(ap)
+  })
+
+  it('registers one listener, released by the signal aborting', async () => {
+    const controller = new AbortController()
+    const addEventListener = vi.spyOn(controller.signal, 'addEventListener')
+
+    const ap = new AbortablePromise<string>(() => {}).abortOn(controller.signal)
+
+    expect(addEventListener).toHaveBeenCalledTimes(1)
+    expect(addEventListener).toHaveBeenCalledWith(
+      'abort',
+      expect.any(Function),
+      { once: true },
+    )
+
+    ap.abort()
+    await expect(ap).rejects.toSatisfy(isAbortError)
+  })
+
+  it('leaves a promise that settled first alone when the signal aborts', async () => {
+    // The listener is deliberately not released on settlement — observing
+    // settlement would mark the promise handled. See ADR-0002. What matters is
+    // that a late abort cannot disturb an already-settled promise.
+    const controller = new AbortController()
+    const ap = AbortablePromise.resolve('value').abortOn(controller.signal)
+
+    await expect(ap).resolves.toEqual('value')
+
+    controller.abort()
+
+    await expect(ap).resolves.toEqual('value')
   })
 })
 

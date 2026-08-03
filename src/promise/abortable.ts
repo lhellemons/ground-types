@@ -81,6 +81,10 @@ class AbortState {
       return false
     }
     this.#settled = true
+    // A settled promise can never fire its upstream links, since `abort`
+    // returns early once `#settled`. Dropping them here releases the chain a
+    // retained tail would otherwise keep reachable all the way to its head.
+    this.#linked.length = 0
     return true
   }
 
@@ -115,11 +119,30 @@ class AbortState {
 }
 
 /**
+ * True when `value` is a thenable, and so something a promise resolves *to*
+ * rather than settles *with*. The same test the promise resolution procedure
+ * makes, and made here for the same reason: a resolution that delegates has
+ * not settled yet.
+ */
+function isThenable<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
+  return (
+    value !== null &&
+    (typeof value === 'object' || typeof value === 'function') &&
+    typeof (value as PromiseLike<T>).then === 'function'
+  )
+}
+
+/**
  * An AbortablePromise is a Promise that can be aborted at any point prior to
  * settling, by calling its {@link AbortablePromise.abort} method. An aborted
  * AbortablePromise rejects with an {@link AbortError}. Aborting one that has
  * already fulfilled or rejected has no effect, and neither does aborting the
  * same one more than once.
+ *
+ * Resolving with a promise is not settling. An executor that delegates —
+ * `new AbortablePromise((resolve) => resolve(fetchThing()))` — stays abortable
+ * until the promise it delegated to settles, which is what makes wrapping
+ * asynchronous work in one worth doing.
  *
  * The executor can react to the abort through the {@link AbortContext} it
  * receives as a third argument.
@@ -204,40 +227,63 @@ export class AbortablePromise<T> extends Promise<T> {
     })
   }
 
+  /**
+   * Each combinator mirrors `Promise`'s own overload pair — a tuple form that
+   * keeps each member's type in position, and an iterable form for a
+   * homogeneous collection. Declaring only the iterable form would make
+   * `AbortablePromise.all([promiseOfA, promiseOfB])` a type error rather than
+   * a tuple, which is the single most common way these are called.
+   */
+  static all<T extends readonly unknown[] | []>(
+    values: T,
+  ): AbortablePromise<{ -readonly [P in keyof T]: Awaited<T[P]> }>
   static all<T>(
     values: Iterable<T | PromiseLike<T>>,
-  ): AbortablePromise<Awaited<T>[]> {
+  ): AbortablePromise<Awaited<T>[]>
+  static all(values: Iterable<unknown>): AbortablePromise<unknown> {
     const members = [...values]
-    const combined = super.all(members) as AbortablePromise<Awaited<T>[]>
+    const combined = super.all(members) as AbortablePromise<unknown>
     AbortablePromise.#abortMembersWith(combined, members)
     return combined
   }
 
+  static allSettled<T extends readonly unknown[] | []>(
+    values: T,
+  ): AbortablePromise<{
+    -readonly [P in keyof T]: PromiseSettledResult<Awaited<T[P]>>
+  }>
   static allSettled<T>(
     values: Iterable<T | PromiseLike<T>>,
-  ): AbortablePromise<PromiseSettledResult<Awaited<T>>[]> {
+  ): AbortablePromise<PromiseSettledResult<Awaited<T>>[]>
+  static allSettled(values: Iterable<unknown>): AbortablePromise<unknown> {
     const members = [...values]
-    const combined = super.allSettled(members) as AbortablePromise<
-      PromiseSettledResult<Awaited<T>>[]
-    >
+    const combined = super.allSettled(members) as AbortablePromise<unknown>
     AbortablePromise.#abortMembersWith(combined, members)
     return combined
   }
 
+  static race<T extends readonly unknown[] | []>(
+    values: T,
+  ): AbortablePromise<Awaited<T[number]>>
   static race<T>(
     values: Iterable<T | PromiseLike<T>>,
-  ): AbortablePromise<Awaited<T>> {
+  ): AbortablePromise<Awaited<T>>
+  static race(values: Iterable<unknown>): AbortablePromise<unknown> {
     const members = [...values]
-    const combined = super.race(members) as AbortablePromise<Awaited<T>>
+    const combined = super.race(members) as AbortablePromise<unknown>
     AbortablePromise.#abortMembersWith(combined, members)
     return combined
   }
 
+  static any<T extends readonly unknown[] | []>(
+    values: T,
+  ): AbortablePromise<Awaited<T[number]>>
   static any<T>(
     values: Iterable<T | PromiseLike<T>>,
-  ): AbortablePromise<Awaited<T>> {
+  ): AbortablePromise<Awaited<T>>
+  static any(values: Iterable<unknown>): AbortablePromise<unknown> {
     const members = [...values]
-    const combined = super.any(members) as AbortablePromise<Awaited<T>>
+    const combined = super.any(members) as AbortablePromise<unknown>
     AbortablePromise.#abortMembersWith(combined, members)
     return combined
   }
@@ -278,6 +324,28 @@ export class AbortablePromise<T> extends Promise<T> {
 
       executor(
         (value) => {
+          if (isThenable(value)) {
+            // Resolving with a thenable is not settling: the outcome has been
+            // handed to that thenable, which may not settle for a long time or
+            // at all. Claiming settlement here would make `abort()` a silent
+            // no-op for the delegating shape this class exists for —
+            // `new AbortablePromise((resolve) => resolve(fetchThing()))`. Adopt
+            // it instead, and claim only when it really settles.
+            Promise.resolve(value).then(
+              (settledValue) => {
+                if (state.claimSettlement()) {
+                  resolve(settledValue)
+                }
+              },
+              (reason: unknown) => {
+                if (state.claimSettlement()) {
+                  reject(reason)
+                }
+              },
+            )
+            return
+          }
+
           if (state.claimSettlement()) {
             resolve(value)
           }

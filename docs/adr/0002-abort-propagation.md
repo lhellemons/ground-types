@@ -80,6 +80,31 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
     that may have side effects, on the caller's behalf and without being
     asked, is not a combinator's decision to make.
 
+  Each override delegates to its inherited implementation and declares
+  `Promise`'s own overload pair — the tuple form that keeps each member's
+  type in position, and the iterable form for a homogeneous collection.
+  Declaring only the iterable form made a mixed-type `all` a type error
+  rather than a tuple, which is the commonest way these are called.
+
+  Delegating is not free, and this is the one place where the allocation
+  budget below is not met. `Promise.all` and friends route every member
+  through `this.resolve`, which is our override, so each member costs a
+  `Promise.resolve` wrapper, an `AbortablePromise.of` wrapper around that,
+  and a derived promise from the `then` override — three promises where a
+  plain `Promise.all` allocates one. It buys the inherited combinator
+  semantics verbatim, which is worth more than the allocation: hand-rolled
+  fan-in is four more places to get abort wrong.
+
+- **Resolving with a promise is not settling.** The abort window closes
+  when the promise actually settles, not when its executor calls
+  `resolve`. Counting resolution as settlement made `abort()` a silent
+  no-op for `new AbortablePromise((resolve) => resolve(work()))` — the
+  delegating shape the class exists for, and the one an aborting caller is
+  most likely to be holding. A resolution that is handed a thenable is
+  therefore adopted and claims settlement only when that thenable settles;
+  a resolution handed a plain value still settles at once, so aborting
+  after it remains the documented no-op.
+
 - **A fresh `AbortError` per abort.** The imported implementation held a
   single `static readonly AbortError`, constructed once at module load.
   That reports one stack trace — pointing at the class definition, not at
@@ -146,3 +171,10 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   it through with its concrete class intact rather than wrapping it in a
   `RejectionError`. A test pins that inheritance, since the encoding
   depends on it silently.
+- Wrapping asynchronous work by delegating to it keeps the abort, so the
+  obvious way to write such a promise is also the correct one. The price
+  is a microtask: an adopted resolution reaches the underlying promise a
+  tick later than the platform's own adoption would.
+- Fan-in costs three promises per member rather than one. Recorded rather
+  than optimised, because the alternative is reimplementing four
+  combinators whose semantics are worth inheriting exactly.
