@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { isAbortError } from '../abort/index.js'
 import { AbortablePromise, fail, recoverWith } from '../promise/index.js'
-import { failure, success } from '../result/index.js'
+import { resultify as promiseResultify } from '../promise/index.js'
+import { failure, isFailure, success } from '../result/index.js'
 import type { Result } from '../result/index.js'
 import { RejectionError } from '../promise/index.js'
+import { abortable } from './abortable.js'
 import { resultify } from './resultify.js'
 import type { AbortableCall } from './types.js'
 
@@ -47,30 +49,30 @@ describe('resultify', () => {
     )
   })
 
-  it('can be aborted if the original call produces an AbortablePromise', async () => {
-    // The Result's success type never materialises here: the call never
-    // resolves, so the only outcome is the abort.
-    const abortableWithoutInput = resultify(
-      fail,
-      () => new AbortablePromise<string>(() => {}),
-    ) as AbortableCall<Result<string>>
+  it('produces a Call whose promise is not abortable', () => {
+    const lifted = resultify(fail, () => new AbortablePromise<string>(() => {}))
+    const promise = lifted()
 
-    const promise = abortableWithoutInput()
-    promise.abort()
+    // Lifting hides the AbortablePromise it created, and resultify strips
+    // abortability so that abort keeps one meaning. A Call that must stay
+    // cancellable is lifted at the point of use instead — see below.
+    expect(promise).not.toBeInstanceOf(AbortablePromise)
+    expect((promise as { abort?: unknown }).abort).toBeUndefined()
+  })
 
-    // The AbortError reaches the caller rather than becoming a Failure: abort
-    // rejects the AbortablePromise the Call returned, which is the promise
-    // resultify wrapped, so there is nothing left to resolve with.
-    await expect(promise).rejects.toSatisfy(isAbortError)
-
-    const abortableWithInput = resultify(
-      fail,
+  it('stays cancellable when lifted at the point of use', async () => {
+    // The pattern that keeps both properties: hold the AbortablePromise the
+    // Call returns, and lift where the Result is consumed.
+    const call: AbortableCall<string, string> = abortable(
       (_: string) => new AbortablePromise<string>(() => {}),
-    ) as AbortableCall<Result<string>, string>
+    )
 
-    const promise2 = abortableWithInput('some input')
-    promise2.abort()
+    const inFlight = call('some input')
+    const outcome: Promise<Result<string>> = promiseResultify(fail, inFlight)
 
-    await expect(promise2).rejects.toSatisfy(isAbortError)
+    inFlight.abort()
+
+    await expect(outcome).resolves.toSatisfy(isFailure)
+    await expect(outcome).resolves.toSatisfy(isAbortError)
   })
 })
