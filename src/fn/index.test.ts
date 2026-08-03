@@ -31,6 +31,11 @@ describe('pipe', () => {
     expect(parseAndDouble('21')).toBe(42)
   })
 
+  it('applies an explicit undefined input rather than withholding it', () => {
+    const length: Mapper<string | undefined, number> = (s) => s?.length ?? -1
+    expect(pipe(length, double, undefined)).toBe(-2)
+  })
+
   it('mirrors compose, differing only in argument order', () => {
     const inc = (n: number) => n + 1
     expect(pipe(inc, double, 5)).toBe(12)
@@ -82,6 +87,17 @@ describe('curry', () => {
     expect((curried as Mapper<unknown, string>)({ foo: 'bar' })).toBe(
       '{"foo":"bar"}',
     )
+  })
+
+  it('applies the mapper to an explicit undefined rather than withholding it', () => {
+    // The regression this guards: `Nothing` is `undefined` in this library,
+    // so deciding by value rather than by arity would return the mapper here.
+    const describeMaybe: Mapper<string | undefined, string> = (value) =>
+      value === undefined ? 'nothing' : `just ${value}`
+
+    expect(curry(describeMaybe, undefined)).toBe('nothing')
+    expect(curry(describeMaybe, 'widget')).toBe('just widget')
+    expect(curry(describeMaybe)).toBeTypeOf('function')
   })
 })
 

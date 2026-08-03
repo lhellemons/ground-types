@@ -62,19 +62,30 @@ export function pipe<X, Y, Z>(xToY: Mapper<X, Y>, yToZ: Mapper<Y, Z>, x: X): Z
 export function pipe<X, Y, Z>(
   xToY: Mapper<X, Y>,
   yToZ: Mapper<Y, Z>,
-  x?: X,
+  ...x: [] | [X]
 ): CurryableMapper<X, Z> {
-  return curry((x: X) => yToZ(xToY(x)), x)
+  return curry((x: X) => yToZ(xToY(x)), ...x)
 }
 
 /**
- * Produces a {@link CurryableMapper} by either applying `mapper` to `input`
+ * Produces a {@link CurryableMapper} by either applying `mapper` to an input
  * or returning `mapper` unapplied, depending on whether an input was given.
  * The building block every curryable export in this library delegates to.
+ *
+ * The input arrives as a rest tuple rather than an optional parameter so that
+ * "was an argument passed?" is answered by arity and never by inspecting the
+ * value. An `input === undefined` test cannot answer it in this library:
+ * `Nothing` *is* `undefined`, so a present-but-absent Maybe would be
+ * indistinguishable from a missing argument and would silently return the
+ * mapper instead of applying it.
+ *
+ * Callers must forward their own arity the same way — `curry(mapper, input)`
+ * where `input` is an optional parameter always passes two arguments, which
+ * defeats the whole mechanism. Spread a `[] | [T]` rest tuple instead.
  */
 export function curry<T, U>(
   mapper: Mapper<T, U>,
-  input?: T,
+  ...input: [] | [T]
 ): CurryableMapper<T, U> {
-  return input !== undefined ? mapper(input as T) : mapper
+  return input.length === 1 ? mapper(input[0]) : mapper
 }

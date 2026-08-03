@@ -26,14 +26,14 @@ export function resultify<O, E extends Error>(
 ): Mapper<Promise<O>, Promise<Result<O, E>>>
 export function resultify<O, E extends Error>(
   mapRejection: Mapper<unknown, Result<O, E>>,
-  promise?: Promise<O>,
+  ...promise: [] | [Promise<O>]
 ): CurryableMapper<Promise<O>, Promise<Result<O, E>>> {
   return curry(
     (promise: Promise<O>): Promise<Result<O, E>> =>
       promise
         .then(success as Mapper<O, Result<O, E>>, mapRejection)
         .catch(mapRejection),
-    promise,
+    ...promise,
   )
 }
 

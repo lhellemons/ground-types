@@ -1,3 +1,4 @@
+import { curry } from '../fn/index.js'
 import type { CurryableMapper, Mapper } from '../fn/index.js'
 import type { Result } from '../result/index.js'
 import type { Call } from './types.js'
@@ -20,13 +21,13 @@ export function resultifyCall<E extends Error, O = void, I = void>(
 ): Call<Result<O, E>, I>
 export function resultifyCall<E extends Error, O = void, I = void>(
   mapRejection: Mapper<unknown, Result<O, E>>,
-  call?: Call<O, I>,
+  ...call: [] | [Call<O, I>]
 ): CurryableMapper<Call<O, I>, Call<Result<O, E>, I>> {
   const mapper = (call: Call<O, I>): Call<Result<O, E>, I> => {
     return (input: I) => resultify<O, E>(mapRejection, asPromise(call(input)))
   }
 
-  return call !== undefined ? mapper(call) : mapper
+  return curry(mapper, ...call)
 }
 
 function asPromise<T>(t: T | Promise<T>): Promise<T> {
