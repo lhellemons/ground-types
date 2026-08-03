@@ -1,6 +1,6 @@
 import { failure, success } from '../result/index.js'
 import type { Failure, Result } from '../result/index.js'
-import { curry } from '../fn/index.js'
+import { constant, curry } from '../fn/index.js'
 import type { CurryableMapper, Mapper } from '../fn/index.js'
 import { RejectionError } from './types.js'
 
@@ -76,11 +76,17 @@ export function fail<O = never>(reason: unknown): Result<O, Error> {
 }
 
 /**
- * recoverWith returns a mapper that maps any rejection reason to a predetermined Result.
- * @param result
+ * Discards the rejection reason and substitutes a predetermined
+ * {@link Result}. The counterpart to {@link fail}: where `fail` reports what
+ * went wrong, this decides the outcome regardless.
+ *
+ * `constant` with a narrower type. The name is what earns it a place —
+ * `resultify(recoverWith(success(cached)), p)` says why it is there in a way
+ * `constant(...)` does not — but the behaviour is `fn/constant`'s, not a
+ * second copy of it.
  */
 export function recoverWith<O, E extends Error>(
   result: Result<O, E>,
 ): Mapper<unknown, Result<O, E>> {
-  return (_: unknown) => result
+  return constant(result)
 }

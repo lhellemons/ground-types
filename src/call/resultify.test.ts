@@ -41,7 +41,8 @@ describe('resultify', () => {
   })
 
   it('works in curried mode', async () => {
-    const liftCall = resultify<Error, string, string>(fail)
+    // <O, E, I> — the same order as promise/resultify<O, E>, plus the input.
+    const liftCall = resultify<string, Error, string>(fail)
     const lifted = liftCall((input: string) => Promise.reject(input))
 
     await expect(lifted('input')).resolves.toEqual(
