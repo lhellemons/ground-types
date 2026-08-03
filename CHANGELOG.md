@@ -216,9 +216,12 @@ had been collapsing silently.
   markers (`_value`, `_error`) giving the combinators a plain position to
   infer from. The unboxed encoding is unchanged, and both invariants
   ADR-0001 rests on still hold: `Result<Result<T>>` remains distinct from
-  `Result<T>`, and a `Success` can never be an `Error`. Dropping either
-  original phantom was measured and does fix inference, but collapses
-  `Result<Result<T>>` into `Result<T>` — so the phantoms stayed.
+  `Result<T>`, and a `Success` can never be an `Error`. Of the two
+  original phantoms, only `Failure`'s `T` marker is what keeps
+  `Result<Result<T>>` distinct from `Result<T>` — dropping it collapses
+  the two, measured by emitting declarations. `Success`'s `E` marker is
+  not load-bearing for that invariant; it is what makes `Success`
+  invariant in `E`, tracked separately as issue #17.
 
 ### Added
 
