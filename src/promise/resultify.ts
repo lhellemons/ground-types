@@ -1,6 +1,8 @@
-import { failure, Failure, Result, success } from "../result";
-import { curry, CurryableMapper, Mapper } from "../mapper";
-import { RejectionError } from "./types";
+import { failure, success } from '../result/index.js'
+import type { Failure, Result } from '../result/index.js'
+import { curry } from '../mapper/index.js'
+import type { CurryableMapper, Mapper } from '../mapper/index.js'
+import { RejectionError } from './types.js'
 
 /**
  * resultify maps a promise that can reject with an arbitrary reason
@@ -17,20 +19,22 @@ import { RejectionError } from "./types";
  */
 export function resultify<O, E extends Error>(
   mapRejection: Mapper<unknown, Result<O, E>>,
-  promise: Promise<O>
-): Promise<Result<O, E>>;
-export function resultify<O, E extends Error>(
-  mapRejection: Mapper<unknown, Result<O, E>>
-): Mapper<Promise<O>, Promise<Result<O, E>>>;
+  promise: Promise<O>,
+): Promise<Result<O, E>>
 export function resultify<O, E extends Error>(
   mapRejection: Mapper<unknown, Result<O, E>>,
-  promise?: Promise<O>
+): Mapper<Promise<O>, Promise<Result<O, E>>>
+export function resultify<O, E extends Error>(
+  mapRejection: Mapper<unknown, Result<O, E>>,
+  promise?: Promise<O>,
 ): CurryableMapper<Promise<O>, Promise<Result<O, E>>> {
   return curry(
     (promise: Promise<O>): Promise<Result<O, E>> =>
-      promise.then(success as Mapper<O, Result<O, E>>, mapRejection).catch(mapRejection),
-    promise
-  );
+      promise
+        .then(success as Mapper<O, Result<O, E>>, mapRejection)
+        .catch(mapRejection),
+    promise,
+  )
 }
 
 /**
@@ -40,14 +44,14 @@ export function resultify<O, E extends Error>(
  * @param reason
  */
 export const fail = (reason: unknown): Failure<Error> =>
-  failure(reason instanceof Error ? reason : new RejectionError(reason));
+  failure(reason instanceof Error ? reason : new RejectionError(reason))
 
 /**
  * recoverWith returns a mapper that maps any rejection reason to a predetermined Result.
  * @param result
  */
 export function recoverWith<O, E extends Error>(
-  result: Result<O, E>
+  result: Result<O, E>,
 ): Mapper<unknown, Result<O, E>> {
-  return (_: unknown) => result;
+  return (_: unknown) => result
 }

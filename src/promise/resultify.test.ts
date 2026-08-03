@@ -1,82 +1,89 @@
-import { fail, recoverWith, resultify } from "./resultify";
-import { failure, Result, success } from "../result";
-import { RejectionError } from "./types";
-import { AbortablePromise } from "./abortable";
-import { AbortableCall } from "../call";
-import { resultifyCall } from "../call";
+import { fail, recoverWith, resultify } from './resultify.js'
+import { failure, success } from '../result/index.js'
+import type { Result } from '../result/index.js'
+import { RejectionError } from './types.js'
+import { AbortablePromise } from './abortable.js'
+import type { AbortableCall } from '../call/index.js'
+import { resultifyCall } from '../call/index.js'
 
 describe(resultify, () => {
-  it("always resolves, with a Result", async () => {
-    await expect(resultify(fail, Promise.resolve("success"))).resolves.toEqual(success("success"));
-    await expect(resultify(fail, Promise.reject("some reason"))).resolves.toEqual(
-      failure(new RejectionError("some reason"))
-    );
+  it('always resolves, with a Result', async () => {
+    await expect(resultify(fail, Promise.resolve('success'))).resolves.toEqual(
+      success('success'),
+    )
     await expect(
-      resultify(recoverWith("recovered"), Promise.reject("some reason"))
-    ).resolves.toEqual(success("recovered"));
-  });
+      resultify(fail, Promise.reject('some reason')),
+    ).resolves.toEqual(failure(new RejectionError('some reason')))
+    await expect(
+      resultify(recoverWith('recovered'), Promise.reject('some reason')),
+    ).resolves.toEqual(success('recovered'))
+  })
 
-  it("works in curried mode", async () => {
-    const resultifyFail = resultify<string, Error>(fail); // as Mapper<Promise<string>, Promise<Result<string>>;
-    const resultifyRecover = resultify(recoverWith("recovered"));
+  it('works in curried mode', async () => {
+    const resultifyFail = resultify<string, Error>(fail) // as Mapper<Promise<string>, Promise<Result<string>>;
+    const resultifyRecover = resultify(recoverWith('recovered'))
 
-    await expect(resultifyFail(Promise.resolve("success"))).resolves.toEqual(success("success"));
-    await expect(resultifyFail(Promise.reject("some reason"))).resolves.toEqual(
-      failure(new RejectionError("some reason"))
-    );
-    await expect(resultifyRecover(Promise.reject("some reason"))).resolves.toEqual(
-      success("recovered")
-    );
-  });
-});
+    await expect(resultifyFail(Promise.resolve('success'))).resolves.toEqual(
+      success('success'),
+    )
+    await expect(resultifyFail(Promise.reject('some reason'))).resolves.toEqual(
+      failure(new RejectionError('some reason')),
+    )
+    await expect(
+      resultifyRecover(Promise.reject('some reason')),
+    ).resolves.toEqual(success('recovered'))
+  })
+})
 
 describe(resultifyCall, () => {
-  it("never rejects, but resolves with a Result", async () => {
-    const resolvingCallWithInput = (input: string) => Promise.resolve(input);
-    const rejectingCallWithInput = (input: string) => Promise.reject(input);
+  it('never rejects, but resolves with a Result', async () => {
+    const resolvingCallWithInput = (input: string) => Promise.resolve(input)
+    const rejectingCallWithInput = (input: string) => Promise.reject(input)
 
-    await expect(resultifyCall(fail, resolvingCallWithInput)("input")).resolves.toEqual(
-      success("input")
-    );
-    await expect(resultifyCall(fail, rejectingCallWithInput)("input")).resolves.toEqual(
-      failure(new RejectionError("input"))
-    );
     await expect(
-      resultifyCall(recoverWith("recovered"), rejectingCallWithInput)("input")
-    ).resolves.toEqual(success("recovered"));
-
-    const resolvingCallWithoutInput = () => AbortablePromise.of(Promise.resolve("success"));
-    const rejectingCallWithoutInput = () => AbortablePromise.of(Promise.reject("failure"));
-
-    await expect(resultifyCall(fail, resolvingCallWithoutInput)()).resolves.toEqual(
-      success("success")
-    );
-    await expect(resultifyCall(fail, rejectingCallWithoutInput)()).resolves.toEqual(
-      failure(new RejectionError("failure"))
-    );
+      resultifyCall(fail, resolvingCallWithInput)('input'),
+    ).resolves.toEqual(success('input'))
     await expect(
-      resultifyCall(recoverWith("recovered"), rejectingCallWithoutInput)()
-    ).resolves.toEqual(success("recovered"));
-  });
-  it("can be aborted if the original call produces an AbortablePromise", async () => {
+      resultifyCall(fail, rejectingCallWithInput)('input'),
+    ).resolves.toEqual(failure(new RejectionError('input')))
+    await expect(
+      resultifyCall(recoverWith('recovered'), rejectingCallWithInput)('input'),
+    ).resolves.toEqual(success('recovered'))
+
+    const resolvingCallWithoutInput = () =>
+      AbortablePromise.of(Promise.resolve('success'))
+    const rejectingCallWithoutInput = () =>
+      AbortablePromise.of(Promise.reject('failure'))
+
+    await expect(
+      resultifyCall(fail, resolvingCallWithoutInput)(),
+    ).resolves.toEqual(success('success'))
+    await expect(
+      resultifyCall(fail, rejectingCallWithoutInput)(),
+    ).resolves.toEqual(failure(new RejectionError('failure')))
+    await expect(
+      resultifyCall(recoverWith('recovered'), rejectingCallWithoutInput)(),
+    ).resolves.toEqual(success('recovered'))
+  })
+  it('can be aborted if the original call produces an AbortablePromise', async () => {
     const resultifiedAbortableCallWithoutInput = resultifyCall(
       fail,
-      () => new AbortablePromise<string>(() => {})
-    ) as AbortableCall<Result<string>>; // the type of the Result doesn't matter because it will never be a Success
+      () => new AbortablePromise<string>(() => {}),
+    ) as AbortableCall<Result<string>> // the type of the Result doesn't matter because it will never be a Success
 
-    const promise = resultifiedAbortableCallWithoutInput();
-    promise.abort();
+    const promise = resultifiedAbortableCallWithoutInput()
+    promise.abort()
 
-    await expect(promise).rejects.toBe(AbortablePromise.AbortError); // The AbortError passes through fail because it's an Error
+    await expect(promise).rejects.toBe(AbortablePromise.AbortError) // The AbortError passes through fail because it's an Error
 
     const resultifiedAbortableCallWithInput = resultifyCall(
       fail,
-      (_: string) => new AbortablePromise<string>(() => {})
-    ) as AbortableCall<Result<string>, string>; // the type of the Result doesn't matter because it will never be a Success
+      (_: string) => new AbortablePromise<string>(() => {}),
+    ) as AbortableCall<Result<string>, string> // the type of the Result doesn't matter because it will never be a Success
 
-    const promise2 = resultifiedAbortableCallWithInput("some input");
-    promise2.abort();
+    const promise2 = resultifiedAbortableCallWithInput('some input')
+    promise2.abort()
 
-    await expect(promise2).rejects.toBe(AbortablePromise.AbortError); // The AbortError passes through fail because it's an Error
-  });
-});
+    await expect(promise2).rejects.toBe(AbortablePromise.AbortError) // The AbortError passes through fail because it's an Error
+  })
+})
