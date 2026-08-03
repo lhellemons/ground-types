@@ -78,6 +78,47 @@ existing primitives, and closed the gaps it found.
 - `AbortablePromise.resolve` follows the standard `Promise.resolve`
   overloads; it previously widened the element type with `undefined`.
 
+A review pass then found four places where the layer did not hold its own
+contracts, and closed them.
+
+### Fixed
+
+- **`resultify` no longer rejects when the rejection reason cannot be
+  rendered.** `RejectionError` built its message by interpolating the
+  reason, which throws for a symbol, an object with a null prototype, or
+  anything whose `toString` throws — so `fail` threw and the throw escaped
+  as a rejection, in exactly the case `RejectionError` exists to serve.
+  The message is now built defensively; `reason` is untouched either way.
+- **Resolving with a promise no longer closes the abort window.**
+  `new AbortablePromise((resolve) => resolve(work()))` counted as settled
+  the moment `resolve` was called, so `abort()` silently did nothing for
+  the delegating shape the class exists for. A resolution handed a
+  thenable is now adopted and settles with it; a resolution handed a plain
+  value settles at once, as before.
+- **`AbortablePromise.all` and `allSettled` keep `Promise`'s tuple
+  overloads**, along with `race` and `any`. Overriding with only the
+  iterable signature made `AbortablePromise.all([promiseOfA, promiseOfB])`
+  a type error rather than a tuple, and degraded a same-type call from
+  `[number, number]` to `number[]`.
+- **A `Call` that throws synchronously is reported as a rejection.** A
+  Call may settle synchronously, so it may fail that way; the throw
+  escaped both `call/resultify`, which promises never to reject, and
+  `call/abortable`, which is typed as returning an `AbortablePromise`.
+  Both now route it through the same path as an asynchronous failure.
+- `RejectionError`'s type parameter defaults to `unknown`, so the bare
+  name is usable in a type annotation.
+- `AbortState` drops its upstream links when the promise settles, rather
+  than only when it is aborted, so a retained tail no longer keeps its
+  whole chain reachable.
+- `call/resultify`'s overloads are ordered applied-form-first, matching
+  `promise/resultify`, and it no longer hand-rolls a `Promise` normaliser.
+- Docblocks: `call/abortable` (a stub) and `promise/fake` are brought to
+  the standard of the rest of the library, `settledResult` documents that
+  it cannot distinguish a fulfilled `void` from an unfinished operation,
+  `isAbortError` documents why narrowing to `AbortError` is sound for a
+  platform `DOMException`, and `Call` documents why its output is named
+  before its input.
+
 ## [0.2.0] - 2026-08-03
 
 ### Added
