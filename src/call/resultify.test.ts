@@ -40,6 +40,22 @@ describe('resultify', () => {
     ).resolves.toEqual(success('recovered'))
   })
 
+  it('routes a synchronous throw to mapRejection, exactly as a rejection', async () => {
+    // A Call may settle synchronously, so it may fail synchronously. Before
+    // this the throw escaped the lift entirely, and "never rejects" held only
+    // for Calls that happened to fail asynchronously.
+    const throwingCall = (input: string): string => {
+      throw new Error(`refused ${input}`)
+    }
+
+    await expect(resultify(fail, throwingCall)('input')).resolves.toEqual(
+      failure(new Error('refused input')),
+    )
+    await expect(
+      resultify(recoverWith('recovered'), throwingCall)('input'),
+    ).resolves.toEqual(success('recovered'))
+  })
+
   it('works in curried mode', async () => {
     // <O, E, I> — the same order as promise/resultify<O, E>, plus the input.
     const liftCall = resultify<string, Error, string>(fail)

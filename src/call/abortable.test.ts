@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { isAbortError } from '../abort/index.js'
 import { AbortablePromise } from '../promise/index.js'
 import { abortable } from './abortable.js'
+import type { Call } from './types.js'
 
 describe('abortable', () => {
   it('turns a Call that returns a non-promise into an AbortableCall that resolves with that same value', async () => {
@@ -29,5 +30,18 @@ describe('abortable', () => {
 
     const abortingCall = () => AbortablePromise.abort()
     await expect(abortable(abortingCall)()).rejects.toSatisfy(isAbortError)
+  })
+  it('reports a Call that throws synchronously as a rejection', async () => {
+    // A Call may settle synchronously, so it may fail that way too. The lifted
+    // Call is typed as returning an AbortablePromise, and it has to be one:
+    // an AbortableCall that throws at the call site is a type that lies.
+    const throwingCall: Call<string> = () => {
+      throw new Error('refused')
+    }
+
+    const promise = abortable(throwingCall)()
+
+    expect(promise).toBeInstanceOf(AbortablePromise)
+    await expect(promise).rejects.toThrow('refused')
   })
 })

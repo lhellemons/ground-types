@@ -10,6 +10,16 @@ import type { AbortablePromise } from '../promise/index.js'
  *
  * A Call is the thing you invoke, not the work in flight — that is an
  * {@link AbortablePromise}.
+ *
+ * A Call reports failure by rejecting, not by throwing: `call/resultify` and
+ * `call/abortable` both turn a synchronous throw into a rejection, so a Call
+ * that throws is not a hole, but it is the less direct road.
+ *
+ * The output is named before the input, against the input-first order
+ * `fn/Mapper` sets. That is deliberate: an output is the one thing every Call
+ * has, so `Call<Widget>` reads as "produces a Widget, takes nothing" — the
+ * common shape — where input-first would spell it `Call<void, Widget>`.
+ * `call/resultify` orders its parameters `<O, E, I>` to keep this position.
  */
 export type Call<O = void, I = void> = (input: I) => O | Promise<O>
 
