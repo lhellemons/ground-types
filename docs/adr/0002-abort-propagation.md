@@ -83,10 +83,36 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   binding many short-lived promises to one long-lived signal accumulates
   listeners on that signal until it aborts, which the docblock states.
 
-  `then` does not go through `abortOn` for this reason: the derived
-  promise's signal lives and dies with that promise, so there is nothing
-  to accumulate on, and the public method's machinery is aimed at a
-  problem the internal link does not have.
+  `then` does not go through `abortOn` at all, for a stronger reason
+  given below: it links by plain callback and never touches a signal.
+
+- **The `AbortController` is allocated lazily, and the executor receives a
+  context rather than a signal.** An `AbortController` carries an
+  `EventTarget`, and eagerly building one per promise cost four of them
+  for a two-link chain — measured, not assumed. Nearly all of that was
+  waste: a promise that is never aborted, and whose executor never looks
+  at the signal, has no use for one.
+
+  The executor's third argument is therefore an `AbortContext` — an object
+  with a lazily realised `signal` getter — rather than an `AbortSignal`
+  passed positionally. A positional argument must exist at call time, so
+  laziness would have required guessing in advance whether the executor
+  intended to use it; the only available tell was `executor.length`, and a
+  `Function.length` heuristic in a constructor is not something this
+  library should ask a reader to accept. A getter is also the shape the
+  platform already uses — `controller.signal` is a property access — where
+  a `getSignal()` thunk would have been the only place in the ecosystem
+  that obtains a signal by calling something.
+
+  The upstream link that `then` installs is a plain callback on the
+  derived promise's state, not a listener on its signal, so chaining never
+  forces a controller into existence. `peer` does force one, because
+  sharing a controller is the entire point of it.
+
+  A controller is still built the moment anything genuinely needs one: an
+  executor reading `context.signal`, a caller passing one in, or `peer`.
+  Tests pin that a `resolve().then().then()` chain allocates none, that
+  abort works with none, and that upstream propagation works with none.
 
 ## Consequences
 

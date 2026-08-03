@@ -72,8 +72,8 @@ describe('AbortablePromise', () => {
   })
   it('makes its AbortSignal available to its executor', async () => {
     let executorAborted: boolean = false
-    const ap = new AbortablePromise((_resolve, _reject, signal) => {
-      signal.addEventListener('abort', () => {
+    const ap = new AbortablePromise((_resolve, _reject, context) => {
+      context.signal.addEventListener('abort', () => {
         executorAborted = true
       })
     })
@@ -236,6 +236,79 @@ describe('AbortablePromise.then', () => {
     await expect(thenAgainedAP).rejects.toSatisfy(isAbortError)
     await expect(thennedAP).rejects.toSatisfy(isAbortError)
     await expect(originalAP).rejects.toSatisfy(isAbortError)
+  })
+})
+
+describe('AbortablePromise abort context', () => {
+  /** Counts AbortControllers built while `body` runs. */
+  async function countingControllers(body: () => Promise<void>) {
+    const Real = globalThis.AbortController
+    let built = 0
+    class Counting extends Real {
+      constructor() {
+        super()
+        built++
+      }
+    }
+    globalThis.AbortController = Counting as unknown as typeof AbortController
+    try {
+      await body()
+    } finally {
+      globalThis.AbortController = Real
+    }
+    return built
+  }
+
+  it('allocates no AbortController for a chain that never reads the signal', async () => {
+    const built = await countingControllers(async () => {
+      await AbortablePromise.resolve('x')
+        .then((v) => `${v}y`)
+        .then((v) => `${v}z`)
+    })
+
+    expect(built).toBe(0)
+  })
+
+  it('allocates one the first time the executor reads the signal, and reuses it', async () => {
+    let first: AbortSignal | undefined
+    let second: AbortSignal | undefined
+
+    const built = await countingControllers(async () => {
+      const ap = new AbortablePromise<string>((resolve, _reject, context) => {
+        first = context.signal
+        second = context.signal
+        resolve('done')
+      })
+      await ap
+    })
+
+    expect(built).toBe(1)
+    expect(first).toBeInstanceOf(AbortSignal)
+    expect(first).toBe(second)
+  })
+
+  it('aborts correctly even though no controller was ever created', async () => {
+    const built = await countingControllers(async () => {
+      const ap = new AbortablePromise<string>(() => {})
+      ap.abort()
+      await expect(ap).rejects.toSatisfy(isAbortError)
+    })
+
+    expect(built).toBe(0)
+  })
+
+  it('propagates upstream without a controller on either promise', async () => {
+    const built = await countingControllers(async () => {
+      const source = new AbortablePromise<string>(() => {})
+      const derived = source.then((v) => v)
+
+      derived.abort()
+
+      await expect(derived).rejects.toSatisfy(isAbortError)
+      await expect(source).rejects.toSatisfy(isAbortError)
+    })
+
+    expect(built).toBe(0)
   })
 })
 
