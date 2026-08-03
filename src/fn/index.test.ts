@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compose, constant, curry, identity, pipe } from './index.js'
-import type { Function, Mapper } from './index.js'
+import type { Fn, Mapper } from './index.js'
 
 describe('compose', () => {
   it('applies g then f, right to left', () => {
@@ -101,18 +101,18 @@ describe('curry', () => {
   })
 })
 
-describe('Function type', () => {
+describe('Fn type', () => {
   it('accepts a concrete signature', () => {
-    type StringLength = Function<number, [string]>
+    type StringLength = Fn<number, [string]>
     const fn: StringLength = (s: string) => s.length
     expect(fn('abc')).toBe(3)
   })
 })
 
 describe('Mapper type', () => {
-  it('is the unary special case of Function', () => {
+  it('is the unary special case of Fn', () => {
     const asMapper: Mapper<string, number> = (s) => s.length
-    const asFunction: Function<number, [string]> = asMapper
+    const asFunction: Fn<number, [string]> = asMapper
     expect(asFunction('abcd')).toBe(4)
   })
 })

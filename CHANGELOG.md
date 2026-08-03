@@ -263,6 +263,12 @@ docs/adr/0001-unboxed-maybe-and-result.md'` — instead of misdirecting to
   (`src/**/*.test-d.ts`), so a broken inference fails the suite instead of
   surfacing as a bare `tsc` error.
 
+### Changed
+
+- **Breaking:** `fn/Function` renamed to `fn/Fn`. The old name shadowed
+  the global `Function` at every import site. Same signature, same
+  behaviour. (#8)
+
 ## [0.2.0] - 2026-08-03
 
 ### Added

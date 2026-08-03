@@ -1,13 +1,13 @@
 /** A function of concrete argument tuple `Args` returning `Return`. */
-export type Function<
+export type Fn<
   Return extends unknown = unknown,
   Args extends unknown[] = unknown[],
 > = (...args: Args) => Return
 
 /**
  * A function of exactly one argument: the unary special case of
- * {@link Function}, and the shape every combinator in this library composes
- * over. `Mapper<T, U>` and `Function<U, [T]>` are the same type; prefer
+ * {@link Fn}, and the shape every combinator in this library composes
+ * over. `Mapper<T, U>` and `Fn<U, [T]>` are the same type; prefer
  * `Mapper` in signatures, where naming the input first reads in the
  * direction the data flows.
  */
@@ -37,10 +37,7 @@ export function constant<T>(t: T): (..._: unknown[]) => T {
  * `f(g(x))`. Not commutative — order matters. For the left-to-right reading,
  * see {@link pipe}.
  */
-export function compose<A, B, C>(
-  f: Function<C, [B]>,
-  g: Function<B, [A]>,
-): Function<C, [A]> {
+export function compose<A, B, C>(f: Fn<C, [B]>, g: Fn<B, [A]>): Fn<C, [A]> {
   return (x: A) => f(g(x))
 }
 
