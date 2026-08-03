@@ -1,4 +1,5 @@
 import type { Maybe } from '../maybe/index.js'
+import type { Mapper } from '../fn/index.js'
 
 declare const _phantom: unique symbol
 
@@ -63,20 +64,80 @@ export function isFailure<T, E extends Error = Error>(
 }
 
 /**
+ * The Error a failure value is wrapped in when it was not already an `Error`.
+ * A {@link Failure} must carry an `Error`, and `throw` accepts anything at
+ * all; this preserves whatever was thrown on `thrown`.
+ *
+ * `T` defaults to `unknown` because that is what a thrown value is where
+ * {@link tryCatch} constructs one: a caller naming this type in an annotation
+ * should not have to supply an argument the encoding never knows.
+ */
+export class ThrownError<T = unknown> extends Error {
+  readonly thrown: T
+
+  constructor(thrown: T, message?: string) {
+    super(message ?? `threw ${ThrownError.describe(thrown)}`)
+    this.thrown = thrown
+  }
+
+  /**
+   * Renders a failure value for a message without trusting it to be
+   * renderable. This Error exists precisely for values that are *not*
+   * well-behaved Errors, and one may be a symbol, an object with a null
+   * prototype, or one whose `toString` throws. Interpolating such a value
+   * directly throws from the constructor, which would turn the lift meant to
+   * capture a failure into a second one.
+   *
+   * `String` is tried first because it is special-cased for symbols, where
+   * template interpolation is not; `Object.prototype.toString` is the fallback
+   * because it reads no property of the value at all.
+   */
+  static describe(value: unknown): string {
+    try {
+      return String(value)
+    } catch {
+      return Object.prototype.toString.call(value)
+    }
+  }
+}
+
+/**
  * Lifts a throwing function into one that returns a {@link Result}. The
- * default `errorHandler` passes the thrown value through unchanged (cast to
- * `E`); supply one to normalise non-`Error` throws or to translate the
- * caught error into a specific `Error` subclass.
+ * default `errorHandler` keeps an `Error` as it was thrown, with its concrete
+ * subclass intact, and wraps anything else in a {@link ThrownError}; supply
+ * one to translate the caught error into a specific `Error` subclass, or to
+ * recover from it.
+ *
+ * The wrapping is what makes the default sound. `throw` accepts any value,
+ * and a `Failure` is discriminated by `instanceof Error`, so passing a thrown
+ * string straight through would produce a "Result" that {@link isFailure}
+ * reads as a `Success` — the failure disappearing into the success channel it
+ * was lifted to stay out of.
+ *
+ * `errorHandler` returns a whole `Result`, not just an `Error`, so it may
+ * also recover — turning a throw into a `Success`. This is the same handler
+ * shape `promise/resultify` takes for a rejection, which makes `tryCatch` and
+ * `resultify` the synchronous and asynchronous forms of one lift, and lets
+ * `promise/fail` and `promise/recoverWith` serve both. `promise/fail` is the
+ * default's asynchronous twin, down to wrapping a non-`Error` in a
+ * `RejectionError` — the same move, named for the channel it happened on.
+ *
+ * A handler that returns a bare `E` still satisfies it: `Failure<T, E>` is
+ * `E` intersected with an optional phantom property, so every `E` is already
+ * a `Result<T, E>`.
  */
 export function tryCatch<T, Args extends unknown[], E extends Error = Error>(
   fn: (...args: Args) => T,
-  errorHandler: (error: unknown) => E = (error) => error as E,
+  errorHandler: Mapper<unknown, Result<T, E>> = (error) =>
+    // Cast for the same reason the previous default cast: `E` is the caller's
+    // to name, and the default cannot know which subclass it was promised.
+    (error instanceof Error ? error : new ThrownError(error)) as Failure<T, E>,
 ): (...args: Args) => Result<T, E> {
   return function (...args: Args) {
     try {
       return fn(...args) as Result<T, E>
     } catch (error) {
-      return errorHandler(error) as unknown as Failure<T, E>
+      return errorHandler(error)
     }
   }
 }

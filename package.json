@@ -29,9 +29,17 @@
     "dist"
   ],
   "exports": {
+    "./abort": {
+      "types": "./dist/abort/index.d.ts",
+      "default": "./dist/abort/index.js"
+    },
     "./brand": {
       "types": "./dist/brand/index.d.ts",
       "default": "./dist/brand/index.js"
+    },
+    "./call": {
+      "types": "./dist/call/index.d.ts",
+      "default": "./dist/call/index.js"
     },
     "./domain": {
       "types": "./dist/domain/index.d.ts",
@@ -49,6 +57,14 @@
       "types": "./dist/maybe/index.d.ts",
       "default": "./dist/maybe/index.js"
     },
+    "./promise": {
+      "types": "./dist/promise/index.d.ts",
+      "default": "./dist/promise/index.js"
+    },
+    "./promise/fake": {
+      "types": "./dist/promise/fake.d.ts",
+      "default": "./dist/promise/fake.js"
+    },
     "./result": {
       "types": "./dist/result/index.d.ts",
       "default": "./dist/result/index.js"
@@ -60,12 +76,14 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "prepare": "tsc -p tsconfig.build.json",
+    "clean": "node scripts/clean.mjs",
+    "build": "pnpm clean && tsc -p tsconfig.build.json",
+    "prepare": "pnpm build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "format": "prettier --check .",
     "fix": "prettier --write .",
+    "assert:exports": "node scripts/assert-exports-resolve.mjs",
     "check": "pnpm format && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
