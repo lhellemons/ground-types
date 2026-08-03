@@ -178,8 +178,18 @@ export class ThrownError<T = unknown> extends Error {
  * A handler that returns a bare `E` still satisfies it: `Failure<T, E>` is
  * `E` intersected with an optional phantom property, so every `E` is already
  * a `Result<T, E>`.
+ *
+ * `fn` must resolve synchronously — see {@link NotAPromise}. An `async fn`'s
+ * own throw happens after this function's `try`/`catch` has already exited,
+ * so `tryCatch` cannot catch it: the returned promise rejects unhandled
+ * while {@link isSuccess} reports `true` on it. Lift an async operation with
+ * `promise/resultify` or `call/resultify` instead.
  */
-export function tryCatch<T, Args extends unknown[], E extends Error = Error>(
+export function tryCatch<
+  T extends NotAPromise<T>,
+  Args extends unknown[],
+  E extends Error = Error,
+>(
   fn: (...args: Args) => T,
   errorHandler: Mapper<unknown, Result<T, E>> = (error) =>
     // Cast for the same reason the previous default cast: `E` is the caller's
@@ -210,33 +220,68 @@ export function assertSuccess<T, E extends Error = Error>(
 }
 
 /**
- * Rejects a callback return type that carries an `Error`. Surfaces the
- * diagnostic as a readable string rather than a structural mismatch, so the
- * compiler names the problem instead of describing the encoding. Exported so
- * its exact wording can be pinned by type-level tests. Two distinct shapes
- * are rejected, each with its own message, so the reader is pointed at a fix
- * that actually applies:
+ * True when `T` is thenable — has a callable `then` — rather than requiring
+ * the exact `Promise` interface. A non-native thenable (a custom deferred, an
+ * older async library) resolves asynchronously exactly like a real `Promise`
+ * and traps a caller the same way, so detection goes by shape rather than by
+ * `instanceof`/exact-type match. This is the same duck-typing `await` and
+ * `Promise.resolve` themselves use.
+ */
+type IsThenable<T> = T extends { then(...args: never[]): unknown }
+  ? true
+  : false
+
+/**
+ * True when any member of `R` is thenable. Distributes deliberately —
+ * unlike {@link ValueOf}/{@link ErrorOf}'s tuple-wrapped checks, which avoid
+ * distribution — because a callback return type that is a sync/async union
+ * (`(n: number) => number | Promise<number>`, "return a cached value or
+ * fetch") is not itself assignable to a thenable as a whole, so only
+ * checking the whole union would miss the async arm. `Extract<..., true>`
+ * then asks whether the per-member union of booleans contains a `true`
+ * anywhere, rather than requiring every member to be thenable.
+ */
+type HasThenableArm<R> = [
+  Extract<R extends unknown ? IsThenable<R> : never, true>,
+] extends [never]
+  ? false
+  : true
+
+/**
+ * Rejects a callback return type unsuited to `map`. Surfaces the diagnostic
+ * as a readable string rather than a structural mismatch, so the compiler
+ * names a fix that actually applies instead of describing the encoding.
+ * Exported so its exact wording can be pinned by type-level tests. Three
+ * shapes are rejected, each with its own message:
  *
  * - `R` itself is an `Error` subclass — there is no fix, because
  *   `Success<T, E>` collapses to `never` for `T extends Error` (see
  *   docs/adr/0001-unboxed-maybe-and-result.md); a `Success` can never be an
  *   `Error`.
+ * - `R` has a thenable arm — nothing in this module otherwise asserts that a
+ *   value resolves synchronously, so a `Promise`-returning callback would
+ *   type-check silently and produce a `Result` that is itself an unresolved
+ *   `Promise`, which {@link isSuccess} reports as `true` regardless of how it
+ *   settles. Resolve with `promise/resultify` or `call/resultify` first.
  * - `R` has a `Failure` arm alongside other arms — the callback returns a
  *   {@link Result}, and `andThen` is the fix.
  */
 export type NotAResult<R> = [R] extends [Error]
   ? 'A Success can never be an Error — see docs/adr/0001-unboxed-maybe-and-result.md'
   : [Extract<R, Error>] extends [never]
-    ? unknown
+    ? HasThenableArm<R> extends true
+      ? 'This callback returns a Promise (or thenable) — resolve it first with promise/resultify or call/resultify, then compose with .then()'
+      : unknown
     : 'This callback returns a Result — use andThen, not map'
 
 /**
  * Applies `fn` to a `Success`, passing a `Failure` through unchanged. `fn`
- * must return a plain value, not a `Result` — because `Result<Result<T>>`
- * cannot be represented, running a `Result`-returning callback through
- * `map` is a trap, not a shortcut. That trap is a compile error: the
- * constraint rejects any callback whose return type has an `Error` arm. Use
- * {@link andThen} to chain a second fallible step.
+ * must return a plain, already-resolved value — not a `Result`, because
+ * `Result<Result<T>>` cannot be represented, and not a `Promise`, because
+ * `map` runs synchronously. Both are compile errors: the constraint rejects
+ * any callback whose return type has an `Error` arm or is a `Promise`. Use
+ * {@link andThen} to chain a second fallible step, or resolve an async one
+ * first — see {@link NotAResult}.
  */
 export function map<A, U extends NotAResult<U>>(
   fn: (value: A) => U,
@@ -273,6 +318,22 @@ export function orElse<T, E extends Error = Error>(
 }
 
 /**
+ * Rejects a callback return type with a thenable arm (see
+ * {@link HasThenableArm}). `andThen` accepts a callback that returns a
+ * `Result`, a raw `Error`, or a plain value that cannot fail — {@link
+ * ValueOf} and {@link ErrorOf} handle all three — but a thenable fits none
+ * of those cases; it carries no `Error` arm, so it falls through the same
+ * path a cannot-fail plain value takes, producing a `Success` that is
+ * itself an unresolved `Promise`. Names the sanctioned lift as the fix —
+ * resolve with `promise/resultify` or `call/resultify` first, then compose
+ * with `.then()`, as documented in the README's "asynchrony layer" section.
+ */
+type NotAPromise<R> =
+  HasThenableArm<R> extends true
+    ? 'This callback returns a Promise (or thenable) — resolve it first with promise/resultify or call/resultify, then compose with .then()'
+    : unknown
+
+/**
  * The sanctioned linear-chaining form (see
  * docs/adr/0001-unboxed-maybe-and-result.md): like `map`, but `fn` itself
  * returns a `Result` rather than a plain value, so chaining a second
@@ -280,8 +341,10 @@ export function orElse<T, E extends Error = Error>(
  * unboxed encoding) — `fn`'s own failure propagates exactly like the
  * input's, short-circuiting before `fn` ever runs. Unlike `maybe/andThen`,
  * this is genuinely distinct from `map`, not an alias of it.
+ *
+ * `fn` must resolve synchronously — see {@link NotAPromise}.
  */
-export function andThen<A, R>(
+export function andThen<A, R extends NotAPromise<R>>(
   fn: (value: A) => R,
 ): <T extends A, E extends Error = Error>(
   value: Result<T, E>,

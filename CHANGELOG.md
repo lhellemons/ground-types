@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Breaking:** `result/map`, `result/andThen` and `result/tryCatch` now
+  reject a callback whose return type has a thenable arm — a `Promise`, a
+  non-native thenable, or a sync/async union such as
+  `(n) => number | Promise<number>` — at compile time. Nothing in `/result`
+  asserted that a value resolves synchronously: `tryCatch(async () => { throw
+... })` returned a value `isSuccess` reported as `true`, which then rejected
+  unhandled (#6), and `andThen`/`map` given an `async` callback silently
+  inferred a `Success` whose value is itself an unresolved `Promise` (#15).
+  Both were symptoms of one gap, not two bugs. Detection goes by shape
+  (`HasThenableArm`, distributing over the callback's return type) rather than
+  exact `Promise` type equality, and by structural `then` duck-typing rather
+  than `instanceof` — the same rule `await` itself uses — so it also catches a
+  custom deferred and a callback that only sometimes returns a `Promise`.
+  `fallback` needed no matching guard: its callback's return type is pinned to
+  `Success<T, E>` rather than inferred from a free type parameter, so a
+  thenable already fails ordinary structural assignability there.
+
+  No new async combinators were added. `promise/resultify` and
+  `call/resultify` are already the sanctioned lift from a rejecting
+  `Promise`/`Call` to a `Promise<Result<T, E>>`, and every `/result`
+  combinator is a plain unary function, so it already composes with `.then()`.
+  This is not the `all`/`sequence` fan-in ADR-0001 refuses: a lift to
+  `Promise<Result<T, E>>` wraps the same unboxed `Result` in a container the
+  platform already provides, resolved before anything inspects it — it does
+  not erode the "a `Success` can never be an `Error`" guarantee.
+
 An asynchrony layer, ported from another project and reworked to fit this
 library. No release cut; see
 [docs/adr/0002-abort-propagation.md](./docs/adr/0002-abort-propagation.md)
