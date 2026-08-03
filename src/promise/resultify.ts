@@ -38,13 +38,20 @@ export function resultify<O, E extends Error>(
 }
 
 /**
- * fail maps any rejection reason to a Failure.
- * If the rejection reason is an Error, the Failure will contain that Error directly.
- * Otherwise, the Failure will contain a RejectionError that contains the reason
- * @param reason
+ * Maps any rejection reason to a {@link Failure}. An `Error` becomes the
+ * Failure directly, keeping its concrete subclass — which is what lets an
+ * abort survive as an `AbortError` rather than being flattened. Anything else
+ * is wrapped in a {@link RejectionError}, since a Failure must carry an Error.
+ *
+ * Generic in the success type it never produces, so that it can be handed to
+ * `resultify` for a promise of any `O`. Pinning that type to `Error` would
+ * make `resultify(fail, promise)` infer `Promise<Result<Error, Error>>`.
  */
-export const fail = (reason: unknown): Failure<Error> =>
-  failure(reason instanceof Error ? reason : new RejectionError(reason))
+export function fail<O = never>(reason: unknown): Result<O, Error> {
+  return failure<O, Error>(
+    reason instanceof Error ? reason : new RejectionError(reason),
+  )
+}
 
 /**
  * recoverWith returns a mapper that maps any rejection reason to a predetermined Result.
