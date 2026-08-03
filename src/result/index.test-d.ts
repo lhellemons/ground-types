@@ -38,3 +38,16 @@ describe('andThen with a callback that does not itself fail', () => {
     expectTypeOf(doubled).toEqualTypeOf<Result<number, RangeError>>()
   })
 })
+
+describe('andThen with a callback that returns a raw Error', () => {
+  it('keeps the Failure arm when the callback skips the failure() constructor', () => {
+    // `new Invalid(...)` and `failure(new Invalid(...))` are the same value at
+    // runtime — both are identity casts, and discrimination is
+    // `instanceof Error`. So the error type must survive either spelling.
+    const raw = andThen((n: number) =>
+      n > 0 ? success(n) : new Invalid('not positive'),
+    )(input)
+
+    expectTypeOf(raw).toEqualTypeOf<Result<number, RangeError | Invalid>>()
+  })
+})

@@ -49,11 +49,29 @@ type ValueOf<R> =
       : S
     : never
 
-/** Recovers the `Error` type carried by a {@link Failure} arm, if any. */
+/**
+ * Recovers the `Error` type carried by a {@link Failure} arm, if any.
+ * Mirrors {@link ValueOf}'s fallback: a callback may return a raw `Error`
+ * subclass instead of routing it through `failure()` — the same value at
+ * runtime, since both are identity casts and discrimination is
+ * `instanceof Error` — and that arm carries no `_error` handle. Without the
+ * fallback its `Failure` arm would be dropped from the error union
+ * entirely, which is unsound rather than merely imprecise.
+ */
 type ErrorOf<R> =
-  Extract<R, Error> extends { readonly [_error]?: infer F }
-    ? F extends Error
-      ? F
+  Extract<R, Error> extends infer S
+    ? S extends Error
+      ? // A raw `Error` subclass matches neither the `_error` handle (weak
+        // type detection rejects it — it shares no property with the marker)
+        // nor `infer F`, so every path that isn't a real handle falls back
+        // to `S`, which `Extract` already proved is an `Error`.
+        S extends { readonly [_error]?: infer F }
+        ? unknown extends F
+          ? S
+          : F extends Error
+            ? F
+            : S
+        : S
       : never
     : never
 

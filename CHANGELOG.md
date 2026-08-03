@@ -199,6 +199,16 @@ had been collapsing silently.
   compile time, naming `andThen` as the fix. This was already documented as
   a trap; in practice it inferred `any` and silently erased all downstream
   type checking.
+- **Breaking:** `result/map` and `result/andThen` now take two type
+  parameters rather than three. Call sites that passed type arguments
+  explicitly — `map<number, string, MyError>(fn)` — no longer compile.
+  Inferred call sites, which is nearly all of them, are unaffected.
+- `result/andThen` keeps the `Failure` arm of a callback that returns a raw
+  `Error` subclass instead of routing it through `failure()`. The two are
+  the same value at runtime — both are identity casts, and discrimination
+  is `instanceof Error` — but the error type was dropped from the union
+  entirely, so a caller exhausting over the error type was wrong at
+  runtime. Found in review of this change.
 
 ### Changed
 
