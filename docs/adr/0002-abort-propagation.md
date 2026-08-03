@@ -64,6 +64,22 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   simplification, and a shared controller would additionally mean that
   `abortOn` on any link binds the entire chain.
 
+- **Fan-in propagates too, and the losers of a race do not.** `all`,
+  `allSettled`, `race` and `any` are overridden so that aborting the
+  combined promise aborts every member that can be aborted. Inherited,
+  they returned an `AbortablePromise` whose `abort()` typechecked, ran,
+  and left every member going — an abort that silently does nothing,
+  which is worse than one that is absent. Two sub-rulings:
+
+  - Members that are plain `Promise`s are skipped rather than being an
+    error. A combinator over a mix of both is ordinary, and there is
+    simply nothing on a plain promise to abort.
+  - A member settling first does **not** abort the others, in `race` or
+    anywhere else. Settling first says the result is no longer needed; it
+    does not say the remaining work should be cancelled. Cancelling work
+    that may have side effects, on the caller's behalf and without being
+    asked, is not a combinator's decision to make.
+
 - **A fresh `AbortError` per abort.** The imported implementation held a
   single `static readonly AbortError`, constructed once at module load.
   That reports one stack trace — pointing at the class definition, not at

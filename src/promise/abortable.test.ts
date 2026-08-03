@@ -239,6 +239,70 @@ describe('AbortablePromise.then', () => {
   })
 })
 
+describe('AbortablePromise fan-in combinators', () => {
+  it('still behave like Promise’s when nothing is aborted', async () => {
+    await expect(
+      AbortablePromise.all([
+        AbortablePromise.resolve('a'),
+        Promise.resolve('b'),
+      ]),
+    ).resolves.toEqual(['a', 'b'])
+
+    await expect(
+      AbortablePromise.race([
+        AbortablePromise.resolve('first'),
+        new AbortablePromise<string>(() => {}),
+      ]),
+    ).resolves.toEqual('first')
+
+    await expect(
+      AbortablePromise.allSettled([AbortablePromise.reject('nope')]),
+    ).resolves.toEqual([{ status: 'rejected', reason: 'nope' }])
+  })
+
+  it.each(['all', 'race', 'any', 'allSettled'] as const)(
+    'aborting the promise returned by %s aborts its members',
+    async (combinator) => {
+      const a = new AbortablePromise<string>(() => {})
+      const b = new AbortablePromise<string>(() => {})
+
+      const combined = AbortablePromise[combinator]([a, b])
+      combined.abort()
+
+      await expect(combined).rejects.toSatisfy(isAbortError)
+      await expect(a).rejects.toSatisfy(isAbortError)
+      await expect(b).rejects.toSatisfy(isAbortError)
+    },
+  )
+
+  it('skips members that are plain Promises', async () => {
+    const abortable = new AbortablePromise<string>(() => {})
+    const plain = new Promise<string>(() => {})
+
+    const combined = AbortablePromise.all([abortable, plain])
+    combined.abort()
+
+    await expect(combined).rejects.toSatisfy(isAbortError)
+    await expect(abortable).rejects.toSatisfy(isAbortError)
+    // `plain` is simply left alone — there is nothing on it to abort.
+  })
+
+  it('does not abort the losers when a member settles first', async () => {
+    const winner = AbortablePromise.resolve('winner')
+    const loser = new AbortablePromise<string>((resolve) => {
+      setTimeout(() => resolve('loser finished anyway'), 1)
+    })
+
+    await expect(AbortablePromise.race([winner, loser])).resolves.toEqual(
+      'winner',
+    )
+
+    // Settling first says the result is unwanted, not that the remaining work
+    // should be cancelled.
+    await expect(loser).resolves.toEqual('loser finished anyway')
+  })
+})
+
 describe('AbortablePromise abort context', () => {
   /** Counts AbortControllers built while `body` runs. */
   async function countingControllers(body: () => Promise<void>) {

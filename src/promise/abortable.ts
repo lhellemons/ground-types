@@ -177,6 +177,71 @@ export class AbortablePromise<T> extends Promise<T> {
     return aborted
   }
 
+  /**
+   * Extends this class's upstream propagation to fan-in: aborting the combined
+   * promise aborts every member that can be aborted.
+   *
+   * Without this the inherited combinators would hand back something that has
+   * an `abort()`, typechecks, runs, and leaves every member going — an abort
+   * that silently does nothing, which is worse than one that is absent.
+   *
+   * Members that are plain Promises are skipped: there is nothing to abort.
+   * Losers are *not* aborted when one member settles first, including in
+   * `race`. Settling first says the result is no longer needed, not that the
+   * remaining work should be cancelled, and cancelling work with side effects
+   * on the caller's behalf is not this method's decision to make.
+   */
+  static #abortMembersWith(
+    combined: AbortablePromise<unknown>,
+    members: readonly unknown[],
+  ): void {
+    combined.#state.link(() => {
+      for (const member of members) {
+        if (member instanceof AbortablePromise) {
+          member.abort()
+        }
+      }
+    })
+  }
+
+  static all<T>(
+    values: Iterable<T | PromiseLike<T>>,
+  ): AbortablePromise<Awaited<T>[]> {
+    const members = [...values]
+    const combined = super.all(members) as AbortablePromise<Awaited<T>[]>
+    AbortablePromise.#abortMembersWith(combined, members)
+    return combined
+  }
+
+  static allSettled<T>(
+    values: Iterable<T | PromiseLike<T>>,
+  ): AbortablePromise<PromiseSettledResult<Awaited<T>>[]> {
+    const members = [...values]
+    const combined = super.allSettled(members) as AbortablePromise<
+      PromiseSettledResult<Awaited<T>>[]
+    >
+    AbortablePromise.#abortMembersWith(combined, members)
+    return combined
+  }
+
+  static race<T>(
+    values: Iterable<T | PromiseLike<T>>,
+  ): AbortablePromise<Awaited<T>> {
+    const members = [...values]
+    const combined = super.race(members) as AbortablePromise<Awaited<T>>
+    AbortablePromise.#abortMembersWith(combined, members)
+    return combined
+  }
+
+  static any<T>(
+    values: Iterable<T | PromiseLike<T>>,
+  ): AbortablePromise<Awaited<T>> {
+    const members = [...values]
+    const combined = super.any(members) as AbortablePromise<Awaited<T>>
+    AbortablePromise.#abortMembersWith(combined, members)
+    return combined
+  }
+
   readonly #state: AbortState
 
   /**
