@@ -34,6 +34,12 @@ and [docs/adr/0003-currying.md](./docs/adr/0003-currying.md).
 - `State` gains constructors, guards, `settledResult` — the bridge to the
   primitives, `Nothing` while the operation is unfinished and a `Result`
   once it settles — and `stateOf`, a live view of a promise's State.
+- `pnpm assert:exports`, run in CI, checks that every subpath in
+  `package.json`'s `exports` resolves and imports, and that every built
+  module is reachable through one. `pnpm install` already builds through
+  `prepare`, so a broken emit fails the job; nothing checked that the
+  entry points the package advertises matched what came out of the build,
+  which is what four new subpaths made worth checking.
 
 A second pass then reviewed how the ported modules sit against the
 existing primitives, and closed the gaps it found.
@@ -95,6 +101,13 @@ contracts, and closed them.
   the delegating shape the class exists for. A resolution handed a
   thenable is now adopted and settles with it; a resolution handed a plain
   value settles at once, as before.
+- **Aborting a promise aborts the `AbortablePromise` it delegated to.**
+  Keeping the abort window open said when the abort was still allowed, not
+  where it went: the outer promise rejected while `work()` ran on,
+  uncancelled and unobserved. Delegation is upstream, so abort now travels
+  it as it travels `then`. A plain-`Promise` delegate is left alone, since
+  there is nothing on it to abort, and `resolve(work().detach())` hands
+  over the outcome without handing over the right to cancel.
 - **`AbortablePromise.all` and `allSettled` keep `Promise`'s tuple
   overloads**, along with `race` and `any`. Overriding with only the
   iterable signature made `AbortablePromise.all([promiseOfA, promiseOfB])`
@@ -124,15 +137,10 @@ contracts, and closed them.
   `isAbortError` documents why narrowing to `AbortError` is sound for a
   platform `DOMException`, and `Call` documents why its output is named
   before its input.
-
-### Added
-
-- `pnpm assert:exports`, run in CI, checks that every subpath in
-  `package.json`'s `exports` resolves and imports, and that every built
-  module is reachable through one. `pnpm install` already builds through
-  `prepare`, so a broken emit fails the job; nothing checked that the
-  entry points the package advertises matched what came out of the build,
-  which is what four new subpaths made worth checking.
+- One imported test could never fail. `AbortablePromise.peer`'s
+  "aborts the original one when aborted" wrapped its body in a `try` that
+  logged and swallowed, so every assertion in it threw into the `catch`
+  and the test passed whatever the class did. The `try` is gone.
 
 ## [0.2.0] - 2026-08-03
 

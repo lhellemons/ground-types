@@ -165,6 +165,64 @@ describe('AbortablePromise delegated resolution', () => {
 
     await expect(ap).rejects.toEqual('work failed')
   })
+
+  it('aborts an AbortablePromise it delegated to', async () => {
+    // Delegation is upstream, so it propagates like `then` does. The gap this
+    // closes: the outer promise rejected while the work it delegated to — the
+    // whole reason for wrapping it — ran on, uncancelled and unobserved.
+    const work = new AbortablePromise<string>(() => {})
+    const ap = new AbortablePromise<string>((resolve) => resolve(work))
+
+    ap.abort()
+
+    await expect(ap).rejects.toSatisfy(isAbortError)
+    await expect(work).rejects.toSatisfy(isAbortError)
+  })
+
+  it('aborts a delegate handed over after the abort has already happened', async () => {
+    // An executor may resolve long after its promise was aborted. The link is
+    // registered at that point, so it has to fire at once rather than wait for
+    // an abort that is already in the past.
+    let delegate!: (value: Promise<string>) => void
+    const ap = new AbortablePromise<string>((resolve) => {
+      delegate = resolve
+    })
+
+    ap.abort()
+    const work = new AbortablePromise<string>(() => {})
+    delegate(work)
+
+    await expect(ap).rejects.toSatisfy(isAbortError)
+    await expect(work).rejects.toSatisfy(isAbortError)
+  })
+
+  it('leaves a plain Promise it delegated to alone', async () => {
+    let finishWork!: (value: string) => void
+    const work = new Promise<string>((resolve) => {
+      finishWork = resolve
+    })
+    const ap = new AbortablePromise<string>((resolve) => resolve(work))
+
+    ap.abort()
+    finishWork('work finished anyway')
+
+    await expect(ap).rejects.toSatisfy(isAbortError)
+    // There is nothing on a plain Promise to abort, so it runs to completion.
+    await expect(work).resolves.toEqual('work finished anyway')
+  })
+
+  it('hands over the outcome without the right to cancel, given a detached delegate', async () => {
+    // `detach()` is the escape hatch at a delegation just as it is at a branch.
+    const work = new AbortablePromise<string>((resolve) =>
+      setTimeout(() => resolve('work finished anyway'), 1),
+    )
+    const ap = new AbortablePromise<string>((resolve) => resolve(work.detach()))
+
+    ap.abort()
+
+    await expect(ap).rejects.toSatisfy(isAbortError)
+    await expect(work).resolves.toEqual('work finished anyway')
+  })
 })
 
 describe('AbortablePromise.of', () => {
@@ -683,6 +741,19 @@ describe('AbortablePromise unhandled rejections', () => {
       ])
       combined.abort()
       void combined.catch(() => {})
+    })
+
+    expect(unhandled).toEqual([])
+  })
+
+  it('leaves none behind when a delegate is aborted', async () => {
+    // The adoption attaches handlers to the delegate before anything can abort
+    // it, so the rejection the propagation causes is already accounted for.
+    const unhandled = await unhandledDuring(() => {
+      const work = new AbortablePromise<string>(() => {})
+      const ap = new AbortablePromise<string>((resolve) => resolve(work))
+      ap.abort()
+      void ap.catch(() => {})
     })
 
     expect(unhandled).toEqual([])

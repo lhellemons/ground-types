@@ -93,8 +93,17 @@ class AbortState {
    * upstream link from a derived promise to its source, in place of a listener
    * on a signal — which would force a controller into existence for every link
    * of every chain.
+   *
+   * A link registered after the abort has already happened fires at once. That
+   * is not a corner case: an executor may call `resolve` with a promise long
+   * after its own promise was aborted, and the delegate it hands over is only
+   * cancelled because linking late still reaches it.
    */
   link(onAbort: () => void): void {
+    if (this.#aborted) {
+      onAbort()
+      return
+    }
     this.#linked.push(onAbort)
   }
 
@@ -150,10 +159,17 @@ function isThenable<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
  * Abort propagates *upstream*: aborting a promise returned by `then`, `catch`
  * or `finally` also aborts the promise it derived from, so a chain aborts as
  * one unit and cancelling the tail really does cancel the work at the head.
+ * Delegation is upstream too — aborting the outer promise in
+ * `new AbortablePromise((resolve) => resolve(work()))` aborts `work()` when
+ * `work()` returned an AbortablePromise, since that is where the work being
+ * cancelled actually is. A delegate that is a plain Promise is left alone;
+ * there is nothing on it to abort.
  * The consequence to know about is that two chains branched off one source
  * share that source, so aborting either branch aborts the other. Use
  * {@link AbortablePromise.detach} at the branch point when that is not what
- * you want. See docs/adr/0002-abort-propagation.md.
+ * you want — including at a delegation, where `resolve(work().detach())`
+ * hands over the outcome without handing over the right to cancel. See
+ * docs/adr/0002-abort-propagation.md.
  *
  * **An abort is a rejection, and an unhandled rejection is fatal.** Node exits
  * non-zero on one by default, so aborting a promise nothing is awaiting kills
@@ -349,6 +365,14 @@ export class AbortablePromise<T> extends Promise<T> {
             // no-op for the delegating shape this class exists for —
             // `new AbortablePromise((resolve) => resolve(fetchThing()))`. Adopt
             // it instead, and claim only when it really settles.
+            if (value instanceof AbortablePromise) {
+              // Delegation is upstream, so abort travels it like any other
+              // upstream link: the delegate is where the work actually is, and
+              // rejecting only the outer promise would leave it running. The
+              // adoption below has already attached handlers to the delegate,
+              // so the rejection this causes is handled.
+              state.link(() => value.abort())
+            }
             Promise.resolve(value).then(
               (settledValue) => {
                 if (state.claimSettlement()) {

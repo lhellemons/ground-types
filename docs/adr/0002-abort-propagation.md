@@ -105,6 +105,40 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   a resolution handed a plain value still settles at once, so aborting
   after it remains the documented no-op.
 
+- **Delegation is upstream, so abort travels it.** Keeping the abort
+  window open is only half of that ruling. The other half is where the
+  abort goes: aborting the outer promise in
+  `new AbortablePromise((resolve) => resolve(work()))` also aborts
+  `work()` when `work()` returned an `AbortablePromise`. Rejecting only
+  the outer promise would leave the delegate running, uncancelled and
+  unobserved — the same failure the upstream ruling above rejects for
+  `then`, arrived at by a different route, and worse here because the
+  delegate is precisely the work the wrapper exists to hold.
+
+  This is the sibling hazard again, and it gets the same answer rather
+  than a second one: the delegate is shared if the executor shares it,
+  and `resolve(work().detach())` hands over the outcome without handing
+  over the right to cancel. One escape hatch, used at the delegation
+  instead of at the branch.
+
+  Two sub-rulings follow from the mechanism:
+
+  - A delegate that is a plain `Promise` is left alone, exactly as a
+    plain member of a fan-in is. There is nothing on it to abort.
+  - A link registered after the abort already happened fires at once,
+    rather than being queued for an abort that is in the past. An
+    executor may call `resolve` at any time, including long after its
+    promise was aborted, and the delegate it hands over then is only
+    reached because late links still fire. `AbortState.link` owns that
+    rule so every caller of it — the `then` override and the fan-in
+    combinators included — gets it, though only delegation can register
+    a link late enough to need it.
+
+  The rejection this causes in the delegate is handled: the adoption
+  attaches its own handlers to the delegate before anything can abort
+  it, so the propagation cannot manufacture an unhandled rejection. A
+  test pins that.
+
 - **A fresh `AbortError` per abort.** The imported implementation held a
   single `static readonly AbortError`, constructed once at module load.
   That reports one stack trace — pointing at the class definition, not at
