@@ -209,6 +209,14 @@ had been collapsing silently.
   is `instanceof Error` — but the error type was dropped from the union
   entirely, so a caller exhausting over the error type was wrong at
   runtime. Found in review of this change.
+- `result/map`'s rejection of a callback returning an `Error` subclass as a
+  plain value now says so — `'A Success can never be an Error — see
+docs/adr/0001-unboxed-maybe-and-result.md'` — instead of misdirecting to
+  `andThen`, which cannot fix it: `Success<T, E>` collapses to `never` for
+  `T extends Error`, so there is no way to carry that value through this
+  encoding. The callback-returns-a-`Result` message is unchanged for the
+  case it actually describes. `NotAResult` is now exported so both messages
+  can be pinned by type-level tests. (#16)
 
 ### Changed
 
