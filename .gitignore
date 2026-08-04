@@ -3,3 +3,7 @@ dist
 coverage
 *.tsbuildinfo
 .DS_Store
+
+# Local-only T3 Code project config and its icon asset
+/t3.json
+/.local/
