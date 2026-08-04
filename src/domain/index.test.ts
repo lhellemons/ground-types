@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type {
   CompoundValueObject,
-  DomainObjectDTO,
   DomainObjectFactory,
+  DTOSource,
   Entity,
 } from './index.js'
 import {
@@ -44,14 +44,39 @@ describe('DomainObjectFactory', () => {
   })
 })
 
+class EmptyName extends Error {
+  readonly code = 'empty-name' as const
+}
+
+const StrictUserFactory: DomainObjectFactory<User, UserDTO, EmptyName> = {
+  from(dto) {
+    // success<User, EmptyName>(...) is spelled out explicitly: Success's `E`
+    // phantom is invariant (docs/adr/0001, 2026-08-04 amendment), so the
+    // plain `success(...)` call below would default E to Error and fail to
+    // satisfy this factory's narrower Result<User, EmptyName>.
+    return dto.name.length > 0
+      ? success<User, EmptyName>({ id: dto.id, name: dto.name })
+      : failure<EmptyName, User>(new EmptyName('name must not be empty'))
+  },
+}
+
+describe('DomainObjectFactory with a concrete Failure subclass', () => {
+  it('lets a caller branch on the specific Error subclass a Failure carries', () => {
+    const outcome = StrictUserFactory.from({ id: 'u1', name: '' })
+    expect(isFailure(outcome)).toBe(true)
+    expect(outcome).toBeInstanceOf(EmptyName)
+    if (isFailure(outcome)) {
+      expect(outcome.code).toBe('empty-name')
+    }
+  })
+})
+
 type PointDTO = { x: number; y: number }
 type PointKey = string
 
 const pointRegistry = new InternRegistry<PointKey, Point>()
 
-class Point
-  implements CompoundValueObject<PointKey>, DomainObjectDTO<PointDTO>
-{
+class Point implements CompoundValueObject<PointKey>, DTOSource<PointDTO> {
   readonly key: PointKey
   readonly x: number
   readonly y: number
@@ -78,7 +103,7 @@ class Point
   }
 }
 
-describe('DomainObjectDTO round-trip', () => {
+describe('DTOSource round-trip', () => {
   it('round-trips: from(dto).dto equals the original dto', () => {
     const point = assertSuccess(Point.from({ x: 1, y: 2 }))
     expect(point.dto).toEqual({ x: 1, y: 2 })
@@ -105,11 +130,11 @@ describe('type-level', () => {
     Equal<CompoundValueObject<string>, { readonly key: string }>
   >
 
-  type _DTOHasDto = Expect<
-    Equal<DomainObjectDTO<UserDTO>, { readonly dto: UserDTO }>
+  type _DTOSourceHasDto = Expect<
+    Equal<DTOSource<UserDTO>, { readonly dto: UserDTO }>
   >
 
-  const _typeTests: [_EntityHasId, _CompoundHasKey, _DTOHasDto] = [
+  const _typeTests: [_EntityHasId, _CompoundHasKey, _DTOSourceHasDto] = [
     true,
     true,
     true,

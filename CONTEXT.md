@@ -135,6 +135,17 @@ untrusted data into a domain object.
 _Avoid_: Parser, validator, builder, constructor (a constructor cannot
 report failure as a value).
 
+### DTO Source
+
+The other direction of a Factory's seam: a domain object that exposes a
+`dto`, recovering the DTO its current values would round-trip back
+through the Factory that built it. A DTO Source is not itself a DTO — it
+is the domain object's own capability to produce one — and it carries no
+invariants of its own.
+
+_Avoid_: Serializable, DTO (a DTO Source is not the untrusted data; see
+the DTO entry above), toJSON, export.
+
 ### Intern
 
 To canonicalise a Value Object so that equal values are represented by
