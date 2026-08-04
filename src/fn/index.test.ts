@@ -16,6 +16,13 @@ describe('compose', () => {
     expect(compose(double, inc)(5)).toBe(12)
     expect(compose(inc, double)(5)).toBe(11)
   })
+
+  it('applies ten Mappers, the longest chain compose has an overload for, last argument first', () => {
+    const dec = (n: number): number => n - 1
+    expect(compose(dec, dec, dec, dec, dec, dec, dec, dec, dec, dec)(10)).toBe(
+      0,
+    )
+  })
 })
 
 describe('pipe', () => {

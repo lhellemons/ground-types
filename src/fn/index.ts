@@ -32,12 +32,98 @@ export function constant<T>(t: T): (..._: unknown[]) => T {
 }
 
 /**
- * Composes two unary functions right to left: `compose(f, g)(x)` is
- * `f(g(x))`. Not commutative — order matters. For the left-to-right reading,
- * see {@link pipe}.
+ * Composes {@link Mapper}s right to left: `compose(f, g)(x)` is `f(g(x))` —
+ * the last argument runs first, and the first argument's return value is the
+ * result. Not commutative — order matters. Builds a reusable Mapper with no
+ * value in hand yet; the mirror of {@link pipe}, which reads left to right
+ * and always applies immediately.
+ *
+ * Typed up to ten Mappers, each an explicit overload naming its own chain of
+ * type parameters, so every step's parameter type is pinned to its
+ * neighbour's return type — a step that doesn't fit is a compile error at
+ * that step, not a silent `unknown`.
+ *
+ * A step whose own type is still generic after being called — as
+ * `result/map` and `result/andThen`'s deferred forms are, by design, so they
+ * accept a narrower `Result` than they were configured for — needs an
+ * explicit `Mapper<T, U>` annotation to compose with. `compose` has no value
+ * in the call for TypeScript to anchor inference against the way {@link
+ * pipe} does; the annotation does that job instead. See the mixed
+ * maybe/result chain in `src/fn/index.test-d.ts` for a worked example.
  */
-export function compose<A, B, C>(f: Fn<C, [B]>, g: Fn<B, [A]>): Fn<C, [A]> {
-  return (x: A) => f(g(x))
+export function compose<A, B, C>(f1: Fn<C, [B]>, f2: Fn<B, [A]>): Fn<C, [A]>
+export function compose<A, B, C, D>(
+  f1: Fn<D, [C]>,
+  f2: Fn<C, [B]>,
+  f3: Fn<B, [A]>,
+): Fn<D, [A]>
+export function compose<A, B, C, D, E>(
+  f1: Fn<E, [D]>,
+  f2: Fn<D, [C]>,
+  f3: Fn<C, [B]>,
+  f4: Fn<B, [A]>,
+): Fn<E, [A]>
+export function compose<A, B, C, D, E, F>(
+  f1: Fn<F, [E]>,
+  f2: Fn<E, [D]>,
+  f3: Fn<D, [C]>,
+  f4: Fn<C, [B]>,
+  f5: Fn<B, [A]>,
+): Fn<F, [A]>
+export function compose<A, B, C, D, E, F, G>(
+  f1: Fn<G, [F]>,
+  f2: Fn<F, [E]>,
+  f3: Fn<E, [D]>,
+  f4: Fn<D, [C]>,
+  f5: Fn<C, [B]>,
+  f6: Fn<B, [A]>,
+): Fn<G, [A]>
+export function compose<A, B, C, D, E, F, G, H>(
+  f1: Fn<H, [G]>,
+  f2: Fn<G, [F]>,
+  f3: Fn<F, [E]>,
+  f4: Fn<E, [D]>,
+  f5: Fn<D, [C]>,
+  f6: Fn<C, [B]>,
+  f7: Fn<B, [A]>,
+): Fn<H, [A]>
+export function compose<A, B, C, D, E, F, G, H, I>(
+  f1: Fn<I, [H]>,
+  f2: Fn<H, [G]>,
+  f3: Fn<G, [F]>,
+  f4: Fn<F, [E]>,
+  f5: Fn<E, [D]>,
+  f6: Fn<D, [C]>,
+  f7: Fn<C, [B]>,
+  f8: Fn<B, [A]>,
+): Fn<I, [A]>
+export function compose<A, B, C, D, E, F, G, H, I, J>(
+  f1: Fn<J, [I]>,
+  f2: Fn<I, [H]>,
+  f3: Fn<H, [G]>,
+  f4: Fn<G, [F]>,
+  f5: Fn<F, [E]>,
+  f6: Fn<E, [D]>,
+  f7: Fn<D, [C]>,
+  f8: Fn<C, [B]>,
+  f9: Fn<B, [A]>,
+): Fn<J, [A]>
+export function compose<A, B, C, D, E, F, G, H, I, J, K>(
+  f1: Fn<K, [J]>,
+  f2: Fn<J, [I]>,
+  f3: Fn<I, [H]>,
+  f4: Fn<H, [G]>,
+  f5: Fn<G, [F]>,
+  f6: Fn<F, [E]>,
+  f7: Fn<E, [D]>,
+  f8: Fn<D, [C]>,
+  f9: Fn<C, [B]>,
+  f10: Fn<B, [A]>,
+): Fn<K, [A]>
+export function compose(
+  ...fns: Fn<unknown, [unknown]>[]
+): Fn<unknown, [unknown]> {
+  return (x: unknown) => fns.reduceRight((acc, fn) => fn(acc), x)
 }
 
 /**

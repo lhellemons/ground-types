@@ -126,6 +126,14 @@ existing primitives, and closed the gaps it found.
   and was run through a 7-step chain mixing `maybe` and `result`,
   bridged mid-chain, without inference degrading. See
   [docs/adr/0004-pipe-value-first.md](./docs/adr/0004-pipe-value-first.md).
+- `compose` extended from a fixed 2-ary to up to ten Mappers, right to
+  left, mirroring `pipe`'s per-arity overload set: every step's parameter
+  type is pinned to its neighbour's return type, and an eleventh Mapper is
+  a compile error rather than a silent `unknown`. `pipe`'s redesign closed
+  #7 for the value-in-hand case; `compose` was still capped at two, which
+  recreated the same nesting problem for the deferred, no-value-yet case
+  the README already told readers to reach for it for. Non-breaking: every
+  existing 2-ary call typechecks and behaves exactly as before.
 
 A review pass then found four places where the layer did not hold its own
 contracts, and closed them.

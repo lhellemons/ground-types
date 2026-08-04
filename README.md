@@ -68,8 +68,17 @@ const label = pipe(maybe(x), map(double), andThen(validate), orElse(0))
 form. Each step's parameter type is pinned to the previous step's return
 type, up to ten steps; a step that doesn't fit its neighbour is a compile
 error at that step. For building a reusable function with no value in
-hand yet, use `compose`, which reads right to left instead. See
-[docs/adr/0004-pipe-value-first.md](./docs/adr/0004-pipe-value-first.md)
+hand yet, use `compose`, which reads right to left instead and is typed
+the same way, up to ten Mappers:
+
+```ts
+import { compose } from '@lhellemons/ground-types/fn'
+
+const parseLabel = compose(shout, stringify, double)
+parseLabel(21) // same as shout(stringify(double(21)))
+```
+
+See [docs/adr/0004-pipe-value-first.md](./docs/adr/0004-pipe-value-first.md)
 for why `pipe` is shaped this way.
 
 ## The asynchrony layer composes with the primitives
