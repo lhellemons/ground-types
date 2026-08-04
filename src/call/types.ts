@@ -15,25 +15,16 @@ import type { AbortablePromise } from '../promise/index.js'
  * `call/abortable` both turn a synchronous throw into a rejection, so a Call
  * that throws is not a hole, but it is the less direct road.
  *
- * The output is named before the input, against the input-first order
- * `fn/Mapper` sets. That is deliberate: an output is the one thing every Call
- * has, so `Call<Widget>` reads as "produces a Widget, takes nothing" — the
- * common shape — where input-first would spell it `Call<void, Widget>`.
- * `call/resultify` orders its parameters `<O, E, I>` to keep this position.
+ * Type parameters are output-first, unlike `fn/Mapper`: `Call<Widget>` reads
+ * as "produces a Widget, takes nothing" — the common shape.
+ * `call/resultify` orders its parameters `<O, E, I>` to match.
  */
 export type Call<O = void, I = void> = (input: I) => O | Promise<O>
 
 /**
  * A {@link Call} that always returns a Promise, so its caller never has to
- * ask whether this one settled synchronously.
- *
- * A Call is allowed to do either, which is right for the shape a consumer
- * *writes*: a lookup that happens to be in memory should not have to pretend
- * to be asynchronous. It is wrong for the shape this library *returns* from a
- * lift, where the answer is known and always the same one — `call/resultify`
- * builds a promise whatever it was given, so declaring `O | Promise<O>` would
- * hand back a union that can never take its left branch and make every caller
- * collapse it anyway.
+ * ask whether this one settled synchronously. What `call/resultify` returns
+ * (see CONTEXT.md's Call entry).
  */
 export type AsyncCall<O = void, I = void> = (input: I) => Promise<O>
 

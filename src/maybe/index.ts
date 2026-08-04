@@ -5,26 +5,19 @@ import type { NotAPromise, Result } from '../result/index.js'
 /**
  * A value that may be absent, encoded unboxed as `T | undefined`. A `Maybe`
  * never wraps another `Maybe`: `Maybe<Maybe<T>>` and `Maybe<T>` are mutually
- * assignable, so nesting is unrepresentable rather than merely discouraged.
- *
- * Deliberately the only one of the three without a default type argument,
- * where {@link Just} and {@link Nothing} both default to `unknown`. A bare
- * `Maybe` would evaluate to plain `unknown` — `undefined` is already in
- * `unknown`, so the annotation would claim "may be absent" while the
- * checker holds you to nothing at all. Requiring the argument keeps the
- * module's primary vocabulary type saying something checkable.
+ * assignable, so nesting is unrepresentable rather than merely discouraged
+ * (see docs/adr/0001-unboxed-maybe-and-result.md). Unlike {@link Just} and
+ * {@link Nothing}, the type argument is required.
  */
 export type Maybe<T> = T extends undefined ? never : T | undefined
 
 /**
  * The present case of a {@link Maybe} — the value itself, unwrapped.
  *
- * `T` defaults to `unknown` so the case names can be written bare, as a
- * matched pair with {@link Nothing}. Note what the default does and does
- * not buy: a bare `Nothing` is exactly `undefined`, but a bare `Just` is
- * plain `unknown` — "present, type unstated" is a reading for humans, not
- * a constraint the checker enforces (it cannot even exclude `undefined`
- * without knowing `T`). Name the argument when it matters.
+ * `T` defaults to `unknown` so the name can be written bare, as a matched
+ * pair with {@link Nothing} — but a bare `Just` is plain `unknown`, a
+ * reading for humans that the checker cannot enforce (it cannot exclude
+ * `undefined` without knowing `T`). Name the argument when it matters.
  */
 export type Just<T = unknown> = T extends undefined ? never : T
 
@@ -32,10 +25,8 @@ export type Just<T = unknown> = T extends undefined ? never : T
  * The absent case of a {@link Maybe} — always `undefined` at runtime.
  *
  * `T` defaults to `unknown` so `Nothing` can be written bare in an
- * annotation, where it evaluates to exactly `undefined`: the phantom `T`
- * only exists to relate a `Nothing` to the `Maybe` it came from, and a
- * position that doesn't need that relation should not have to invent an
- * argument for it.
+ * annotation, where it evaluates to exactly `undefined`; the phantom `T`
+ * only relates a `Nothing` to the `Maybe` it came from.
  */
 export type Nothing<T = unknown> = T extends undefined ? never : undefined
 
@@ -51,16 +42,12 @@ export function maybe<T>(value: T | undefined): Maybe<T> {
 }
 
 /**
- * Wraps a value from a null-convention API as a {@link Maybe}, folding both
- * `null` and `undefined` to `Nothing`. The encoding itself knows only one
- * absence — `Nothing` *is* `undefined` (see
- * docs/adr/0001-unboxed-maybe-and-result.md) — so to {@link maybe} a `null`
- * is a value and becomes a `Just`: a trap for the boundary this module
- * exists to serve, since half the platform signals absence with `null`
- * (`querySelector`, `RegExp.prototype.exec`, a JSON field). This is the
- * boundary helper for those APIs. The `null` is folded away rather than
- * carried — the return type is `Maybe<NonNullable<T>>`, so downstream code
- * never sees a null again and the one-absence encoding stays clean.
+ * Wraps a value from a null-convention API (`querySelector`,
+ * `RegExp.prototype.exec`, a JSON field) as a {@link Maybe}, folding both
+ * `null` and `undefined` to `Nothing`. To {@link maybe} a `null` is a value
+ * and becomes a `Just` — the encoding knows only one absence (see
+ * docs/adr/0001-unboxed-maybe-and-result.md). The return type is
+ * `Maybe<NonNullable<T>>`, so downstream code never sees a `null` again.
  */
 export function fromNullable<T>(
   value: T | null | undefined,
@@ -99,11 +86,10 @@ export function isNothing<T>(value: Maybe<T>): value is Nothing<T> {
  * unchanged. `defaultValue` is computed up front even when the input turns
  * out to be present; use {@link fallback} when computing it is not free.
  *
- * Curryable: supply `value` to apply now, or omit it for a Mapper. The two
- * shapes are told apart by arity, never by inspecting the value —
- * `orElse(0, nothing())` passes `undefined` as a real argument and applies,
- * because `Nothing` *is* `undefined` and a value test could not tell an
- * absent Maybe from a missing argument (see docs/adr/0003-currying.md).
+ * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
+ * by arity, never by inspecting the value: `orElse(0, nothing())` passes
+ * `undefined` as a real argument and applies (see
+ * docs/adr/0003-currying.md).
  */
 export function orElse<T>(defaultValue: T, value: T | undefined): Just<T>
 export function orElse<T>(defaultValue: T): (value: Maybe<T>) => Just<T>
@@ -144,25 +130,17 @@ export function fallback<T>(
  * which is exactly what {@link andThen} relies on.
  *
  * `fn` must resolve synchronously — the same rule `result/map` enforces,
- * through the same `NotAPromise` guard (a type-only import, keeping the
- * maybe/result boundary free of a runtime cycle). Nothing in this module
- * otherwise asserts that a value resolves synchronously, so an `async`
- * callback would type-check silently and mint a `Maybe<Promise<U>>`: a
- * `Just` that is an unresolved `Promise`, present whatever it eventually
- * settles to. Resolve with `promise/resultify` or `call/resultify` first,
- * then compose with `.then()`.
+ * through the same `NotAPromise` guard. Resolve with `promise/resultify`
+ * or `call/resultify` first, then compose with `.then()`.
  *
  * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
- * by arity, never by inspecting the value, which matters here more than
- * anywhere: `map(fn, nothing())` passes `undefined` as a real argument and
- * must apply, not hand back the Mapper (see docs/adr/0003-currying.md).
+ * by arity, never by inspecting the value: `map(fn, nothing())` passes
+ * `undefined` as a real argument and applies, not hands back the Mapper
+ * (see docs/adr/0003-currying.md).
  *
- * The applied form's `value` is spelled `T | undefined` rather than
- * `Maybe<T>` — the same type for any admissible `T`, but a spelling the
- * compiler can infer `T` from, where inference into `Maybe<T>`'s
- * conditional collapses on an argument that is statically `Nothing`. It is
- * the spelling {@link maybe} itself uses at the boundary, for the same
- * reason. The same holds for every applied form in this module.
+ * The applied form's `value` — here and on every applied form in this
+ * module — is spelled `T | undefined` rather than `Maybe<T>` so the
+ * compiler can infer `T` from it (see docs/adr/0003-currying.md).
  */
 export function map<T, U extends NotAPromise<U>>(
   fn: (value: Just<T>) => U,
@@ -184,12 +162,11 @@ export function map<T, U extends NotAPromise<U>>(
 /**
  * The linear-chaining form, kept for symmetry with `result/andThen` so
  * generic code can treat both modules alike. For `Maybe` it is a true
- * alias of {@link map} — the same function, in types and at runtime — not
- * a distinct implementation: a `Maybe<U>`-returning callback run through
- * `map` yields `Maybe<Maybe<U>>`, which *is* `Maybe<U>`, so there is
- * nothing left for a separate chaining step to flatten. Contrast with
- * `result/andThen`, which is NOT an alias of `result/map` because
- * `Result<Result<T>>` is a distinct, unrepresentable-as-nested type.
+ * alias of {@link map} — the same function, in types and at runtime —
+ * because `Maybe<Maybe<U>>` *is* `Maybe<U>`, leaving nothing for a
+ * separate chaining step to flatten. Contrast with `result/andThen`, which
+ * is NOT an alias of `result/map` (see
+ * docs/adr/0001-unboxed-maybe-and-result.md).
  */
 export const andThen = map
 

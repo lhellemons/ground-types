@@ -11,14 +11,8 @@ import { RejectionError } from './types.js'
  * to report it as a `Failure`, {@link recoverWith} to substitute a default.
  *
  * The lifted promise is a plain `Promise`, never an `AbortablePromise`, even
- * when the promise it lifts is one. That is deliberate and load-bearing: an
- * `AbortablePromise` rejects on its own abort by construction, so a lifted
- * handle that was abortable would reject on abort while aborting the *source*
- * resolved with a `Failure` — the same abort giving two different outcomes
- * depending on which reference the caller happened to hold.
- *
- * With one abortable handle in the picture, abort has one meaning. Hold the
- * source, lift where you consume it, and abort the source:
+ * when the promise it lifts is one — one abortable handle, so abort has one
+ * meaning. Hold the source, lift where you consume it, and abort the source:
  *
  * ```ts
  * const widget = fetchWidget()          // AbortablePromise<Widget>
@@ -47,10 +41,9 @@ export function resultify<O, E extends Error>(
       // Promise.resolve returns its argument only when the argument's
       // constructor is Promise itself, so a subclass instance is wrapped —
       // which is exactly how the lifted promise is stripped of abortability.
-      // The previous trailing .catch(mapRejection) is gone: `success` is a
-      // cast and cannot throw, so the only thing it could have caught was
-      // mapRejection failing, and handing a handler its own failure is not a
-      // recovery strategy.
+      // No trailing .catch(mapRejection): `success` is a cast and cannot
+      // throw, so the only thing it could catch is mapRejection failing,
+      // and handing a handler its own failure is not a recovery strategy.
       Promise.resolve(promise).then(
         success as Mapper<O, Result<O, E>>,
         mapRejection,
@@ -66,8 +59,7 @@ export function resultify<O, E extends Error>(
  * is wrapped in a {@link RejectionError}, since a Failure must carry an Error.
  *
  * Generic in the success type it never produces, so that it can be handed to
- * `resultify` for a promise of any `O`. Pinning that type to `Error` would
- * make `resultify(fail, promise)` infer `Promise<Result<Error, Error>>`.
+ * `resultify` for a promise of any `O`.
  */
 export function fail<O = never>(reason: unknown): Result<O, Error> {
   return failure<Error, O>(
@@ -78,12 +70,8 @@ export function fail<O = never>(reason: unknown): Result<O, Error> {
 /**
  * Discards the rejection reason and substitutes a predetermined
  * {@link Result}. The counterpart to {@link fail}: where `fail` reports what
- * went wrong, this decides the outcome regardless.
- *
- * `constant` with a narrower type. The name is what earns it a place —
- * `resultify(recoverWith(success(cached)), p)` says why it is there in a way
- * `constant(...)` does not — but the behaviour is `fn/constant`'s, not a
- * second copy of it.
+ * went wrong, this decides the outcome regardless. Behaviourally it is
+ * `fn/constant` with a narrower type.
  */
 export function recoverWith<O, E extends Error>(
   result: Result<O, E>,

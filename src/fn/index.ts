@@ -17,15 +17,11 @@ export type Mapper<T, U> = (t: T) => U
  * when no input was supplied, or the mapped value, when one was. This is the
  * extension point for writing your own curryable combinator — pair it with
  * {@link curry} the way `promise/resultify` and `call/resultify` do. See
- * {@link curry} for the worked example and the arity rule that makes it safe.
+ * {@link curry} for the worked example.
  *
- * A `CurryableMapper` is an implementation-signature type, meant for a
- * function's return type, not for narrowing at a call site: callers see one
- * branch or the other through your overloads (mirror `resultify`'s two-overload
- * shape), and when `U` is itself a function type — as it is for
- * `call/resultify`, whose `U` is a `Call` — the two branches are
- * indistinguishable to both the compiler and the reader, so there is nothing
- * to narrow to.
+ * An implementation-signature type, meant for a function's return type, not
+ * for narrowing at a call site: callers see one branch or the other through
+ * your overloads (see docs/adr/0003-currying.md).
  */
 export type CurryableMapper<T, U> = Mapper<T, U> | U
 
@@ -46,17 +42,13 @@ export function constant<T>(t: T): (..._: unknown[]) => T {
  * value in hand yet; the mirror of {@link pipe}, which reads left to right
  * and always applies immediately.
  *
- * Typed up to ten Mappers, each an explicit overload naming its own chain of
- * type parameters, so every step's parameter type is pinned to its
+ * Typed up to ten Mappers, each step's parameter type pinned to its
  * neighbour's return type — a step that doesn't fit is a compile error at
  * that step, not a silent `unknown`.
  *
  * A step whose own type is still generic after being called — as
- * `result/map` and `result/andThen`'s deferred forms are, by design, so they
- * accept a narrower `Result` than they were configured for — needs an
- * explicit `Mapper<T, U>` annotation to compose with. `compose` has no value
- * in the call for TypeScript to anchor inference against the way {@link
- * pipe} does; the annotation does that job instead. See the mixed
+ * `result/map` and `result/andThen`'s deferred forms are — needs an
+ * explicit `Mapper<T, U>` annotation to compose with. See the mixed
  * maybe/result chain in `src/fn/index.test-d.ts` for a worked example.
  */
 export function compose<A, B, C>(f1: Fn<C, [B]>, f2: Fn<B, [A]>): Fn<C, [A]>
@@ -256,19 +248,13 @@ export function pipe(
  * scaleBy(2) // Mapper<number, number>, applied later
  * ```
  *
- * The input arrives as a rest tuple rather than an optional parameter so that
- * "was an argument passed?" is answered by arity and never by inspecting the
- * value. An `input === undefined` test cannot answer it in this library:
- * `Nothing` *is* `undefined`, so a present-but-absent Maybe would be
- * indistinguishable from a missing argument and would silently return the
- * mapper instead of applying it. This is not a hypothetical for your own
- * combinator either, the moment its `T` can be `undefined` the same trap is
- * live — which is exactly why `curry` takes arity, not a value, and why your
- * wrapper must forward arity the same way.
- *
- * Callers must forward their own arity the same way — `curry(mapper, input)`
- * where `input` is an optional parameter always passes two arguments, which
- * defeats the whole mechanism. Spread a `[] | [T]` rest tuple instead.
+ * "Was an argument passed?" is answered by arity, never by inspecting the
+ * value — `Nothing` *is* `undefined`, so an `undefined` test would silently
+ * return the mapper unapplied for an absent Maybe (see
+ * docs/adr/0003-currying.md).
+ * Your wrapper must forward its own arity the same way: `curry(mapper,
+ * input)` with `input` an optional parameter always passes two arguments,
+ * which defeats the whole mechanism. Spread a `[] | [T]` rest tuple instead.
  */
 export function curry<T, U>(
   mapper: Mapper<T, U>,

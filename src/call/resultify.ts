@@ -17,12 +17,9 @@ import { resultify as resultifyPromise } from '../promise/index.js'
  *
  * The same idea as `promise/resultify`, one level up: that one lifts a
  * settled-or-rejecting promise, this one lifts the function that produces it,
- * so the lifted Call can still be invoked with its input.
- *
- * The result is an {@link AsyncCall} rather than a `Call`: this lift builds a
- * promise whatever it was handed, including for a Call that settled
- * synchronously, so saying `O | Promise<O>` would declare a union whose left
- * branch can never occur and leave every caller to collapse it.
+ * so the lifted Call can still be invoked with its input. The result is an
+ * {@link AsyncCall} rather than a `Call` — the lift builds a promise
+ * whatever it was handed, including for a Call that settled synchronously.
  *
  * That promise is a plain one, so the lifted Call is not cancellable even when
  * the Call it lifts is: the AbortablePromise is created inside, leaving the
@@ -32,8 +29,8 @@ import { resultify as resultifyPromise } from '../promise/index.js'
  * Curryable: supply `call` to lift it immediately, or omit it for a Mapper
  * that lifts any Call.
  *
- * Type parameters are ordered `<O, E, I>` so that the two shared with
- * `promise/resultify<O, E>` keep their positions.
+ * Type parameters are ordered `<O, E, I>`, keeping the two shared with
+ * `promise/resultify<O, E>` in position.
  */
 export function resultify<O = void, E extends Error = Error, I = void>(
   mapRejection: Mapper<unknown, Result<O, E>>,
@@ -55,12 +52,10 @@ export function resultify<O = void, E extends Error = Error, I = void>(
 }
 
 /**
- * Invokes a Call and normalises everything it can do into one `Promise<O>`.
- * The Promise constructor does all three jobs at once: `resolve` adopts a
- * returned promise and wraps a returned value — which is exactly the
- * `O | Promise<O>` a Call may return — and an executor that throws rejects the
- * promise it was building, which is what turns a synchronous failure into a
- * rejection the single `mapRejection` above can handle.
+ * Invokes a Call and normalises everything it can do into one `Promise<O>`:
+ * `resolve` adopts a returned promise and wraps a returned value, and an
+ * executor that throws rejects the promise it was building — which turns a
+ * synchronous failure into a rejection `mapRejection` can handle.
  */
 function invoke<O, I>(call: Call<O, I>, input: I): Promise<O> {
   return new Promise<O>((resolve) => resolve(call(input)))

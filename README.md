@@ -28,9 +28,9 @@ Each module is a separate subpath export.
 | `/brand`           | `Brand`, `Branded`                                                                                                                                                                                                                 |
 | `/value-object`    | `Primitive`, `PrimitiveValueObject`, `definePrimitiveValueObject`                                                                                                                                                                  |
 | `/domain`          | `Entity`, `CompoundValueObject`, `DTOSource`, `DomainObjectFactory`                                                                                                                                                                |
-| `/intern-registry` | `InternRegistry`                                                                                                                                                                                                                   |
+| `/intern-registry` | `InternRegistry`, `internByKey`                                                                                                                                                                                                    |
 | `/fn`              | `Fn`, `Mapper`, `CurryableMapper`, `compose`, `pipe`, `curry`, `identity`, `constant`                                                                                                                                              |
-| `/promise`         | `AbortablePromise`, `AbortContext`, `RejectionError`, `resultify`, `fail`, `recoverWith`, `State` with its constructors and guards, `settledResult`, `stateOf`                                                                     |
+| `/promise`         | `AbortablePromise`, `AbortContext`, `RejectionError`, `resultify`, `fail`, `recoverWith`, `State` with its constructors and guards, `settledResult`, `stateOf`, `TrackedState`                                                     |
 | `/promise/fake`    | `fakePromise`, `fakeAbortablePromise`                                                                                                                                                                                              |
 | `/call`            | `Call`, `AsyncCall`, `AbortableCall`, `abortable`, `resultify`                                                                                                                                                                     |
 | `/abort`           | `AbortError`, `isAbortError`, `ABORT_ERROR_NAME`                                                                                                                                                                                   |
@@ -90,8 +90,8 @@ the same way, up to ten Mappers:
 ```ts
 import { compose } from '@lhellemons/ground-types/fn'
 
-const parseLabel = compose(shout, stringify, double)
-parseLabel(21) // same as shout(stringify(double(21)))
+const shoutLabel = compose(shout, stringify, double)
+shoutLabel(21) // same as shout(stringify(double(21)))
 ```
 
 See [docs/adr/0004-pipe-value-first.md](./docs/adr/0004-pipe-value-first.md)
@@ -162,21 +162,23 @@ merely happens to be Error-shaped.
 
 ## Status
 
-v0.2.x. `maybe` and `result` now offer a matching combinator set — `map`
-and `andThen`, eager `orElse` and lazy `fallback`, and a bridge each way
-between the two modules (`maybe/fromResult`, `result/fromMaybe`) — and
-every export carries a docblock. The match is deliberate rather than
-mechanical, and so are its two exceptions: `maybe/andThen` is a true alias
-of `maybe/map`, because a `Maybe` cannot nest, whereas `result/andThen` is
-genuinely distinct from `result/map`, because a `Result` can; and
-`result/mapError` has no `maybe` counterpart, because `Nothing` carries
-nothing to transform. See
+v0.2.x, plus a batch of unreleased work on `main`. `maybe` and `result`
+offer a matching combinator set — `map` and `andThen`, eager `orElse` and
+lazy `fallback`, and a bridge each way between the two modules
+(`maybe/fromResult`, `result/fromMaybe`) — and every export carries a
+docblock. The match is deliberate rather than mechanical, and so are its
+two exceptions: `maybe/andThen` is a true alias of `maybe/map`, because a
+`Maybe` cannot nest, whereas `result/andThen` is genuinely distinct from
+`result/map`, because a `Result` can; and `result/mapError` has no `maybe`
+counterpart, because `Nothing` carries nothing to transform. See
 [docs/adr/0001-unboxed-maybe-and-result.md](./docs/adr/0001-unboxed-maybe-and-result.md)
 for the rationale behind the encoding and these symmetry choices.
 
 Unreleased on `main`: an asynchrony layer — `/promise`, `/call` and
-`/abort` — built on the same primitives, and a `/fn` grown to hold the
-whole function vocabulary. Two things to know about it:
+`/abort` — built on the same primitives, a `/fn` grown to hold the whole
+function vocabulary, and a rounding-out of the primitives themselves
+(`result/mapError`, `maybe/fromNullable`, the root entry point). Two
+things to know about it:
 
 - **Abort propagates upstream.** Aborting a promise derived through
   `then` aborts the one it came from, so cancelling the tail of a chain

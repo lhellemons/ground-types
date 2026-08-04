@@ -4,12 +4,11 @@ import { AbortError } from '../abort/index.js'
  * What an {@link AbortablePromise}'s executor receives as its third argument,
  * so it can react to the promise being aborted.
  *
- * `signal` is a property rather than an argument because it is realised
- * lazily: the underlying `AbortController` — and the `EventTarget` inside it —
- * is allocated the first time something reads this, and never for a promise
- * whose executor does not care. Reading it always yields the same real
- * `AbortSignal`, so `instanceof` and every platform API that takes one still
- * work.
+ * `signal` is realised lazily: the underlying `AbortController` is allocated
+ * the first time something reads it, and never for a promise whose executor
+ * does not care (see docs/adr/0002-abort-propagation.md). Reading it always
+ * yields the same real `AbortSignal`, so `instanceof` and every platform API
+ * that takes one still work.
  */
 export interface AbortContext {
   readonly signal: AbortSignal
@@ -20,9 +19,9 @@ export interface AbortContext {
  * so that it exists before `super()` is called and can therefore be reached
  * from inside the Promise executor.
  *
- * This object is handed to the executor as its {@link AbortContext}, which is
- * why it allocates nothing extra. The context type exposes only `signal`, so
- * the rest of this surface is not reachable through it in TypeScript.
+ * This object is handed to the executor as its {@link AbortContext}; the
+ * context type exposes only `signal`, so the rest of this surface is not
+ * reachable through it in TypeScript.
  */
 class AbortState {
   #controller?: AbortController
@@ -74,19 +73,9 @@ class AbortState {
 
   /**
    * Aborts this promise when `signal` fires, and stops listening once this
-   * promise settles — whichever comes first.
-   *
-   * The release is the point. A signal may outlive by far the promises bound
-   * to it, and each binding that is never released pins its listener, its
-   * closure and this whole object for the signal's lifetime; binding many
-   * short-lived promises to one long-lived signal is an ordinary thing to do
-   * and used to accumulate all of them.
-   *
-   * Releasing is safe here, and only here, because this object *is* the
-   * settlement bookkeeping — {@link claimSettlement} and {@link abort} are the
-   * moments themselves, not observations of them. Attaching a promise handler
-   * to learn the same thing would mark the promise handled, and either
-   * suppress a real unhandled-rejection report or manufacture a spurious one.
+   * promise settles — whichever comes first. Releasing from inside the
+   * settlement bookkeeping is what keeps the promise's handled-ness
+   * untouched; see docs/adr/0002-abort-propagation.md.
    */
   watchSignal(signal: AbortSignal): void {
     if (signal.aborted) {
@@ -131,14 +120,10 @@ class AbortState {
 
   /**
    * Registers a callback for when this promise is aborted. Used for the
-   * upstream link from a derived promise to its source, in place of a listener
-   * on a signal — which would force a controller into existence for every link
-   * of every chain.
-   *
-   * A link registered after the abort has already happened fires at once. That
-   * is not a corner case: an executor may call `resolve` with a promise long
-   * after its own promise was aborted, and the delegate it hands over is only
-   * cancelled because linking late still reaches it.
+   * upstream link from a derived promise to its source, in place of a
+   * listener on a signal — so linking never forces a controller into
+   * existence. A link registered after the abort has already happened fires
+   * at once (see docs/adr/0002-abort-propagation.md).
    */
   link(onAbort: () => void): void {
     if (this.#aborted) {
@@ -173,9 +158,8 @@ class AbortState {
 
 /**
  * True when `value` is a thenable, and so something a promise resolves *to*
- * rather than settles *with*. The same test the promise resolution procedure
- * makes, and made here for the same reason: a resolution that delegates has
- * not settled yet.
+ * rather than settles *with* — the same test the promise resolution
+ * procedure makes.
  */
 function isThenable<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
   return (
@@ -194,8 +178,7 @@ function isThenable<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
  *
  * Resolving with a promise is not settling. An executor that delegates —
  * `new AbortablePromise((resolve) => resolve(fetchThing()))` — stays abortable
- * until the promise it delegated to settles, which is what makes wrapping
- * asynchronous work in one worth doing.
+ * until the promise it delegated to settles.
  *
  * The executor can react to the abort through the {@link AbortContext} it
  * receives as a third argument.
@@ -205,9 +188,8 @@ function isThenable<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
  * one unit and cancelling the tail really does cancel the work at the head.
  * Delegation is upstream too — aborting the outer promise in
  * `new AbortablePromise((resolve) => resolve(work()))` aborts `work()` when
- * `work()` returned an AbortablePromise, since that is where the work being
- * cancelled actually is. A delegate that is a plain Promise is left alone;
- * there is nothing on it to abort.
+ * `work()` returned an AbortablePromise. A delegate that is a plain Promise
+ * is left alone; there is nothing on it to abort.
  * The consequence to know about is that two chains branched off one source
  * share that source, so aborting either branch aborts the other. Use
  * {@link AbortablePromise.detach} at the branch point when that is not what
@@ -280,18 +262,11 @@ export class AbortablePromise<T> extends Promise<T> {
   }
 
   /**
-   * Extends this class's upstream propagation to fan-in: aborting the combined
-   * promise aborts every member that can be aborted.
-   *
-   * Without this the inherited combinators would hand back something that has
-   * an `abort()`, typechecks, runs, and leaves every member going — an abort
-   * that silently does nothing, which is worse than one that is absent.
-   *
-   * Members that are plain Promises are skipped: there is nothing to abort.
-   * Losers are *not* aborted when one member settles first, including in
-   * `race`. Settling first says the result is no longer needed, not that the
-   * remaining work should be cancelled, and cancelling work with side effects
-   * on the caller's behalf is not this method's decision to make.
+   * Extends this class's upstream propagation to fan-in: aborting the
+   * combined promise aborts every member that can be aborted. Members that
+   * are plain Promises are skipped, and losers are *not* aborted when one
+   * member settles first, including in `race` (see
+   * docs/adr/0002-abort-propagation.md).
    */
   static #abortMembersWith(
     combined: AbortablePromise<unknown>,
@@ -307,11 +282,9 @@ export class AbortablePromise<T> extends Promise<T> {
   }
 
   /**
-   * Each combinator mirrors `Promise`'s own overload pair — a tuple form that
-   * keeps each member's type in position, and an iterable form for a
-   * homogeneous collection. Declaring only the iterable form would make
-   * `AbortablePromise.all([promiseOfA, promiseOfB])` a type error rather than
-   * a tuple, which is the single most common way these are called.
+   * Each combinator mirrors `Promise`'s own overload pair — a tuple form
+   * that keeps each member's type in position, and an iterable form for a
+   * homogeneous collection.
    */
   static all<T extends readonly unknown[] | []>(
     values: T,
@@ -379,11 +352,10 @@ export class AbortablePromise<T> extends Promise<T> {
    * @param controller If given, this AbortablePromise is governed by that
    * controller rather than one of its own. Aborting the promise then aborts
    * the passed controller too, and so everything else it governs — which cuts
-   * both ways: a controller is a shared thing, and handing one in is handing
-   * over the right to reject this promise from anywhere else that holds it.
-   * The listener this costs on the controller's signal is removed when this
-   * promise settles, exactly as {@link AbortablePromise.abortOn}'s is, so a
-   * long-lived controller does not collect one per promise it ever governed.
+   * both ways: handing a controller in is handing over the right to reject
+   * this promise from anywhere else that holds it. The listener this costs
+   * on the controller's signal is removed when this promise settles, as
+   * {@link AbortablePromise.abortOn}'s is.
    */
   constructor(
     executor: (
@@ -477,11 +449,9 @@ export class AbortablePromise<T> extends Promise<T> {
    * unhandled rejection waiting for the signal — fatal in Node. Bind promises
    * you go on to await or catch, not ones you start and forget.
    *
-   * The listener is registered `{ once: true }` and removed again when this
-   * promise settles, so binding many short-lived promises to one long-lived
-   * signal does not accumulate listeners on it. Nothing observes the
-   * settlement to do that: the release happens inside the bookkeeping that
-   * *decides* settlement, so no rejection handler is attached and this
+   * The listener is removed again when this promise settles, so binding many
+   * short-lived promises to one long-lived signal does not accumulate
+   * listeners on it — and no rejection handler is attached to do it, so this
    * promise's handled-ness is untouched.
    */
   abortOn(signal: AbortSignal): AbortablePromise<T> {
@@ -498,12 +468,11 @@ export class AbortablePromise<T> extends Promise<T> {
    *
    * Reach for this at a branch point, where two consumers share one source and
    * neither should be able to cancel the other.
-   *
-   * Implemented via `super.then`, which bypasses this class's `then` override
-   * and so constructs the derived promise through the species constructor
-   * without the upstream link that override adds.
    */
   detach(): AbortablePromise<T> {
+    // super.then bypasses this class's `then` override, constructing the
+    // derived promise through the species constructor without the upstream
+    // link that override adds.
     return super.then() as AbortablePromise<T>
   }
 
@@ -518,8 +487,8 @@ export class AbortablePromise<T> extends Promise<T> {
    * {@link AbortablePromise.detach} if the two lifetimes should be separate
    * after all.
    *
-   * Unlike `then`, this forces a controller into existence, since sharing one
-   * is the whole point.
+   * Unlike `then`, this forces a controller into existence — sharing one is
+   * what a peer is.
    */
   peer<U>(
     executor: (

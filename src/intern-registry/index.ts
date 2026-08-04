@@ -37,12 +37,10 @@ export class InternRegistry<K, V> {
 
 /**
  * Interns a {@link CompoundValueObject} in `registry` under `key`, the same
- * `key` the created value must carry as its own `key` — connecting
- * `InternRegistry` to `CompoundValueObject` so the two can never drift
- * apart. Throws if `create` returns a value keyed differently than `key`.
- * Sameness is checked with the same SameValueZero semantics `Map` (and so
- * `InternRegistry`) already uses for `K`, so a `key` of `NaN` compares equal
- * to itself instead of always mismatching.
+ * `key` the created value must carry as its own `key`; throws if `create`
+ * returns a value keyed differently. Sameness is checked with the same
+ * SameValueZero semantics `Map` (and so `InternRegistry`) uses for `K`, so
+ * a `key` of `NaN` compares equal to itself.
  */
 export function internByKey<K, V extends CompoundValueObject<K>>(
   registry: InternRegistry<K, V>,
