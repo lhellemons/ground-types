@@ -1,5 +1,6 @@
 import type { Maybe } from '../maybe/index.js'
-import type { Mapper } from '../fn/index.js'
+import { curry } from '../fn/index.js'
+import type { CurryableMapper, Mapper } from '../fn/index.js'
 
 declare const _phantom: unique symbol
 
@@ -92,13 +93,31 @@ export function result<T, E extends Error = Error>(value: T | E): Result<T, E> {
   return value as unknown as Result<T, E>
 }
 
-/** Wraps a known-good value as a {@link Success}. */
+/**
+ * Wraps a known-good value as a {@link Success}. Value-first: the single
+ * explicit type argument a caller writes — `success<Widget>(w)` — names the
+ * value being wrapped. See {@link failure} for why the two constructors
+ * order their parameters differently, on purpose.
+ */
 export function success<T, E extends Error = Error>(value: T): Success<T, E> {
   return value as Success<T, E>
 }
 
-/** Wraps a known error as a {@link Failure}. */
-export function failure<T, E extends Error = Error>(error: E): Failure<T, E> {
+/**
+ * Wraps a known error as a {@link Failure}. Error-first: the type
+ * parameters are ordered `<E, T>`, the reverse of {@link success} and of
+ * the `Result`/`Failure` types themselves, because the single explicit
+ * type argument a caller plausibly writes — `failure<MyError>(e)` — names
+ * the error being wrapped. Under the previous `<T, E>` order that spelling
+ * silently bound the *success* type instead, yielding
+ * `Failure<MyError, Error>`: the named error class quietly demoted to
+ * plain `Error`, with no diagnostic. The asymmetry between the two
+ * constructors is deliberate: each puts the type its caller actually has
+ * in hand first, and leaves the phantom channel defaulted.
+ */
+export function failure<E extends Error = Error, T = unknown>(
+  error: E,
+): Failure<T, E> {
   return error
 }
 
@@ -184,7 +203,29 @@ export class ThrownError<T = unknown> extends Error {
  * so `tryCatch` cannot catch it: the returned promise rejects unhandled
  * while {@link isSuccess} reports `true` on it. Lift an async operation with
  * `promise/resultify` or `call/resultify` instead.
+ *
+ * Two overloads, split so the default handler is sound. `tryCatch(fn)`
+ * fixes `E = Error`, which is precisely what the default handler can
+ * honour: the `Error` as thrown, or a {@link ThrownError} around anything
+ * else. `tryCatch(fn, handler)` is generic in `E`, because there the
+ * handler is the caller's own promise to produce that `E`. Under the old
+ * single signature the two were not tied together — `E` could be named
+ * explicitly while the handler was left off, and the default's cast then
+ * passed a thrown `TypeError` off as `Failure<T, MyError>`, a documented
+ * unsound corner. Naming `E` without supplying a handler is now a compile
+ * error: no overload takes three type arguments and one value argument.
  */
+export function tryCatch<T extends NotAPromise<T>, Args extends unknown[]>(
+  fn: (...args: Args) => T,
+): (...args: Args) => Result<T, Error>
+export function tryCatch<
+  T extends NotAPromise<T>,
+  Args extends unknown[],
+  E extends Error = Error,
+>(
+  fn: (...args: Args) => T,
+  errorHandler: Mapper<unknown, Result<T, E>>,
+): (...args: Args) => Result<T, E>
 export function tryCatch<
   T extends NotAPromise<T>,
   Args extends unknown[],
@@ -192,8 +233,10 @@ export function tryCatch<
 >(
   fn: (...args: Args) => T,
   errorHandler: Mapper<unknown, Result<T, E>> = (error) =>
-    // Cast for the same reason the previous default cast: `E` is the caller's
-    // to name, and the default cannot know which subclass it was promised.
+    // The implementation signature is still generic in `E`, so the default
+    // still needs the cast — but the handler-less overload above pins
+    // `E = Error` at every call site that can reach it, which is what the
+    // cast then truthfully claims.
     (error instanceof Error ? error : new ThrownError(error)) as Failure<T, E>,
 ): (...args: Args) => Result<T, E> {
   return function (...args: Args) {
@@ -282,24 +325,120 @@ export type NotAResult<R> = [R] extends [Error]
  * any callback whose return type has an `Error` arm or is a `Promise`. Use
  * {@link andThen} to chain a second fallible step, or resolve an async one
  * first — see {@link NotAResult}.
+ *
+ * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
+ * by arity, never by inspecting the value (see docs/adr/0003-currying.md).
+ * The unapplied form stays *generic*: `T` and `E` bind at the eventual
+ * application, not at `map(fn)`, so one `map(double)` slots into chains over
+ * any error type without re-annotation. The applied form binds them from
+ * `value` directly.
  */
+export function map<A, U extends NotAResult<U>, T extends A, E extends Error>(
+  fn: (value: A) => U,
+  value: Result<T, E>,
+): Result<U, E>
 export function map<A, U extends NotAResult<U>>(
   fn: (value: A) => U,
-): <T extends A, E extends Error = Error>(value: Result<T, E>) => Result<U, E> {
-  return <T extends A, E extends Error = Error>(value: Result<T, E>) =>
-    (isSuccess(value) ? result(fn(value)) : value) as unknown as Result<U, E>
+): <T extends A, E extends Error = Error>(value: Result<T, E>) => Result<U, E>
+export function map<A, U extends NotAResult<U>, T extends A, E extends Error>(
+  fn: (value: A) => U,
+  ...value: [] | [Result<T, E>]
+): CurryableMapper<Result<T, E>, Result<U, E>> {
+  return curry(
+    (value: Result<T, E>) =>
+      (isSuccess(value) ? result(fn(value)) : value) as unknown as Result<U, E>,
+    ...value,
+  )
+}
+
+/**
+ * Applies `fn` to a `Failure`'s `Error`, passing a `Success` through
+ * unchanged — {@link map}'s dual, over the other channel. Before this
+ * existed the failure channel could only be *erased*: {@link orElse} and
+ * {@link fallback} both end a chain by turning a `Failure` into a
+ * `Success`, so there was no way to translate a factory's error into the
+ * caller's own domain error and keep the chain going as a `Result`.
+ *
+ * `fn` shares the handler vocabulary of {@link tryCatch}'s `errorHandler`
+ * and `promise/resultify`'s rejection mapper: it returns a whole `Result`,
+ * not just an `Error`. A bare `F` already satisfies that — `Failure<T, F>`
+ * is `F` intersected with an optional phantom, so every `Error` is already
+ * a `Result` — which makes pure translation the simple case:
+ *
+ * ```ts
+ * mapError((error: FetchError) => new WidgetError(error))
+ * ```
+ *
+ * and recovery (returning a `Success`) available without a second
+ * combinator, exactly as it is in those handlers. {@link ValueOf} and
+ * {@link ErrorOf} keep the arms precise: a translating callback yields
+ * `Result<T, F>`, a recovering one drops the error type it recovered from.
+ *
+ * `fn` must resolve synchronously — see {@link NotAPromise}.
+ *
+ * `/maybe` deliberately has no counterpart: `Nothing` carries nothing to
+ * transform, which is the same reason `maybe/assertJust` takes a message
+ * where `result/assertSuccess` rethrows the carried `Error`.
+ *
+ * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
+ * by arity, never by inspecting the value (see docs/adr/0003-currying.md).
+ * Like {@link map}, the unapplied form stays generic: `T` and `E` bind at
+ * the eventual application.
+ */
+export function mapError<
+  A extends Error,
+  R extends NotAPromise<R>,
+  T,
+  E extends A,
+>(fn: (error: A) => R, value: Result<T, E>): Result<T | ValueOf<R>, ErrorOf<R>>
+export function mapError<A extends Error, R extends NotAPromise<R>>(
+  fn: (error: A) => R,
+): <T, E extends A>(value: Result<T, E>) => Result<T | ValueOf<R>, ErrorOf<R>>
+export function mapError<
+  A extends Error,
+  R extends NotAPromise<R>,
+  T,
+  E extends A,
+>(
+  fn: (error: A) => R,
+  ...value: [] | [Result<T, E>]
+): CurryableMapper<Result<T, E>, Result<T | ValueOf<R>, ErrorOf<R>>> {
+  return curry(
+    (value: Result<T, E>) =>
+      (isFailure(value) ? fn(value) : value) as unknown as Result<
+        T | ValueOf<R>,
+        ErrorOf<R>
+      >,
+    ...value,
+  )
 }
 
 /**
  * Lazy recovery from a `Failure`: `fn` receives the `Failure` and must
  * produce a `Success`, so the result is always a `Success`. Passes an
  * existing `Success` through without calling `fn`. Eager counterpart:
- * {@link orElse}.
+ * {@link orElse}. To transform the error while staying in the failure
+ * channel, use {@link mapError}.
+ *
+ * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
+ * by arity, never by inspecting the value (see docs/adr/0003-currying.md).
  */
+export function fallback<T, E extends Error>(
+  fn: (error: Failure<T, E>) => Success<T, E>,
+  value: Result<T, E>,
+): Success<T, E>
 export function fallback<T, E extends Error = Error>(
   fn: (error: Failure<T, E>) => Success<T, E>,
-): (value: Result<T, E>) => Success<T, E> {
-  return (value: Result<T, E>) => (isSuccess(value) ? value : fn(value))
+): (value: Result<T, E>) => Success<T, E>
+export function fallback<T, E extends Error>(
+  fn: (error: Failure<T, E>) => Success<T, E>,
+  ...value: [] | [Result<T, E>]
+): CurryableMapper<Result<T, E>, Success<T, E>> {
+  return curry(
+    (value: Result<T, E>): Success<T, E> =>
+      isSuccess(value) ? value : fn(value),
+    ...value,
+  )
 }
 
 /**
@@ -307,12 +446,26 @@ export function fallback<T, E extends Error = Error>(
  * `Failure`, discarding the error. `defaultValue` is not lazily computed —
  * reach for `fallback` when producing it has a cost worth avoiding on the
  * `Success` path.
+ *
+ * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
+ * by arity, never by inspecting the value (see docs/adr/0003-currying.md).
  */
+export function orElse<T, E extends Error>(
+  defaultValue: T,
+  value: Result<T, E>,
+): Success<T, E>
 export function orElse<T, E extends Error = Error>(
   defaultValue: T,
-): (value: Result<T, E>) => Success<T, E> {
-  return (value: Result<T, E>) =>
-    isSuccess(value) ? value : success(defaultValue)
+): (value: Result<T, E>) => Success<T, E>
+export function orElse<T, E extends Error>(
+  defaultValue: T,
+  ...value: [] | [Result<T, E>]
+): CurryableMapper<Result<T, E>, Success<T, E>> {
+  return curry(
+    (value: Result<T, E>): Success<T, E> =>
+      isSuccess(value) ? value : success<T, E>(defaultValue),
+    ...value,
+  )
 }
 
 /**
@@ -325,8 +478,15 @@ export function orElse<T, E extends Error = Error>(
  * itself an unresolved `Promise`. Names the sanctioned lift as the fix —
  * resolve with `promise/resultify` or `call/resultify` first, then compose
  * with `.then()`, as documented in the README's "asynchrony layer" section.
+ *
+ * Exported both so its exact wording can be pinned by type-level tests and
+ * for `maybe/map`, which runs synchronously over an unboxed encoding in
+ * exactly the same way and would otherwise let an `async` callback mint a
+ * `Just` that is an unresolved `Promise`. The import is type-only, so the
+ * maybe/result boundary stays free of a runtime cycle
+ * (see docs/adr/0001-unboxed-maybe-and-result.md).
  */
-type NotAPromise<R> =
+export type NotAPromise<R> =
   HasThenableArm<R> extends true
     ? 'This callback returns a Promise (or thenable) — resolve it first with promise/resultify or call/resultify, then compose with .then()'
     : unknown
@@ -341,17 +501,40 @@ type NotAPromise<R> =
  * this is genuinely distinct from `map`, not an alias of it.
  *
  * `fn` must resolve synchronously — see {@link NotAPromise}.
+ *
+ * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
+ * by arity, never by inspecting the value (see docs/adr/0003-currying.md).
+ * Like {@link map}, the unapplied form stays generic — `T` and `E` bind at
+ * the eventual application — and the applied form binds them from `value`.
  */
+export function andThen<
+  A,
+  R extends NotAPromise<R>,
+  T extends A,
+  E extends Error,
+>(fn: (value: A) => R, value: Result<T, E>): Result<ValueOf<R>, E | ErrorOf<R>>
 export function andThen<A, R extends NotAPromise<R>>(
   fn: (value: A) => R,
 ): <T extends A, E extends Error = Error>(
   value: Result<T, E>,
-) => Result<ValueOf<R>, E | ErrorOf<R>> {
-  return <T extends A, E extends Error = Error>(value: Result<T, E>) =>
-    (isSuccess(value) ? fn(value) : value) as unknown as Result<
-      ValueOf<R>,
-      E | ErrorOf<R>
-    >
+) => Result<ValueOf<R>, E | ErrorOf<R>>
+export function andThen<
+  A,
+  R extends NotAPromise<R>,
+  T extends A,
+  E extends Error,
+>(
+  fn: (value: A) => R,
+  ...value: [] | [Result<T, E>]
+): CurryableMapper<Result<T, E>, Result<ValueOf<R>, E | ErrorOf<R>>> {
+  return curry(
+    (value: Result<T, E>) =>
+      (isSuccess(value) ? fn(value) : value) as unknown as Result<
+        ValueOf<R>,
+        E | ErrorOf<R>
+      >,
+    ...value,
+  )
 }
 
 /**
@@ -359,15 +542,36 @@ export function andThen<A, R extends NotAPromise<R>>(
  * becomes a `Failure` carrying the supplied `error`. Reach for this at the
  * point an absent value needs to be reported as a specific failure reason
  * rather than silently propagated as `Nothing`.
+ *
+ * Curryable: supply `value` to apply now, or omit it for a Mapper. Arity is
+ * doubly load-bearing here: the value being bridged is a `Maybe`, so
+ * `fromMaybe(error, nothing())` passes `undefined` as a real argument and
+ * must produce the `Failure`, not hand back the Mapper (see
+ * docs/adr/0003-currying.md).
+ *
+ * The applied form's `value` is spelled `T | undefined` rather than
+ * `Maybe<T>` — the same type for any admissible `T`, but a spelling the
+ * compiler can infer `T` from; see `maybe/map` for the full rationale.
  */
+export function fromMaybe<T, E extends Error>(
+  error: E,
+  value: T | undefined,
+): Result<T, E>
 export function fromMaybe<T, E extends Error = Error>(
   error: E,
-): (value: Maybe<T>) => Result<T, E> {
+): (value: Maybe<T>) => Result<T, E>
+export function fromMaybe<T, E extends Error>(
+  error: E,
+  ...value: [] | [Maybe<T>]
+): CurryableMapper<Maybe<T>, Result<T, E>> {
   // Inlined rather than calling `isNothing` from ../maybe: that guard is a
   // runtime import, and this bridge must stay type-only across the
   // maybe/result boundary or the two modules form a real import cycle
   // (see docs/adr/0001-unboxed-maybe-and-result.md).
-  return (value: Maybe<T>) =>
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Maybe<T>'s conditional can't reduce for generic T; see maybe/isJust
-    (value === undefined ? failure(error) : success(value)) as Result<T, E>
+  return curry(
+    (value: Maybe<T>) =>
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Maybe<T>'s conditional can't reduce for generic T; see maybe/isJust
+      (value === undefined ? failure(error) : success(value)) as Result<T, E>,
+    ...value,
+  )
 }

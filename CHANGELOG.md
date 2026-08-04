@@ -43,6 +43,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   platform already provides, resolved before anything inspects it — it does
   not erode the "a `Success` can never be an `Error`" guarantee.
 
+- **Breaking:** `maybe/map` (and `andThen`, its true alias) now rejects a
+  callback whose return type has a thenable arm, exactly as `result/map`
+  already did. `map(async (n) => ...)` compiled and produced
+  `Maybe<Promise<string>>` — a `Just` that is an unresolved `Promise`,
+  present whatever it eventually settles to — because nothing in `/maybe`
+  asserted that a value resolves synchronously. The guard is `/result`'s
+  own `NotAPromise`, now exported and imported type-only so the
+  maybe/result boundary stays free of a runtime cycle, and it surfaces
+  the identical diagnostic naming the sanctioned fix: resolve with
+  `promise/resultify` or `call/resultify` first, then compose with
+  `.then()`.
+- `maybe/fromNullable` — the boundary helper for null-convention APIs,
+  folding both `null` and `undefined` to `Nothing`. The encoding knows
+  exactly one absence — `Nothing` _is_ `undefined` — so to `maybe()` a
+  `null` is a value and becomes a `Just`: a trap for the stated boundary
+  use-case, since half the platform signals absence with `null`
+  (`querySelector`, `RegExp.prototype.exec`, a JSON field). The `null` is
+  folded away rather than carried — the return type is
+  `Maybe<NonNullable<T>>` — so downstream code never sees a null again
+  and the one-absence encoding stays clean. `maybe()` itself is
+  unchanged: only `undefined` is Nothing to it.
+- **Breaking:** `result/tryCatch` is split into two overloads so its
+  default handler is sound. `tryCatch(fn)` fixes `E = Error` — exactly
+  what the default handler can honour: the `Error` as thrown, or a
+  `ThrownError` around anything else — while `tryCatch(fn, handler)`
+  stays generic in `E`, where the handler is the caller's own promise to
+  produce that `E`. Under the single signature, `E` could be named
+  explicitly with the handler omitted, and the default's documented
+  unsound cast then passed a thrown `TypeError` off as
+  `Failure<T, MyError>`. That spelling — three type arguments, one value
+  argument — no longer matches any overload; supply the handler that
+  produces the named error, or drop the type arguments.
+- `maybe/Just` and `maybe/Nothing` default their type parameter to
+  `unknown`, so the case names can be written bare in an annotation. A
+  bare `Nothing` is exactly `undefined`; a bare `Just` is plain `unknown`
+  — "present, type unstated" as a reading for humans, since the default
+  cannot exclude `undefined` without knowing `T`. `Maybe` deliberately
+  keeps its required argument: a bare `Maybe` would evaluate to plain
+  `unknown`, an annotation claiming "may be absent" that the checker
+  holds you to nothing on.
+- **Breaking:** `result/failure`'s type parameters are reordered from
+  `<T, E extends Error>` to `<E extends Error, T = unknown>`. The single
+  explicit type argument a caller plausibly writes — `failure<MyError>(e)`
+  — used to bind the _success_ type, silently yielding
+  `Failure<MyError, Error>`: the named error class demoted to plain
+  `Error`, with no diagnostic. It now binds the error, and a non-`Error`
+  first argument is a compile error rather than a quiet mis-bind. Call
+  sites that named both parameters swap them
+  (`failure<number, E>` → `failure<E, number>`); call sites with no type
+  arguments are unaffected. `success<T, E>` keeps its value-first order —
+  the asymmetry is deliberate and documented on both constructors: each
+  puts the type its caller actually has in hand first.
+- `result/mapError` — `map`'s dual over the failure channel: applies a
+  callback to a `Failure`'s `Error` and passes a `Success` through, so a
+  factory's error can be translated into the caller's domain error
+  _inside_ a chain. Previously the failure channel could only be erased —
+  `orElse` and `fallback` both end in a `Success` — while `tryCatch` and
+  `resultify`'s handlers could re-fail; the two vocabularies were
+  inconsistent. The callback shares those handlers' shape: it returns a
+  whole `Result`, so a bare `Error` is pure translation and a `Success`
+  recovers, with the inferred error type tracking exactly which arms the
+  callback actually has. Curryable like the rest, and guarded by
+  `NotAPromise`. `/maybe` deliberately has no counterpart: `Nothing`
+  carries nothing to transform.
+- Every config-taking combinator in `maybe` (`map`, `andThen`, `orElse`,
+  `fallback`) and `result` (`map`, `andThen`, `orElse`, `fallback`,
+  `fromMaybe`) is now curryable: `map(fn)` still returns a unary Mapper,
+  and `map(fn, value)` applies it immediately. This closes the split
+  calling convention ADR-0003 recorded — `promise/resultify(fail,
+promise)` was curryable while `result/map(fn)` was not — so the whole
+  library now reads one way. Which shape a call is in is decided by
+  arity, never by inspecting the value: `Nothing` _is_ `undefined`, so
+  `map(fn, nothing())` applies rather than handing back the Mapper.
+  Existing call sites are unaffected; the unapplied forms of `result/map`
+  and `result/andThen` still return generic functions whose `T`/`E` bind
+  at application, pinned by type-level tests. See
+  [docs/adr/0003-currying.md](./docs/adr/0003-currying.md).
+
 An asynchrony layer, ported from another project and reworked to fit this
 library. No release cut; see
 [docs/adr/0002-abort-propagation.md](./docs/adr/0002-abort-propagation.md)

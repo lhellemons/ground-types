@@ -92,3 +92,22 @@ no longer has a deferred form, so the curry-arity trap this ADR fixed no
 longer applies to it specifically; `curry` and `CurryableMapper`
 themselves, and their use in `promise/resultify`/`call/resultify`, are
 unchanged.
+
+**Update, 2026-08-04:** the retrofit this ADR deferred has landed. Every
+config-taking combinator in `maybe` (`map`, `andThen`, `orElse`,
+`fallback`) and `result` (`map`, `andThen`, `orElse`, `fallback`,
+`fromMaybe`) now offers the dual calling shape, via the same
+applied-form-first overload pair over `curry` with a `[] | [T]` rest
+tuple, so the whole library reads one way. Two things the retrofit
+surfaced, both anticipated above as "will need watching for inference
+regressions":
+
+- `result/map` and `result/andThen`'s unapplied forms return _generic_
+  functions — `T` and `E` bind at application, not at `map(fn)`. The
+  applied overloads bind them from the supplied value instead, and
+  type-level tests pin that neither form lost inference quality.
+- Inference into `Maybe<T>`'s conditional collapses when the argument is
+  statically `Nothing` (plain `undefined`), so the applied forms over a
+  `Maybe` spell their value parameter `T | undefined` — the same type for
+  any admissible `T`, and the same spelling `maybe()` itself uses at the
+  boundary.

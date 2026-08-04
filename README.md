@@ -21,19 +21,19 @@ Not published to npm yet.
 
 Each module is a separate subpath export.
 
-| Subpath            | Exports                                                                                                                                                                                                 |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/maybe`           | `Maybe`, `Just`, `Nothing`, `maybe`, `just`, `nothing`, `isJust`, `isNothing`, `orElse`, `fallback`, `map`, `andThen`, `assertJust`, `fromResult`                                                       |
-| `/result`          | `Result`, `Success`, `Failure`, `ThrownError`, `NotAResult`, `result`, `success`, `failure`, `isSuccess`, `isFailure`, `tryCatch`, `assertSuccess`, `map`, `fallback`, `orElse`, `andThen`, `fromMaybe` |
-| `/brand`           | `Brand`, `Branded`                                                                                                                                                                                      |
-| `/value-object`    | `Primitive`, `PrimitiveValueObject`, `definePrimitiveValueObject`                                                                                                                                       |
-| `/domain`          | `Entity`, `CompoundValueObject`, `DomainObjectDTO`, `DomainObjectFactory`                                                                                                                               |
-| `/intern-registry` | `InternRegistry`                                                                                                                                                                                        |
-| `/fn`              | `Fn`, `Mapper`, `CurryableMapper`, `compose`, `pipe`, `curry`, `identity`, `constant`                                                                                                                   |
-| `/promise`         | `AbortablePromise`, `AbortContext`, `RejectionError`, `resultify`, `fail`, `recoverWith`, `State` with its constructors and guards, `settledResult`, `stateOf`                                          |
-| `/promise/fake`    | `fakePromise`, `fakeAbortablePromise`                                                                                                                                                                   |
-| `/call`            | `Call`, `AsyncCall`, `AbortableCall`, `abortable`, `resultify`                                                                                                                                          |
-| `/abort`           | `AbortError`, `isAbortError`, `ABORT_ERROR_NAME`                                                                                                                                                        |
+| Subpath            | Exports                                                                                                                                                                                                                            |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/maybe`           | `Maybe`, `Just`, `Nothing`, `maybe`, `just`, `nothing`, `fromNullable`, `isJust`, `isNothing`, `orElse`, `fallback`, `map`, `andThen`, `assertJust`, `fromResult`                                                                  |
+| `/result`          | `Result`, `Success`, `Failure`, `ThrownError`, `NotAResult`, `NotAPromise`, `result`, `success`, `failure`, `isSuccess`, `isFailure`, `tryCatch`, `assertSuccess`, `map`, `mapError`, `fallback`, `orElse`, `andThen`, `fromMaybe` |
+| `/brand`           | `Brand`, `Branded`                                                                                                                                                                                                                 |
+| `/value-object`    | `Primitive`, `PrimitiveValueObject`, `definePrimitiveValueObject`                                                                                                                                                                  |
+| `/domain`          | `Entity`, `CompoundValueObject`, `DomainObjectDTO`, `DomainObjectFactory`                                                                                                                                                          |
+| `/intern-registry` | `InternRegistry`                                                                                                                                                                                                                   |
+| `/fn`              | `Fn`, `Mapper`, `CurryableMapper`, `compose`, `pipe`, `curry`, `identity`, `constant`                                                                                                                                              |
+| `/promise`         | `AbortablePromise`, `AbortContext`, `RejectionError`, `resultify`, `fail`, `recoverWith`, `State` with its constructors and guards, `settledResult`, `stateOf`                                                                     |
+| `/promise/fake`    | `fakePromise`, `fakeAbortablePromise`                                                                                                                                                                                              |
+| `/call`            | `Call`, `AsyncCall`, `AbortableCall`, `abortable`, `resultify`                                                                                                                                                                     |
+| `/abort`           | `AbortError`, `isAbortError`, `ABORT_ERROR_NAME`                                                                                                                                                                                   |
 
 ```ts
 import { andThen, isFailure } from '@lhellemons/ground-types/result'
@@ -67,7 +67,7 @@ maybe.map(...)
 
 ## Composing a chain of steps
 
-Every `maybe`/`result` combinator takes its configuration and returns a
+Given only its configuration, every `maybe`/`result` combinator returns a
 unary function, so a chain of them nests unless something unwinds it.
 `pipe`, from `/fn`, runs a value through a sequence of steps left to
 right, in the order the data actually flows:
@@ -100,8 +100,9 @@ for why `pipe` is shaped this way.
 ## The asynchrony layer composes with the primitives
 
 There is no `mapAsync`, no `AsyncResult`, and no second combinator set for
-asynchronous code. There does not need to be: every `Result` combinator is
-a unary function, so `.then` already composes with them.
+asynchronous code. There does not need to be: every `Result` combinator,
+given only its configuration, returns a unary function, so `.then` already
+composes with them.
 
 ```ts
 import { fail, resultify } from '@lhellemons/ground-types/promise'
@@ -164,10 +165,12 @@ merely happens to be Error-shaped.
 v0.2.x. `maybe` and `result` now offer a matching combinator set — `map`
 and `andThen`, eager `orElse` and lazy `fallback`, and a bridge each way
 between the two modules (`maybe/fromResult`, `result/fromMaybe`) — and
-every export carries a docblock. The names match, but one pair does not:
-`maybe/andThen` is a true alias of `maybe/map`, because a `Maybe` cannot
-nest, whereas `result/andThen` is genuinely distinct from `result/map`,
-because a `Result` can. See
+every export carries a docblock. The match is deliberate rather than
+mechanical, and so are its two exceptions: `maybe/andThen` is a true alias
+of `maybe/map`, because a `Maybe` cannot nest, whereas `result/andThen` is
+genuinely distinct from `result/map`, because a `Result` can; and
+`result/mapError` has no `maybe` counterpart, because `Nothing` carries
+nothing to transform. See
 [docs/adr/0001-unboxed-maybe-and-result.md](./docs/adr/0001-unboxed-maybe-and-result.md)
 for the rationale behind the encoding and these symmetry choices.
 
@@ -181,12 +184,14 @@ whole function vocabulary. Two things to know about it:
   branches off one source can abort each other; `detach()` severs that
   link at a branch point. See
   [docs/adr/0002-abort-propagation.md](./docs/adr/0002-abort-propagation.md).
-- **The new modules are curryable, the old ones are not yet.**
+- **The whole library is curryable, decided by arity.**
   `promise/resultify(fail, promise)` and `promise/resultify(fail)` are
-  both valid, while `result/map(fn)` still only returns a function.
-  Retrofitting `maybe` and `result` is intended, and recorded in
-  [docs/adr/0003-currying.md](./docs/adr/0003-currying.md) rather than
-  left as an inconsistency to discover.
+  both valid, and so are `result/map(fn, value)` and `result/map(fn)` —
+  every config-taking `maybe`/`result` combinator now offers the same
+  dual shape. Which shape a call is in is decided by how many arguments
+  were passed, never by inspecting a value — `Nothing` _is_ `undefined`,
+  so `map(fn, nothing())` applies rather than handing back the Mapper.
+  See [docs/adr/0003-currying.md](./docs/adr/0003-currying.md).
 
 Not yet published to npm; expect breaking changes within 0.x.
 

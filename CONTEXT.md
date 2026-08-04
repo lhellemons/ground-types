@@ -34,6 +34,11 @@ one. A Maybe never wraps another Maybe — `Maybe<Maybe<T>>` and `Maybe<T>`
 are mutually assignable, so nesting cannot be represented, not merely
 avoided by convention.
 
+A Maybe knows exactly one absence: Nothing is `undefined`, and a `null`
+is a value — a Just. An API that signals absence with `null` is bridged
+at the boundary with `fromNullable`, which folds `null` into Nothing
+rather than letting it travel as a present value.
+
 _Avoid_: Option, Some, None, nullable.
 
 ### Result

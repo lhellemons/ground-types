@@ -8,6 +8,7 @@ import {
   isFailure,
   isSuccess,
   map,
+  mapError,
   orElse,
   result,
   success,
@@ -43,7 +44,7 @@ describe('andThen', () => {
       called = true
       return success(n * 2)
     })
-    const input = failure<number>(new Error('already broken'))
+    const input = failure<Error, number>(new Error('already broken'))
     const result = step(input)
     expect(called).toBe(false)
     expect(result).toBe(input)
@@ -78,6 +79,14 @@ describe('andThen', () => {
     const timesTen = andThen((n: number) => success(n * 10))
     const plusOne = andThen((n: number) => success(n + 1))
     expect(plusOne(timesTen(success(4)))).toBe(41)
+  })
+
+  it('applies immediately when the value is supplied', () => {
+    expect(andThen((n: number) => success(n * 2), success(21))).toBe(42)
+    const error = new Error('already broken')
+    expect(
+      andThen((n: number) => success(n * 2), failure<Error, number>(error)),
+    ).toBe(error)
   })
 })
 
@@ -212,7 +221,57 @@ describe('map', () => {
 
   it('is a no-op on Failure', () => {
     const error = new Error('bad')
-    expect(map((n: number) => n * 2)(failure<number>(error))).toBe(error)
+    expect(map((n: number) => n * 2)(failure<Error, number>(error))).toBe(error)
+  })
+
+  it('applies immediately when the value is supplied', () => {
+    expect(map((n: number) => n * 2, success(21))).toBe(42)
+    const error = new Error('bad')
+    expect(map((n: number) => n * 2, failure<Error, number>(error))).toBe(error)
+  })
+})
+
+describe('mapError', () => {
+  it('passes a Success through without calling fn', () => {
+    let called = false
+    const outcome = mapError((error: Error) => {
+      called = true
+      return new WidgetError(error.message)
+    })(success(5))
+    expect(outcome).toBe(5)
+    expect(called).toBe(false)
+  })
+
+  it('translates a Failure into the callback’s error, staying a Failure', () => {
+    const translated = mapError(
+      (error: Error) => new WidgetError(error.message),
+    )(failure<Error, number>(new Error('w-1')))
+    expect(isFailure(translated)).toBe(true)
+    expect(translated).toBeInstanceOf(WidgetError)
+    expect((translated as WidgetError).widgetId).toBe('w-1')
+  })
+
+  it('may recover, since fn returns a whole Result', () => {
+    // The same handler vocabulary tryCatch's errorHandler and
+    // promise/resultify's rejection mapper share.
+    const recovered = mapError((error: Error) => success(error.message.length))(
+      failure<Error, number>(new Error('bad')),
+    )
+    expect(isSuccess(recovered)).toBe(true)
+    expect(recovered).toBe(3)
+  })
+
+  it('applies immediately when the value is supplied', () => {
+    const error = new Error('w-2')
+    expect(
+      mapError((error: Error) => new WidgetError(error.message), success(5)),
+    ).toBe(5)
+    expect(
+      mapError(
+        (error: Error) => new WidgetError(error.message),
+        failure<Error, number>(error),
+      ),
+    ).toBeInstanceOf(WidgetError)
   })
 })
 
@@ -230,7 +289,15 @@ describe('fallback', () => {
   it('calls fn with the Failure to recover a Success', () => {
     const recovered = fallback((error: Failure<number>) =>
       success(error.message.length),
-    )(failure<number>(new Error('bad')))
+    )(failure<Error, number>(new Error('bad')))
+    expect(recovered).toBe(3)
+  })
+
+  it('applies immediately when the value is supplied', () => {
+    const recovered = fallback(
+      (error: Failure<number>) => success(error.message.length),
+      failure<Error, number>(new Error('bad')),
+    )
     expect(recovered).toBe(3)
   })
 })
@@ -241,7 +308,12 @@ describe('orElse', () => {
   })
 
   it('substitutes the eager default for a Failure', () => {
-    expect(orElse(0)(failure<number>(new Error('bad')))).toBe(0)
+    expect(orElse(0)(failure<Error, number>(new Error('bad')))).toBe(0)
+  })
+
+  it('applies immediately when the value is supplied', () => {
+    expect(orElse(0, success(5))).toBe(5)
+    expect(orElse(0, failure<Error, number>(new Error('bad')))).toBe(0)
   })
 })
 
@@ -253,6 +325,18 @@ describe('fromMaybe', () => {
   it('turns Nothing into a Failure carrying the supplied error', () => {
     const error = new Error('missing')
     expect(fromMaybe(error)(nothing())).toBe(error)
+  })
+
+  it('applies immediately when the value is supplied', () => {
+    expect(fromMaybe(new Error('unused'), maybe(5))).toBe(5)
+  })
+
+  it('applies to an explicit Nothing rather than returning the Mapper', () => {
+    // Arity is doubly load-bearing here: the value being bridged is a Maybe,
+    // so Nothing IS undefined, and a value test could not tell this call
+    // from fromMaybe(error) (see docs/adr/0003-currying.md).
+    const error = new Error('missing')
+    expect(fromMaybe(error, nothing<number>())).toBe(error)
   })
 })
 

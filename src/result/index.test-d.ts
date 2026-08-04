@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from 'vitest'
-import { andThen, failure, map, success, tryCatch } from './index.js'
-import type { NotAResult, Result } from './index.js'
+import { andThen, failure, map, mapError, success, tryCatch } from './index.js'
+import type { Failure, NotAResult, Result, Success } from './index.js'
 
 /** A domain Failure type distinct from the one the input can already carry. */
 class Invalid extends Error {
@@ -8,6 +8,8 @@ class Invalid extends Error {
 }
 
 declare const input: Result<number, RangeError>
+declare const invalidInput: Result<number, Invalid>
+declare const stringInput: Result<string, TypeError>
 
 describe('andThen', () => {
   it('infers the Success type through a callback that can also fail', () => {
@@ -16,6 +18,44 @@ describe('andThen', () => {
     )(input)
 
     expectTypeOf(chained).toEqualTypeOf<Result<number, RangeError | Invalid>>()
+  })
+
+  it('infers identically when the value is supplied in the same call', () => {
+    // The applied overload must not cost the inference quality the unapplied
+    // form has: T and E still bind from the value, the callback's own
+    // Failure arm still joins the error union.
+    const chained = andThen(
+      (n: number) =>
+        n > 0 ? success(n * 2) : failure(new Invalid('not positive')),
+      input,
+    )
+
+    expectTypeOf(chained).toEqualTypeOf<Result<number, RangeError | Invalid>>()
+  })
+})
+
+describe('map, curried and applied', () => {
+  it('stays generic when the value is omitted: T and E bind at application, not at map(fn)', () => {
+    // One unapplied map(double) must slot into chains over any error type.
+    const double = map((n: number) => n * 2)
+
+    expectTypeOf(double(input)).toEqualTypeOf<Result<number, RangeError>>()
+    expectTypeOf(double(invalidInput)).toEqualTypeOf<Result<number, Invalid>>()
+  })
+
+  it('binds T and E from the value when applied in the same call', () => {
+    const doubled = map((n: number) => n * 2, input)
+
+    expectTypeOf(doubled).toEqualTypeOf<Result<number, RangeError>>()
+  })
+
+  it('applies the same callback guards in the applied form', () => {
+    const toResult = (n: number) =>
+      n > 0 ? success(n * 2) : failure(new Invalid('x'))
+    // @ts-expect-error - use andThen for a second fallible step
+    map(toResult, input)
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    map(async (n: number) => n * 2, input)
   })
 })
 
@@ -69,7 +109,84 @@ describe('map', () => {
   })
 })
 
+describe('mapError', () => {
+  it('translates the error type while the Success type flows through', () => {
+    const translated = mapError(
+      (error: RangeError) => new Invalid(error.message),
+    )(input)
+
+    expectTypeOf(translated).toEqualTypeOf<Result<number, Invalid>>()
+  })
+
+  it('infers identically when the value is supplied in the same call', () => {
+    const translated = mapError(
+      (error: RangeError) => new Invalid(error.message),
+      input,
+    )
+
+    expectTypeOf(translated).toEqualTypeOf<Result<number, Invalid>>()
+  })
+
+  it('stays generic when the value is omitted: T and E bind at application', () => {
+    const widen = mapError((error: Error) => new Invalid(error.message))
+
+    expectTypeOf(widen(input)).toEqualTypeOf<Result<number, Invalid>>()
+    expectTypeOf(widen(stringInput)).toEqualTypeOf<Result<string, Invalid>>()
+  })
+
+  it('drops the recovered error type when the callback returns a Success', () => {
+    // Recovery through the full-Result handler vocabulary: every Failure
+    // was mapped to a Success, so no error type remains.
+    const recovered = mapError((error: RangeError) =>
+      success(error.message.length),
+    )(input)
+
+    expectTypeOf(recovered).toEqualTypeOf<Result<number, never>>()
+  })
+
+  it('unions the arms of a translate-or-recover callback', () => {
+    const mixed = mapError((error: RangeError) =>
+      error.message === 'benign' ? success(0) : new Invalid(error.message),
+    )(input)
+
+    expectTypeOf(mixed).toEqualTypeOf<Result<number, Invalid>>()
+  })
+
+  it('rejects a callback that returns a Promise — mapError runs synchronously', () => {
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    mapError(async (error: RangeError) => new Invalid(error.message))
+  })
+
+  it('rejects an input whose error type the callback cannot handle', () => {
+    // @ts-expect-error - the callback narrows to Invalid, the input carries RangeError
+    mapError((error: Invalid) => new RangeError(error.message), input)
+  })
+})
+
 describe('tryCatch', () => {
+  it('fixes E = Error when the handler is omitted — all the default can honour', () => {
+    const lifted = tryCatch((n: number) => n * 2)
+
+    expectTypeOf(lifted).toEqualTypeOf<(n: number) => Result<number, Error>>()
+  })
+
+  it('stays generic in E when a handler is supplied', () => {
+    const lifted = tryCatch(
+      (n: number) => n * 2,
+      () => new Invalid('boom'),
+    )
+
+    expectTypeOf(lifted).toEqualTypeOf<(n: number) => Result<number, Invalid>>()
+  })
+
+  it('rejects naming E without supplying the handler that would produce it', () => {
+    // The unsound corner the overload split closes: under the single
+    // signature this compiled, and the default handler's cast passed a
+    // thrown TypeError off as Failure<number, Invalid>.
+    // @ts-expect-error - no overload takes three type arguments and one value argument
+    tryCatch<number, [], Invalid>(() => 5)
+  })
+
   it('rejects an async function at compile time — tryCatch runs synchronously', () => {
     // An async fn's own throw happens after tryCatch's try/catch has
     // already exited, so it never lands in the catch block: the returned
@@ -83,6 +200,29 @@ describe('tryCatch', () => {
       n > 0 ? n : Promise.resolve(n)
     // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
     tryCatch(maybeAsync)
+  })
+})
+
+describe('failure and success constructors', () => {
+  it('binds failure’s single explicit type argument to the error', () => {
+    // The trap the <E, T> order closes: under <T, E>, failure<Invalid>(e)
+    // silently bound the SUCCESS type, yielding Failure<Invalid, Error> —
+    // the named error class demoted to plain Error, with no diagnostic.
+    const f = failure<Invalid>(new Invalid('x'))
+
+    expectTypeOf(f).toEqualTypeOf<Failure<unknown, Invalid>>()
+  })
+
+  it('rejects a non-Error single type argument, where the old order accepted it', () => {
+    // @ts-expect-error - the first type parameter is the error now
+    failure<number>(new Invalid('x'))
+  })
+
+  it('keeps success value-first — the documented, deliberate asymmetry', () => {
+    expectTypeOf(success<number>(5)).toEqualTypeOf<Success<number, Error>>()
+    expectTypeOf(success<number, Invalid>(5)).toEqualTypeOf<
+      Success<number, Invalid>
+    >()
   })
 })
 

@@ -156,6 +156,8 @@ So the fix would touch real type-checking behavior for a case the codebase
 rarely hits anymore, in exchange for a partial, narrow relaxation. Not
 worth it before 1.0. No code changes as a result of this amendment — call
 sites that hit this still need an explicit `success<T, E>(...)` /
-`failure<T, E>(...)` / `result<T, E>(...)` annotation when constructing a
+`failure<E, T>(...)` / `result<T, E>(...)` annotation when constructing a
 `Result` typed to an error class narrower than the constructor's own
-inference would produce.
+inference would produce. (`failure` binds the error first — its parameter
+order was deliberately reversed from the other two; see the constructor
+docblocks.)
