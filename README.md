@@ -12,7 +12,7 @@ Every term used here is defined in [CONTEXT.md](./CONTEXT.md).
 ## Install
 
 ```sh
-pnpm add github:lhellemons/ground-types#semver:^0.1.0
+pnpm add github:lhellemons/ground-types#semver:^0.2.0
 ```
 
 Not published to npm yet.
@@ -29,7 +29,7 @@ Each module is a separate subpath export; there is no root entry point.
 | `/value-object`    | `Primitive`, `PrimitiveValueObject`, `definePrimitiveValueObject`                                                                                                                                       |
 | `/domain`          | `Entity`, `CompoundValueObject`, `DomainObjectDTO`, `DomainObjectFactory`                                                                                                                               |
 | `/intern-registry` | `InternRegistry`                                                                                                                                                                                        |
-| `/fn`              | `Function`, `Mapper`, `CurryableMapper`, `compose`, `pipe`, `curry`, `identity`, `constant`                                                                                                             |
+| `/fn`              | `Fn`, `Mapper`, `CurryableMapper`, `compose`, `pipe`, `curry`, `identity`, `constant`                                                                                                                   |
 | `/promise`         | `AbortablePromise`, `AbortContext`, `RejectionError`, `resultify`, `fail`, `recoverWith`, `State` with its constructors and guards, `settledResult`, `stateOf`                                          |
 | `/promise/fake`    | `fakePromise`, `fakeAbortablePromise`                                                                                                                                                                   |
 | `/call`            | `Call`, `AsyncCall`, `AbortableCall`, `abortable`, `resultify`                                                                                                                                          |
@@ -48,6 +48,29 @@ rather than flattening them into one namespace.
 
 `/promise/fake` is a separate subpath rather than part of `/promise` so
 that test doubles cannot reach a production bundle by accident.
+
+## Composing a chain of steps
+
+Every `maybe`/`result` combinator takes its configuration and returns a
+unary function, so a chain of them nests unless something unwinds it.
+`pipe`, from `/fn`, runs a value through a sequence of steps left to
+right, in the order the data actually flows:
+
+```ts
+import { pipe } from '@lhellemons/ground-types/fn'
+import { andThen, map, maybe, orElse } from '@lhellemons/ground-types/maybe'
+
+const label = pipe(maybe(x), map(double), andThen(validate), orElse(0))
+// instead of orElse(0)(andThen(validate)(map(double)(maybe(x))))
+```
+
+`pipe` always applies immediately — there is no deferred, build-a-function
+form. Each step's parameter type is pinned to the previous step's return
+type, up to ten steps; a step that doesn't fit its neighbour is a compile
+error at that step. For building a reusable function with no value in
+hand yet, use `compose`, which reads right to left instead. See
+[docs/adr/0004-pipe-value-first.md](./docs/adr/0004-pipe-value-first.md)
+for why `pipe` is shaped this way.
 
 ## The asynchrony layer composes with the primitives
 
