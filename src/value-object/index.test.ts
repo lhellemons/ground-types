@@ -5,6 +5,10 @@ import { isFailure, isSuccess } from '../result/index.js'
 
 type Email = Branded<string, 'Email'>
 
+class InvalidEmail extends Error {
+  readonly code = 'invalid-email' as const
+}
+
 const Email = definePrimitiveValueObject<string, Email>((value) => {
   if (!value.includes('@')) {
     throw new Error(`invalid email: "${value}"`)
@@ -40,5 +44,21 @@ describe('definePrimitiveValueObject', () => {
     >(construct)
     expect(factory).not.toBe(construct)
     expect('from' in construct).toBe(false)
+  })
+
+  it('.from routes a thrown value through the given errorHandler', () => {
+    const StrictEmail = definePrimitiveValueObject<string, Email, InvalidEmail>(
+      (value) => {
+        if (!value.includes('@')) {
+          throw new Error(`invalid email: "${value}"`)
+        }
+        return value as Email
+      },
+      () => new InvalidEmail('invalid email'),
+    )
+
+    const outcome = StrictEmail.from('not-an-email')
+    expect(isFailure(outcome)).toBe(true)
+    expect(outcome).toBeInstanceOf(InvalidEmail)
   })
 })

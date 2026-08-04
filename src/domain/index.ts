@@ -25,11 +25,20 @@ export type DomainObjectDTO<TDTO> = { readonly dto: TDTO }
  * arguments the construction needs) and returns either the domain object or
  * a `Failure` explaining why the DTO was not admissible. The only
  * sanctioned way to turn untrusted data into a domain object.
+ *
+ * `E` defaults to `Error`, but a factory can narrow it to a concrete
+ * subclass — e.g. `DomainObjectFactory<User, UserDTO, InvalidUser>` — so a
+ * caller can branch on the specific reason a DTO was rejected, per
+ * CONTEXT.md's Failure entry. It sits ahead of `TExtra` because, like
+ * `Result<T, E>`, it describes the shape of `from`'s return value rather
+ * than an input; `TExtra` describes extra input and keeps its own default
+ * so a factory with no extra arguments never has to name either.
  */
 export type DomainObjectFactory<
   TDomain,
   TDTO,
+  E extends Error = Error,
   TExtra extends unknown[] = [],
 > = {
-  from(dto: TDTO, ...extra: TExtra): Result<TDomain, Error>
+  from(dto: TDTO, ...extra: TExtra): Result<TDomain, E>
 }

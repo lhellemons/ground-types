@@ -16,6 +16,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `result.map` stay distinct. `/promise/fake` is excluded from the
   root, for the same reason it is a separate subpath in the first place.
   Closes #11.
+- **Breaking:** `value-object/PrimitiveValueObject` and
+  `domain/DomainObjectFactory` gain an `E extends Error = Error` type
+  parameter, so a factory can declare the concrete Failure subclass its
+  `.from` reports instead of the two being pinned to plain `Error`. This
+  was the gap between the library's own pitch — CONTEXT.md's Failure entry
+  says "a Failure keeps its concrete Error subclass, so a caller can branch
+  on it" — and a factory that could never express which subclass that was.
+  `definePrimitiveValueObject` takes a new optional `errorHandler` argument
+  to translate a thrown value into that subclass, mirroring `tryCatch`'s own
+  handler-shaped overload split: with no `errorHandler`, `.from` routes
+  through `tryCatch`'s handler-less overload and `E` is `Error`; with one,
+  it routes through the generic overload and `E` follows the handler. Name
+  `E` explicitly alongside `T` when passing an `errorHandler`, since
+  `Success`'s invariant `E` phantom (docs/adr/0001, 2026-08-04 amendment)
+  keeps TypeScript from reliably inferring `E` from `errorHandler`'s return
+  type alone — confirmed by trying inference-only first and watching it
+  default back to `Error`. `DomainObjectFactory`'s new `E` sits ahead of the
+  existing `TExtra` parameter, both defaulted, so a call site naming neither
+  is unaffected and one naming only `TExtra` today needs to start naming `E`
+  too (or switch to naming both by position).
 
 - **Breaking:** `result/map`, `result/andThen` and `result/tryCatch` now
   reject a callback whose return type has a thenable arm — a `Promise`, a

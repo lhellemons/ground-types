@@ -44,6 +44,33 @@ describe('DomainObjectFactory', () => {
   })
 })
 
+class EmptyName extends Error {
+  readonly code = 'empty-name' as const
+}
+
+const StrictUserFactory: DomainObjectFactory<User, UserDTO, EmptyName> = {
+  from(dto) {
+    // success<User, EmptyName>(...) is spelled out explicitly: Success's `E`
+    // phantom is invariant (docs/adr/0001, 2026-08-04 amendment), so the
+    // plain `success(...)` call below would default E to Error and fail to
+    // satisfy this factory's narrower Result<User, EmptyName>.
+    return dto.name.length > 0
+      ? success<User, EmptyName>({ id: dto.id, name: dto.name })
+      : failure<EmptyName, User>(new EmptyName('name must not be empty'))
+  },
+}
+
+describe('DomainObjectFactory with a concrete Failure subclass', () => {
+  it('lets a caller branch on the specific Error subclass a Failure carries', () => {
+    const outcome = StrictUserFactory.from({ id: 'u1', name: '' })
+    expect(isFailure(outcome)).toBe(true)
+    expect(outcome).toBeInstanceOf(EmptyName)
+    if (isFailure(outcome)) {
+      expect(outcome.code).toBe('empty-name')
+    }
+  })
+})
+
 type PointDTO = { x: number; y: number }
 type PointKey = string
 
