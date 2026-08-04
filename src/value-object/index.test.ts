@@ -9,7 +9,7 @@ class InvalidEmail extends Error {
   readonly code = 'invalid-email' as const
 }
 
-const Email = definePrimitiveValueObject<string, Email>((value) => {
+const Email = definePrimitiveValueObject<Email>((value) => {
   if (!value.includes('@')) {
     throw new Error(`invalid email: "${value}"`)
   }
@@ -38,16 +38,14 @@ describe('definePrimitiveValueObject', () => {
 
   it('does not mutate the constructor passed in, and returns a new factory', () => {
     const construct = (value: string) => value as Branded<string, 'Email'>
-    const factory = definePrimitiveValueObject<
-      string,
-      Branded<string, 'Email'>
-    >(construct)
+    const factory =
+      definePrimitiveValueObject<Branded<string, 'Email'>>(construct)
     expect(factory).not.toBe(construct)
     expect('from' in construct).toBe(false)
   })
 
   it('.from routes a thrown value through the given errorHandler', () => {
-    const StrictEmail = definePrimitiveValueObject<string, Email, InvalidEmail>(
+    const StrictEmail = definePrimitiveValueObject<Email, string, InvalidEmail>(
       (value) => {
         if (!value.includes('@')) {
           throw new Error(`invalid email: "${value}"`)

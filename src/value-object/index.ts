@@ -29,6 +29,19 @@ export type PrimitiveValueObject<
  * returned factory is callable directly for the throwing form, and exposes
  * `.from` — built from `construct` via `tryCatch` — for the `Result` form.
  *
+ * Type parameters are ordered `T, P, E`, matching {@link
+ * PrimitiveValueObject} exactly, rather than the `P, T` this function used
+ * to take. `T` — the branded type being defined — is what a caller
+ * actually wants to name; `P` almost always defaults to `string` and `E`
+ * to `Error`, so with both defaulted and `T` first, the common case is a
+ * single explicit type argument, `definePrimitiveValueObject<Email>(...)`,
+ * with nothing to get out of order. The reverse would leave `T` unable to
+ * default (a real branded type never should) while accepting a lone
+ * argument silently as `P` instead — confirmed by trying it: with the old
+ * `P, T` order, `definePrimitiveValueObject<Email>(...)` compiles by
+ * assigning `Email` to `P`, which is Email's own underlying primitive
+ * structurally but not the intent, and `T` is left as `unknown`.
+ *
  * `.from`'s Failure type is `Error` by default, matching `tryCatch`'s own
  * handler-less overload. Pass `errorHandler` to translate a thrown value
  * into a concrete `Error` subclass instead; it is forwarded to `tryCatch`
@@ -47,20 +60,20 @@ export type PrimitiveValueObject<
  * handler, `E` cannot be named at all — `.from`'s Failure type is `Error`.
  */
 export function definePrimitiveValueObject<
-  P extends Primitive,
   T extends Branded<P, unknown>,
+  P extends Primitive = string,
 >(construct: (value: P) => T): PrimitiveValueObject<T, P, Error>
 export function definePrimitiveValueObject<
-  P extends Primitive,
   T extends Branded<P, unknown>,
+  P extends Primitive = string,
   E extends Error = Error,
 >(
   construct: (value: P) => T,
   errorHandler: Mapper<unknown, Result<T, E>>,
 ): PrimitiveValueObject<T, P, E>
 export function definePrimitiveValueObject<
-  P extends Primitive,
   T extends Branded<P, unknown>,
+  P extends Primitive = string,
   E extends Error = Error,
 >(
   construct: (value: P) => T,

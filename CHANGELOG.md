@@ -37,6 +37,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is unaffected and one naming only `TExtra` today needs to start naming `E`
   too (or switch to naming both by position).
 
+- **Breaking:** `definePrimitiveValueObject`'s type parameters are now
+  ordered `T, P, E`, matching `PrimitiveValueObject<T, P, E>` exactly,
+  reversing the `P, T` order it took before. `P` also now defaults to
+  `string` at the function itself, not just on the type. `T` — the
+  branded type actually being defined — is what a caller wants to name;
+  with `T` first and both `P` and `E` defaulted, the common case is one
+  explicit type argument, `definePrimitiveValueObject<Email>(...)`. The
+  old order left that same single argument compiling silently as `P`
+  instead of `T`, leaving `T` as `unknown` — confirmed by trying it,
+  not assumed. A call site naming both type arguments today needs them
+  swapped: `definePrimitiveValueObject<P, T>(...)` becomes
+  `definePrimitiveValueObject<T, P>(...)`.
+
 - **Breaking:** `result/map`, `result/andThen` and `result/tryCatch` now
   reject a callback whose return type has a thenable arm — a `Promise`, a
   non-native thenable, or a sync/async union such as

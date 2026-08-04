@@ -11,7 +11,7 @@ class InvalidEmail extends Error {
 
 describe('definePrimitiveValueObject', () => {
   it("defaults .from's Failure type to Error when no errorHandler is given", () => {
-    const Email = definePrimitiveValueObject<string, Email>((value) => {
+    const Email = definePrimitiveValueObject<Email>((value) => {
       if (!value.includes('@')) throw new Error(`invalid email: "${value}"`)
       return value as Email
     })
@@ -26,7 +26,7 @@ describe('definePrimitiveValueObject', () => {
     // confirmed by trying inference-only first and watching it default back
     // to Error. Naming E explicitly alongside T is the fix, same as
     // constructing a Result directly at a narrowly-typed call site.
-    const Email = definePrimitiveValueObject<string, Email, InvalidEmail>(
+    const Email = definePrimitiveValueObject<Email, string, InvalidEmail>(
       (value) => {
         if (!value.includes('@')) throw new Error(`invalid email: "${value}"`)
         return value as Email
@@ -36,6 +36,14 @@ describe('definePrimitiveValueObject', () => {
 
     expectTypeOf(Email.from('a@b.com')).toEqualTypeOf<
       Result<Email, InvalidEmail>
+    >()
+  })
+
+  it("names only T explicitly, letting P default to string — the point of matching PrimitiveValueObject's T, P order", () => {
+    const Email = definePrimitiveValueObject<Email>((value) => value as Email)
+
+    expectTypeOf(Email.from).toEqualTypeOf<
+      (value: string) => Result<Email, Error>
     >()
   })
 })
