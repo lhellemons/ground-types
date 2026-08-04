@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from 'vitest'
 import { andThen, fallback, map, maybe, nothing, orElse } from './index.js'
-import type { Maybe } from './index.js'
+import type { Just, Maybe, Nothing } from './index.js'
 import type { NotAPromise } from '../result/index.js'
 
 declare const input: Maybe<number>
@@ -77,6 +77,26 @@ describe('orElse and fallback, applied', () => {
   it('infer the unwrapped Just when the value is supplied', () => {
     expectTypeOf(orElse(0, input)).toEqualTypeOf<number>()
     expectTypeOf(fallback(() => 0, input)).toEqualTypeOf<number>()
+  })
+})
+
+describe('bare case annotations', () => {
+  it('lets Nothing be written bare: exactly undefined', () => {
+    expectTypeOf<Nothing>().toEqualTypeOf<undefined>()
+  })
+
+  it('lets Just be written bare: plain unknown, a reading for humans', () => {
+    // The default cannot exclude undefined without knowing T — bare Just
+    // is a readability affordance, not a checked constraint.
+    expectTypeOf<Just>().toEqualTypeOf<unknown>()
+  })
+
+  it('keeps Maybe explicit — the primary vocabulary type takes its argument', () => {
+    // A bare Maybe would evaluate to plain unknown: an annotation claiming
+    // "may be absent" that the checker holds you to nothing on.
+    // @ts-expect-error - Maybe requires its type argument
+    const bare: Maybe = undefined
+    void bare
   })
 })
 

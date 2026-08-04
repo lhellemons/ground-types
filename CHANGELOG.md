@@ -44,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the identical diagnostic naming the sanctioned fix: resolve with
   `promise/resultify` or `call/resultify` first, then compose with
   `.then()`.
+- `maybe/Just` and `maybe/Nothing` default their type parameter to
+  `unknown`, so the case names can be written bare in an annotation. A
+  bare `Nothing` is exactly `undefined`; a bare `Just` is plain `unknown`
+  — "present, type unstated" as a reading for humans, since the default
+  cannot exclude `undefined` without knowing `T`. `Maybe` deliberately
+  keeps its required argument: a bare `Maybe` would evaluate to plain
+  `unknown`, an annotation claiming "may be absent" that the checker
+  holds you to nothing on.
 - **Breaking:** `result/failure`'s type parameters are reordered from
   `<T, E extends Error>` to `<E extends Error, T = unknown>`. The single
   explicit type argument a caller plausibly writes — `failure<MyError>(e)`

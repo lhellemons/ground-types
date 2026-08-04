@@ -6,14 +6,38 @@ import type { NotAPromise, Result } from '../result/index.js'
  * A value that may be absent, encoded unboxed as `T | undefined`. A `Maybe`
  * never wraps another `Maybe`: `Maybe<Maybe<T>>` and `Maybe<T>` are mutually
  * assignable, so nesting is unrepresentable rather than merely discouraged.
+ *
+ * Deliberately the only one of the three without a default type argument,
+ * where {@link Just} and {@link Nothing} both default to `unknown`. A bare
+ * `Maybe` would evaluate to plain `unknown` — `undefined` is already in
+ * `unknown`, so the annotation would claim "may be absent" while the
+ * checker holds you to nothing at all. Requiring the argument keeps the
+ * module's primary vocabulary type saying something checkable.
  */
 export type Maybe<T> = T extends undefined ? never : T | undefined
 
-/** The present case of a {@link Maybe} — the value itself, unwrapped. */
-export type Just<T> = T extends undefined ? never : T
+/**
+ * The present case of a {@link Maybe} — the value itself, unwrapped.
+ *
+ * `T` defaults to `unknown` so the case names can be written bare, as a
+ * matched pair with {@link Nothing}. Note what the default does and does
+ * not buy: a bare `Nothing` is exactly `undefined`, but a bare `Just` is
+ * plain `unknown` — "present, type unstated" is a reading for humans, not
+ * a constraint the checker enforces (it cannot even exclude `undefined`
+ * without knowing `T`). Name the argument when it matters.
+ */
+export type Just<T = unknown> = T extends undefined ? never : T
 
-/** The absent case of a {@link Maybe} — always `undefined` at runtime. */
-export type Nothing<T> = T extends undefined ? never : undefined
+/**
+ * The absent case of a {@link Maybe} — always `undefined` at runtime.
+ *
+ * `T` defaults to `unknown` so `Nothing` can be written bare in an
+ * annotation, where it evaluates to exactly `undefined`: the phantom `T`
+ * only exists to relate a `Nothing` to the `Maybe` it came from, and a
+ * position that doesn't need that relation should not have to invent an
+ * argument for it.
+ */
+export type Nothing<T = unknown> = T extends undefined ? never : undefined
 
 /**
  * Wraps a possibly-absent value as a {@link Maybe}. Reach for this at the
