@@ -1,5 +1,6 @@
 import type { Maybe } from '../maybe/index.js'
-import type { Mapper } from '../fn/index.js'
+import { curry } from '../fn/index.js'
+import type { CurryableMapper, Mapper } from '../fn/index.js'
 
 declare const _phantom: unique symbol
 
@@ -282,12 +283,30 @@ export type NotAResult<R> = [R] extends [Error]
  * any callback whose return type has an `Error` arm or is a `Promise`. Use
  * {@link andThen} to chain a second fallible step, or resolve an async one
  * first — see {@link NotAResult}.
+ *
+ * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
+ * by arity, never by inspecting the value (see docs/adr/0003-currying.md).
+ * The unapplied form stays *generic*: `T` and `E` bind at the eventual
+ * application, not at `map(fn)`, so one `map(double)` slots into chains over
+ * any error type without re-annotation. The applied form binds them from
+ * `value` directly.
  */
+export function map<A, U extends NotAResult<U>, T extends A, E extends Error>(
+  fn: (value: A) => U,
+  value: Result<T, E>,
+): Result<U, E>
 export function map<A, U extends NotAResult<U>>(
   fn: (value: A) => U,
-): <T extends A, E extends Error = Error>(value: Result<T, E>) => Result<U, E> {
-  return <T extends A, E extends Error = Error>(value: Result<T, E>) =>
-    (isSuccess(value) ? result(fn(value)) : value) as unknown as Result<U, E>
+): <T extends A, E extends Error = Error>(value: Result<T, E>) => Result<U, E>
+export function map<A, U extends NotAResult<U>, T extends A, E extends Error>(
+  fn: (value: A) => U,
+  ...value: [] | [Result<T, E>]
+): CurryableMapper<Result<T, E>, Result<U, E>> {
+  return curry(
+    (value: Result<T, E>) =>
+      (isSuccess(value) ? result(fn(value)) : value) as unknown as Result<U, E>,
+    ...value,
+  )
 }
 
 /**
@@ -295,11 +314,26 @@ export function map<A, U extends NotAResult<U>>(
  * produce a `Success`, so the result is always a `Success`. Passes an
  * existing `Success` through without calling `fn`. Eager counterpart:
  * {@link orElse}.
+ *
+ * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
+ * by arity, never by inspecting the value (see docs/adr/0003-currying.md).
  */
+export function fallback<T, E extends Error>(
+  fn: (error: Failure<T, E>) => Success<T, E>,
+  value: Result<T, E>,
+): Success<T, E>
 export function fallback<T, E extends Error = Error>(
   fn: (error: Failure<T, E>) => Success<T, E>,
-): (value: Result<T, E>) => Success<T, E> {
-  return (value: Result<T, E>) => (isSuccess(value) ? value : fn(value))
+): (value: Result<T, E>) => Success<T, E>
+export function fallback<T, E extends Error>(
+  fn: (error: Failure<T, E>) => Success<T, E>,
+  ...value: [] | [Result<T, E>]
+): CurryableMapper<Result<T, E>, Success<T, E>> {
+  return curry(
+    (value: Result<T, E>): Success<T, E> =>
+      isSuccess(value) ? value : fn(value),
+    ...value,
+  )
 }
 
 /**
@@ -307,12 +341,26 @@ export function fallback<T, E extends Error = Error>(
  * `Failure`, discarding the error. `defaultValue` is not lazily computed —
  * reach for `fallback` when producing it has a cost worth avoiding on the
  * `Success` path.
+ *
+ * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
+ * by arity, never by inspecting the value (see docs/adr/0003-currying.md).
  */
+export function orElse<T, E extends Error>(
+  defaultValue: T,
+  value: Result<T, E>,
+): Success<T, E>
 export function orElse<T, E extends Error = Error>(
   defaultValue: T,
-): (value: Result<T, E>) => Success<T, E> {
-  return (value: Result<T, E>) =>
-    isSuccess(value) ? value : success(defaultValue)
+): (value: Result<T, E>) => Success<T, E>
+export function orElse<T, E extends Error>(
+  defaultValue: T,
+  ...value: [] | [Result<T, E>]
+): CurryableMapper<Result<T, E>, Success<T, E>> {
+  return curry(
+    (value: Result<T, E>): Success<T, E> =>
+      isSuccess(value) ? value : success<T, E>(defaultValue),
+    ...value,
+  )
 }
 
 /**
@@ -341,17 +389,40 @@ type NotAPromise<R> =
  * this is genuinely distinct from `map`, not an alias of it.
  *
  * `fn` must resolve synchronously — see {@link NotAPromise}.
+ *
+ * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
+ * by arity, never by inspecting the value (see docs/adr/0003-currying.md).
+ * Like {@link map}, the unapplied form stays generic — `T` and `E` bind at
+ * the eventual application — and the applied form binds them from `value`.
  */
+export function andThen<
+  A,
+  R extends NotAPromise<R>,
+  T extends A,
+  E extends Error,
+>(fn: (value: A) => R, value: Result<T, E>): Result<ValueOf<R>, E | ErrorOf<R>>
 export function andThen<A, R extends NotAPromise<R>>(
   fn: (value: A) => R,
 ): <T extends A, E extends Error = Error>(
   value: Result<T, E>,
-) => Result<ValueOf<R>, E | ErrorOf<R>> {
-  return <T extends A, E extends Error = Error>(value: Result<T, E>) =>
-    (isSuccess(value) ? fn(value) : value) as unknown as Result<
-      ValueOf<R>,
-      E | ErrorOf<R>
-    >
+) => Result<ValueOf<R>, E | ErrorOf<R>>
+export function andThen<
+  A,
+  R extends NotAPromise<R>,
+  T extends A,
+  E extends Error,
+>(
+  fn: (value: A) => R,
+  ...value: [] | [Result<T, E>]
+): CurryableMapper<Result<T, E>, Result<ValueOf<R>, E | ErrorOf<R>>> {
+  return curry(
+    (value: Result<T, E>) =>
+      (isSuccess(value) ? fn(value) : value) as unknown as Result<
+        ValueOf<R>,
+        E | ErrorOf<R>
+      >,
+    ...value,
+  )
 }
 
 /**
@@ -359,15 +430,36 @@ export function andThen<A, R extends NotAPromise<R>>(
  * becomes a `Failure` carrying the supplied `error`. Reach for this at the
  * point an absent value needs to be reported as a specific failure reason
  * rather than silently propagated as `Nothing`.
+ *
+ * Curryable: supply `value` to apply now, or omit it for a Mapper. Arity is
+ * doubly load-bearing here: the value being bridged is a `Maybe`, so
+ * `fromMaybe(error, nothing())` passes `undefined` as a real argument and
+ * must produce the `Failure`, not hand back the Mapper (see
+ * docs/adr/0003-currying.md).
+ *
+ * The applied form's `value` is spelled `T | undefined` rather than
+ * `Maybe<T>` — the same type for any admissible `T`, but a spelling the
+ * compiler can infer `T` from; see `maybe/map` for the full rationale.
  */
+export function fromMaybe<T, E extends Error>(
+  error: E,
+  value: T | undefined,
+): Result<T, E>
 export function fromMaybe<T, E extends Error = Error>(
   error: E,
-): (value: Maybe<T>) => Result<T, E> {
+): (value: Maybe<T>) => Result<T, E>
+export function fromMaybe<T, E extends Error>(
+  error: E,
+  ...value: [] | [Maybe<T>]
+): CurryableMapper<Maybe<T>, Result<T, E>> {
   // Inlined rather than calling `isNothing` from ../maybe: that guard is a
   // runtime import, and this bridge must stay type-only across the
   // maybe/result boundary or the two modules form a real import cycle
   // (see docs/adr/0001-unboxed-maybe-and-result.md).
-  return (value: Maybe<T>) =>
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Maybe<T>'s conditional can't reduce for generic T; see maybe/isJust
-    (value === undefined ? failure(error) : success(value)) as Result<T, E>
+  return curry(
+    (value: Maybe<T>) =>
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Maybe<T>'s conditional can't reduce for generic T; see maybe/isJust
+      (value === undefined ? failure(error) : success(value)) as Result<T, E>,
+    ...value,
+  )
 }

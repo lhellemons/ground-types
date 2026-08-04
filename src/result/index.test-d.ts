@@ -17,6 +17,46 @@ describe('andThen', () => {
 
     expectTypeOf(chained).toEqualTypeOf<Result<number, RangeError | Invalid>>()
   })
+
+  it('infers identically when the value is supplied in the same call', () => {
+    // The applied overload must not cost the inference quality the unapplied
+    // form has: T and E still bind from the value, the callback's own
+    // Failure arm still joins the error union.
+    const chained = andThen(
+      (n: number) =>
+        n > 0 ? success(n * 2) : failure(new Invalid('not positive')),
+      input,
+    )
+
+    expectTypeOf(chained).toEqualTypeOf<Result<number, RangeError | Invalid>>()
+  })
+})
+
+describe('map, curried and applied', () => {
+  it('stays generic when the value is omitted: T and E bind at application, not at map(fn)', () => {
+    // One unapplied map(double) must slot into chains over any error type.
+    const double = map((n: number) => n * 2)
+
+    expectTypeOf(double(input)).toEqualTypeOf<Result<number, RangeError>>()
+    expectTypeOf(
+      double(input as unknown as Result<number, Invalid>),
+    ).toEqualTypeOf<Result<number, Invalid>>()
+  })
+
+  it('binds T and E from the value when applied in the same call', () => {
+    const doubled = map((n: number) => n * 2, input)
+
+    expectTypeOf(doubled).toEqualTypeOf<Result<number, RangeError>>()
+  })
+
+  it('applies the same callback guards in the applied form', () => {
+    const toResult = (n: number) =>
+      n > 0 ? success(n * 2) : failure(new Invalid('x'))
+    // @ts-expect-error - use andThen for a second fallible step
+    map(toResult, input)
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    map(async (n: number) => n * 2, input)
+  })
 })
 
 describe('map', () => {

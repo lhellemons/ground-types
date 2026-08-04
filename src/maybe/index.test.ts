@@ -55,6 +55,16 @@ describe('orElse', () => {
   it('substitutes the eager default for Nothing', () => {
     expect(orElse(0)(nothing())).toBe(0)
   })
+
+  it('applies immediately when the value is supplied', () => {
+    expect(orElse(0, maybe(5))).toBe(5)
+  })
+
+  it('applies to an explicit Nothing rather than returning the Mapper', () => {
+    // The arity trap ADR-0003 closes: Nothing IS undefined, so a value test
+    // could not tell an absent Maybe from a missing argument.
+    expect(orElse(0, nothing())).toBe(0)
+  })
 })
 
 describe('fallback', () => {
@@ -71,6 +81,11 @@ describe('fallback', () => {
   it('calls fn to produce the default for Nothing', () => {
     expect(fallback(() => 99)(nothing())).toBe(99)
   })
+
+  it('applies immediately when the value is supplied, even an explicit Nothing', () => {
+    expect(fallback(() => 99, maybe(5))).toBe(5)
+    expect(fallback(() => 99, nothing())).toBe(99)
+  })
 })
 
 describe('map', () => {
@@ -80,6 +95,16 @@ describe('map', () => {
 
   it('is a no-op on Nothing', () => {
     expect(map((n: number) => n * 2)(nothing())).toBeUndefined()
+  })
+
+  it('applies immediately when the value is supplied', () => {
+    expect(map((n: number) => n * 2, maybe(21))).toBe(42)
+  })
+
+  it('applies to an explicit Nothing rather than returning the Mapper', () => {
+    // The arity trap ADR-0003 closes: Nothing IS undefined, so this call
+    // has arity 2 and must produce Nothing, not hand back the Mapper.
+    expect(map((n: number) => n * 2, nothing<number>())).toBeUndefined()
   })
 })
 
@@ -94,6 +119,15 @@ describe('andThen', () => {
     )
     expect(halveIfEven(maybe(10))).toBe(5)
     expect(halveIfEven(maybe(3))).toBeUndefined()
+  })
+
+  it('applies immediately when the value is supplied, being the same function as map', () => {
+    expect(
+      andThen(
+        (n: number) => (n % 2 === 0 ? maybe(n / 2) : nothing<number>()),
+        maybe(10),
+      ),
+    ).toBe(5)
   })
 })
 

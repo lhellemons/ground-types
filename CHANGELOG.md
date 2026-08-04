@@ -33,6 +33,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   platform already provides, resolved before anything inspects it — it does
   not erode the "a `Success` can never be an `Error`" guarantee.
 
+- Every config-taking combinator in `maybe` (`map`, `andThen`, `orElse`,
+  `fallback`) and `result` (`map`, `andThen`, `orElse`, `fallback`,
+  `fromMaybe`) is now curryable: `map(fn)` still returns a unary Mapper,
+  and `map(fn, value)` applies it immediately. This closes the split
+  calling convention ADR-0003 recorded — `promise/resultify(fail,
+promise)` was curryable while `result/map(fn)` was not — so the whole
+  library now reads one way. Which shape a call is in is decided by
+  arity, never by inspecting the value: `Nothing` _is_ `undefined`, so
+  `map(fn, nothing())` applies rather than handing back the Mapper.
+  Existing call sites are unaffected; the unapplied forms of `result/map`
+  and `result/andThen` still return generic functions whose `T`/`E` bind
+  at application, pinned by type-level tests. See
+  [docs/adr/0003-currying.md](./docs/adr/0003-currying.md).
+
 An asynchrony layer, ported from another project and reworked to fit this
 library. No release cut; see
 [docs/adr/0002-abort-propagation.md](./docs/adr/0002-abort-propagation.md)

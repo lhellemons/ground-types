@@ -1,3 +1,5 @@
+import { curry } from '../fn/index.js'
+import type { CurryableMapper } from '../fn/index.js'
 import type { Result } from '../result/index.js'
 
 /**
@@ -52,18 +54,43 @@ export function isNothing<T>(value: Maybe<T>): value is Nothing<T> {
  * Substitutes an eager default for `Nothing`, passing a `Just` through
  * unchanged. `defaultValue` is computed up front even when the input turns
  * out to be present; use {@link fallback} when computing it is not free.
+ *
+ * Curryable: supply `value` to apply now, or omit it for a Mapper. The two
+ * shapes are told apart by arity, never by inspecting the value —
+ * `orElse(0, nothing())` passes `undefined` as a real argument and applies,
+ * because `Nothing` *is* `undefined` and a value test could not tell an
+ * absent Maybe from a missing argument (see docs/adr/0003-currying.md).
  */
-export function orElse<T>(defaultValue: T): (value: Maybe<T>) => Just<T> {
-  return (value: Maybe<T>) => (isJust(value) ? value : defaultValue) as Just<T>
+export function orElse<T>(defaultValue: T, value: T | undefined): Just<T>
+export function orElse<T>(defaultValue: T): (value: Maybe<T>) => Just<T>
+export function orElse<T>(
+  defaultValue: T,
+  ...value: [] | [Maybe<T>]
+): CurryableMapper<Maybe<T>, Just<T>> {
+  return curry(
+    (value: Maybe<T>) => (isJust(value) ? value : defaultValue) as Just<T>,
+    ...value,
+  )
 }
 
 /**
  * Lazy counterpart to {@link orElse}: `fn` runs only when the input is
  * `Nothing`, so use this when producing the default has a cost worth
  * avoiding on the `Just` path.
+ *
+ * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
+ * by arity, never by inspecting the value (see docs/adr/0003-currying.md).
  */
-export function fallback<T>(fn: () => T): (value: Maybe<T>) => Just<T> {
-  return (value: Maybe<T>) => (isJust(value) ? value : fn()) as Just<T>
+export function fallback<T>(fn: () => T, value: T | undefined): Just<T>
+export function fallback<T>(fn: () => T): (value: Maybe<T>) => Just<T>
+export function fallback<T>(
+  fn: () => T,
+  ...value: [] | [Maybe<T>]
+): CurryableMapper<Maybe<T>, Just<T>> {
+  return curry(
+    (value: Maybe<T>) => (isJust(value) ? value : fn()) as Just<T>,
+    ...value,
+  )
 }
 
 /**
@@ -71,11 +98,34 @@ export function fallback<T>(fn: () => T): (value: Maybe<T>) => Just<T> {
  * `Maybe<Maybe<U>>` and `Maybe<U>` are mutually assignable, `fn` may itself
  * return a `Maybe<U>` without ever producing an observable nested value —
  * which is exactly what {@link andThen} relies on.
+ *
+ * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
+ * by arity, never by inspecting the value, which matters here more than
+ * anywhere: `map(fn, nothing())` passes `undefined` as a real argument and
+ * must apply, not hand back the Mapper (see docs/adr/0003-currying.md).
+ *
+ * The applied form's `value` is spelled `T | undefined` rather than
+ * `Maybe<T>` — the same type for any admissible `T`, but a spelling the
+ * compiler can infer `T` from, where inference into `Maybe<T>`'s
+ * conditional collapses on an argument that is statically `Nothing`. It is
+ * the spelling {@link maybe} itself uses at the boundary, for the same
+ * reason. The same holds for every applied form in this module.
  */
 export function map<T, U>(
   fn: (value: Just<T>) => U,
-): (value: Maybe<T>) => Maybe<U> {
-  return (value: Maybe<T>) => (isJust(value) ? maybe(fn(value)) : nothing())
+  value: T | undefined,
+): Maybe<U>
+export function map<T, U>(
+  fn: (value: Just<T>) => U,
+): (value: Maybe<T>) => Maybe<U>
+export function map<T, U>(
+  fn: (value: Just<T>) => U,
+  ...value: [] | [Maybe<T>]
+): CurryableMapper<Maybe<T>, Maybe<U>> {
+  return curry(
+    (value: Maybe<T>) => (isJust(value) ? maybe(fn(value)) : nothing()),
+    ...value,
+  )
 }
 
 /**

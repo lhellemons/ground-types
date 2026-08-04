@@ -51,7 +51,7 @@ that test doubles cannot reach a production bundle by accident.
 
 ## Composing a chain of steps
 
-Every `maybe`/`result` combinator takes its configuration and returns a
+Given only its configuration, every `maybe`/`result` combinator returns a
 unary function, so a chain of them nests unless something unwinds it.
 `pipe`, from `/fn`, runs a value through a sequence of steps left to
 right, in the order the data actually flows:
@@ -156,12 +156,14 @@ whole function vocabulary. Two things to know about it:
   branches off one source can abort each other; `detach()` severs that
   link at a branch point. See
   [docs/adr/0002-abort-propagation.md](./docs/adr/0002-abort-propagation.md).
-- **The new modules are curryable, the old ones are not yet.**
+- **The whole library is curryable, decided by arity.**
   `promise/resultify(fail, promise)` and `promise/resultify(fail)` are
-  both valid, while `result/map(fn)` still only returns a function.
-  Retrofitting `maybe` and `result` is intended, and recorded in
-  [docs/adr/0003-currying.md](./docs/adr/0003-currying.md) rather than
-  left as an inconsistency to discover.
+  both valid, and so are `result/map(fn, value)` and `result/map(fn)` —
+  every config-taking `maybe`/`result` combinator now offers the same
+  dual shape. Which shape a call is in is decided by how many arguments
+  were passed, never by inspecting a value — `Nothing` _is_ `undefined`,
+  so `map(fn, nothing())` applies rather than handing back the Mapper.
+  See [docs/adr/0003-currying.md](./docs/adr/0003-currying.md).
 
 Not yet published to npm; expect breaking changes within 0.x.
 

@@ -79,6 +79,14 @@ describe('andThen', () => {
     const plusOne = andThen((n: number) => success(n + 1))
     expect(plusOne(timesTen(success(4)))).toBe(41)
   })
+
+  it('applies immediately when the value is supplied', () => {
+    expect(andThen((n: number) => success(n * 2), success(21))).toBe(42)
+    const error = new Error('already broken')
+    expect(andThen((n: number) => success(n * 2), failure<number>(error))).toBe(
+      error,
+    )
+  })
 })
 
 describe('result / success / failure', () => {
@@ -214,6 +222,12 @@ describe('map', () => {
     const error = new Error('bad')
     expect(map((n: number) => n * 2)(failure<number>(error))).toBe(error)
   })
+
+  it('applies immediately when the value is supplied', () => {
+    expect(map((n: number) => n * 2, success(21))).toBe(42)
+    const error = new Error('bad')
+    expect(map((n: number) => n * 2, failure<number>(error))).toBe(error)
+  })
 })
 
 describe('fallback', () => {
@@ -233,6 +247,14 @@ describe('fallback', () => {
     )(failure<number>(new Error('bad')))
     expect(recovered).toBe(3)
   })
+
+  it('applies immediately when the value is supplied', () => {
+    const recovered = fallback(
+      (error: Failure<number>) => success(error.message.length),
+      failure<number>(new Error('bad')),
+    )
+    expect(recovered).toBe(3)
+  })
 })
 
 describe('orElse', () => {
@@ -242,6 +264,11 @@ describe('orElse', () => {
 
   it('substitutes the eager default for a Failure', () => {
     expect(orElse(0)(failure<number>(new Error('bad')))).toBe(0)
+  })
+
+  it('applies immediately when the value is supplied', () => {
+    expect(orElse(0, success(5))).toBe(5)
+    expect(orElse(0, failure<number>(new Error('bad')))).toBe(0)
   })
 })
 
@@ -253,6 +280,18 @@ describe('fromMaybe', () => {
   it('turns Nothing into a Failure carrying the supplied error', () => {
     const error = new Error('missing')
     expect(fromMaybe(error)(nothing())).toBe(error)
+  })
+
+  it('applies immediately when the value is supplied', () => {
+    expect(fromMaybe(new Error('unused'), maybe(5))).toBe(5)
+  })
+
+  it('applies to an explicit Nothing rather than returning the Mapper', () => {
+    // Arity is doubly load-bearing here: the value being bridged is a Maybe,
+    // so Nothing IS undefined, and a value test could not tell this call
+    // from fromMaybe(error) (see docs/adr/0003-currying.md).
+    const error = new Error('missing')
+    expect(fromMaybe(error, nothing<number>())).toBe(error)
   })
 })
 
