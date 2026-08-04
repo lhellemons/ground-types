@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type {
   CompoundValueObject,
-  DomainObjectDTO,
   DomainObjectFactory,
+  DTOSource,
   Entity,
 } from './index.js'
 import {
@@ -76,9 +76,7 @@ type PointKey = string
 
 const pointRegistry = new InternRegistry<PointKey, Point>()
 
-class Point
-  implements CompoundValueObject<PointKey>, DomainObjectDTO<PointDTO>
-{
+class Point implements CompoundValueObject<PointKey>, DTOSource<PointDTO> {
   readonly key: PointKey
   readonly x: number
   readonly y: number
@@ -105,7 +103,7 @@ class Point
   }
 }
 
-describe('DomainObjectDTO round-trip', () => {
+describe('DTOSource round-trip', () => {
   it('round-trips: from(dto).dto equals the original dto', () => {
     const point = assertSuccess(Point.from({ x: 1, y: 2 }))
     expect(point.dto).toEqual({ x: 1, y: 2 })
@@ -132,11 +130,11 @@ describe('type-level', () => {
     Equal<CompoundValueObject<string>, { readonly key: string }>
   >
 
-  type _DTOHasDto = Expect<
-    Equal<DomainObjectDTO<UserDTO>, { readonly dto: UserDTO }>
+  type _DTOSourceHasDto = Expect<
+    Equal<DTOSource<UserDTO>, { readonly dto: UserDTO }>
   >
 
-  const _typeTests: [_EntityHasId, _CompoundHasKey, _DTOHasDto] = [
+  const _typeTests: [_EntityHasId, _CompoundHasKey, _DTOSourceHasDto] = [
     true,
     true,
     true,

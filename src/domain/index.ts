@@ -14,11 +14,15 @@ export type Entity<TId> = { readonly id: TId }
 export type CompoundValueObject<TKey> = { readonly key: TKey }
 
 /**
- * The plain, untrusted data shape a domain object is constructed from and
- * serialised to. A DTO carries no invariants; a {@link DomainObjectFactory}
- * is what validates one into a domain object.
+ * The seam that recovers a domain object's DTO: a readonly `dto` built
+ * from the object's own current values, the mirror of what a {@link
+ * DomainObjectFactory}'s `from` validated it out of in the first place.
+ * Not the DTO itself — see CONTEXT.md's DTO entry — this is the domain
+ * object's side of the round trip, which is why it is named for the
+ * recovery it performs rather than reusing "DTO" for a shape that carries
+ * no invariants of its own.
  */
-export type DomainObjectDTO<TDTO> = { readonly dto: TDTO }
+export type DTOSource<TDTO> = { readonly dto: TDTO }
 
 /**
  * The construction seam of a domain object: takes a DTO (plus any `extra`

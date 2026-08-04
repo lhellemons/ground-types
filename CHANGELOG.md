@@ -50,6 +50,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   swapped: `definePrimitiveValueObject<P, T>(...)` becomes
   `definePrimitiveValueObject<T, P>(...)`.
 
+- **Breaking:** `domain/DomainObjectDTO` renamed to `domain/DTOSource`.
+  The old name and shape disagreed with CONTEXT.md's own DTO entry: a DTO
+  is "the plain, untrusted data shape a domain object is constructed from
+  and serialised to", but `DomainObjectDTO<TDTO> = { readonly dto: TDTO }`
+  was a domain object _carrying_ its DTO, not the DTO itself. `DTOSource`
+  names what the type actually is — the other direction of a Factory's
+  seam, recovering the DTO a domain object's current values would
+  round-trip back through the Factory that built it — and CONTEXT.md
+  gains a matching "DTO Source" entry next to Factory. Same shape, same
+  signature; only the name changed. A consumer referencing
+  `DomainObjectDTO` needs to rename the import and any `implements`/
+  `satisfies` clause to `DTOSource`.
+
 - **Breaking:** `result/map`, `result/andThen` and `result/tryCatch` now
   reject a callback whose return type has a thenable arm — a `Promise`, a
   non-native thenable, or a sync/async union such as
