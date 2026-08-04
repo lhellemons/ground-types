@@ -166,6 +166,29 @@ describe('mapError', () => {
 })
 
 describe('tryCatch', () => {
+  it('fixes E = Error when the handler is omitted — all the default can honour', () => {
+    const lifted = tryCatch((n: number) => n * 2)
+
+    expectTypeOf(lifted).toEqualTypeOf<(n: number) => Result<number, Error>>()
+  })
+
+  it('stays generic in E when a handler is supplied', () => {
+    const lifted = tryCatch(
+      (n: number) => n * 2,
+      () => new Invalid('boom'),
+    )
+
+    expectTypeOf(lifted).toEqualTypeOf<(n: number) => Result<number, Invalid>>()
+  })
+
+  it('rejects naming E without supplying the handler that would produce it', () => {
+    // The unsound corner the overload split closes: under the single
+    // signature this compiled, and the default handler's cast passed a
+    // thrown TypeError off as Failure<number, Invalid>.
+    // @ts-expect-error - no overload takes three type arguments and one value argument
+    tryCatch<number, [], Invalid>(() => 5)
+  })
+
   it('rejects an async function at compile time — tryCatch runs synchronously', () => {
     // An async fn's own throw happens after tryCatch's try/catch has
     // already exited, so it never lands in the catch block: the returned

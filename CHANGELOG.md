@@ -44,6 +44,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the identical diagnostic naming the sanctioned fix: resolve with
   `promise/resultify` or `call/resultify` first, then compose with
   `.then()`.
+- **Breaking:** `result/tryCatch` is split into two overloads so its
+  default handler is sound. `tryCatch(fn)` fixes `E = Error` — exactly
+  what the default handler can honour: the `Error` as thrown, or a
+  `ThrownError` around anything else — while `tryCatch(fn, handler)`
+  stays generic in `E`, where the handler is the caller's own promise to
+  produce that `E`. Under the single signature, `E` could be named
+  explicitly with the handler omitted, and the default's documented
+  unsound cast then passed a thrown `TypeError` off as
+  `Failure<T, MyError>`. That spelling — three type arguments, one value
+  argument — no longer matches any overload; supply the handler that
+  produces the named error, or drop the type arguments.
 - `maybe/Just` and `maybe/Nothing` default their type parameter to
   `unknown`, so the case names can be written bare in an annotation. A
   bare `Nothing` is exactly `undefined`; a bare `Just` is plain `unknown`

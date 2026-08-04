@@ -203,7 +203,29 @@ export class ThrownError<T = unknown> extends Error {
  * so `tryCatch` cannot catch it: the returned promise rejects unhandled
  * while {@link isSuccess} reports `true` on it. Lift an async operation with
  * `promise/resultify` or `call/resultify` instead.
+ *
+ * Two overloads, split so the default handler is sound. `tryCatch(fn)`
+ * fixes `E = Error`, which is precisely what the default handler can
+ * honour: the `Error` as thrown, or a {@link ThrownError} around anything
+ * else. `tryCatch(fn, handler)` is generic in `E`, because there the
+ * handler is the caller's own promise to produce that `E`. Under the old
+ * single signature the two were not tied together — `E` could be named
+ * explicitly while the handler was left off, and the default's cast then
+ * passed a thrown `TypeError` off as `Failure<T, MyError>`, a documented
+ * unsound corner. Naming `E` without supplying a handler is now a compile
+ * error: no overload takes three type arguments and one value argument.
  */
+export function tryCatch<T extends NotAPromise<T>, Args extends unknown[]>(
+  fn: (...args: Args) => T,
+): (...args: Args) => Result<T, Error>
+export function tryCatch<
+  T extends NotAPromise<T>,
+  Args extends unknown[],
+  E extends Error = Error,
+>(
+  fn: (...args: Args) => T,
+  errorHandler: Mapper<unknown, Result<T, E>>,
+): (...args: Args) => Result<T, E>
 export function tryCatch<
   T extends NotAPromise<T>,
   Args extends unknown[],
@@ -211,8 +233,10 @@ export function tryCatch<
 >(
   fn: (...args: Args) => T,
   errorHandler: Mapper<unknown, Result<T, E>> = (error) =>
-    // Cast for the same reason the previous default cast: `E` is the caller's
-    // to name, and the default cannot know which subclass it was promised.
+    // The implementation signature is still generic in `E`, so the default
+    // still needs the cast — but the handler-less overload above pins
+    // `E = Error` at every call site that can reach it, which is what the
+    // cast then truthfully claims.
     (error instanceof Error ? error : new ThrownError(error)) as Failure<T, E>,
 ): (...args: Args) => Result<T, E> {
   return function (...args: Args) {
