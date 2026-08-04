@@ -1,5 +1,5 @@
 import { describe, expectTypeOf, it } from 'vitest'
-import { andThen, failure, map, success } from './index.js'
+import { andThen, failure, map, success, tryCatch } from './index.js'
 import type { NotAResult, Result } from './index.js'
 
 /** A domain Failure type distinct from the one the input can already carry. */
@@ -35,6 +35,55 @@ describe('map', () => {
     // @ts-expect-error - a Success can never be an Error
     map((n: number) => new Invalid('as a value'))
   })
+
+  it('rejects a callback that returns a Promise, which resolves outside map', () => {
+    // map runs synchronously; an async callback produces a Success that is
+    // itself an unresolved Promise, which isSuccess reports as true.
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    map(async (n: number) => n * 2)
+  })
+
+  it('rejects a callback that returns a non-native thenable', () => {
+    // A custom deferred or older async library may resolve via a `then`
+    // method without being a real `Promise` instance. The same unresolved
+    // Success trap applies, so the guard must catch this by shape, not by
+    // `instanceof`/exact-type match.
+    const makeThenable = (
+      n: number,
+    ): { then(onfulfilled: (v: number) => void): void } => ({
+      then: (onfulfilled) => onfulfilled(n),
+    })
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    map(makeThenable)
+  })
+
+  it('rejects a callback whose return type is a sync/async union', () => {
+    // A callback that sometimes returns a cached value and sometimes fetches
+    // — `(n: number) => number | Promise<number>` — is not itself assignable
+    // to `Promise<unknown>` as a whole, so a check that only matches the
+    // whole union misses the Promise arm entirely.
+    const maybeAsync = (n: number): number | Promise<number> =>
+      n > 0 ? n : Promise.resolve(n)
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    map(maybeAsync)
+  })
+})
+
+describe('tryCatch', () => {
+  it('rejects an async function at compile time — tryCatch runs synchronously', () => {
+    // An async fn's own throw happens after tryCatch's try/catch has
+    // already exited, so it never lands in the catch block: the returned
+    // promise rejects unhandled while isSuccess reports true on it.
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    tryCatch(async () => 5)
+  })
+
+  it('rejects a fn whose return type is a sync/async union', () => {
+    const maybeAsync = (n: number): number | Promise<number> =>
+      n > 0 ? n : Promise.resolve(n)
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    tryCatch(maybeAsync)
+  })
 })
 
 describe('NotAResult', () => {
@@ -61,6 +110,25 @@ describe('andThen with a callback that does not itself fail', () => {
     const doubled = andThen((n: number) => n * 2)(input)
 
     expectTypeOf(doubled).toEqualTypeOf<Result<number, RangeError>>()
+  })
+})
+
+describe('andThen with a callback that returns a Promise', () => {
+  it('rejects at compile time — andThen runs synchronously', () => {
+    // A Promise carries no Error arm, so it falls through the same fallback
+    // path a plain, cannot-fail value takes, producing a Success that is
+    // itself an unresolved Promise. isSuccess reports that as true.
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    andThen(async (n: number) => success(n))(input)
+  })
+
+  it('rejects a callback whose return type is a sync/async union', () => {
+    const maybeAsync = (
+      n: number,
+    ): Result<number, RangeError> | Promise<Result<number, RangeError>> =>
+      n > 0 ? success(n) : Promise.resolve(success(n))
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    andThen(maybeAsync)(input)
   })
 })
 
