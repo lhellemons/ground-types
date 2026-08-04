@@ -44,6 +44,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the identical diagnostic naming the sanctioned fix: resolve with
   `promise/resultify` or `call/resultify` first, then compose with
   `.then()`.
+- `result/mapError` — `map`'s dual over the failure channel: applies a
+  callback to a `Failure`'s `Error` and passes a `Success` through, so a
+  factory's error can be translated into the caller's domain error
+  _inside_ a chain. Previously the failure channel could only be erased —
+  `orElse` and `fallback` both end in a `Success` — while `tryCatch` and
+  `resultify`'s handlers could re-fail; the two vocabularies were
+  inconsistent. The callback shares those handlers' shape: it returns a
+  whole `Result`, so a bare `Error` is pure translation and a `Success`
+  recovers, with the inferred error type tracking exactly which arms the
+  callback actually has. Curryable like the rest, and guarded by
+  `NotAPromise`. `/maybe` deliberately has no counterpart: `Nothing`
+  carries nothing to transform.
 - Every config-taking combinator in `maybe` (`map`, `andThen`, `orElse`,
   `fallback`) and `result` (`map`, `andThen`, `orElse`, `fallback`,
   `fromMaybe`) is now curryable: `map(fn)` still returns a unary Mapper,

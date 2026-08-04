@@ -1,5 +1,5 @@
 import { describe, expectTypeOf, it } from 'vitest'
-import { andThen, failure, map, success, tryCatch } from './index.js'
+import { andThen, failure, map, mapError, success, tryCatch } from './index.js'
 import type { NotAResult, Result } from './index.js'
 
 /** A domain Failure type distinct from the one the input can already carry. */
@@ -106,6 +106,62 @@ describe('map', () => {
       n > 0 ? n : Promise.resolve(n)
     // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
     map(maybeAsync)
+  })
+})
+
+describe('mapError', () => {
+  it('translates the error type while the Success type flows through', () => {
+    const translated = mapError(
+      (error: RangeError) => new Invalid(error.message),
+    )(input)
+
+    expectTypeOf(translated).toEqualTypeOf<Result<number, Invalid>>()
+  })
+
+  it('infers identically when the value is supplied in the same call', () => {
+    const translated = mapError(
+      (error: RangeError) => new Invalid(error.message),
+      input,
+    )
+
+    expectTypeOf(translated).toEqualTypeOf<Result<number, Invalid>>()
+  })
+
+  it('stays generic when the value is omitted: T and E bind at application', () => {
+    const widen = mapError((error: Error) => new Invalid(error.message))
+
+    expectTypeOf(widen(input)).toEqualTypeOf<Result<number, Invalid>>()
+    expectTypeOf(
+      widen(input as unknown as Result<string, TypeError>),
+    ).toEqualTypeOf<Result<string, Invalid>>()
+  })
+
+  it('drops the recovered error type when the callback returns a Success', () => {
+    // Recovery through the full-Result handler vocabulary: every Failure
+    // was mapped to a Success, so no error type remains.
+    const recovered = mapError((error: RangeError) =>
+      success(error.message.length),
+    )(input)
+
+    expectTypeOf(recovered).toEqualTypeOf<Result<number, never>>()
+  })
+
+  it('unions the arms of a translate-or-recover callback', () => {
+    const mixed = mapError((error: RangeError) =>
+      error.message === 'benign' ? success(0) : new Invalid(error.message),
+    )(input)
+
+    expectTypeOf(mixed).toEqualTypeOf<Result<number, Invalid>>()
+  })
+
+  it('rejects a callback that returns a Promise — mapError runs synchronously', () => {
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    mapError(async (error: RangeError) => new Invalid(error.message))
+  })
+
+  it('rejects an input whose error type the callback cannot handle', () => {
+    // @ts-expect-error - the callback narrows to Invalid, the input carries RangeError
+    mapError((error: Invalid) => new RangeError(error.message), input)
   })
 })
 

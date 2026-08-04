@@ -8,6 +8,7 @@ import {
   isFailure,
   isSuccess,
   map,
+  mapError,
   orElse,
   result,
   success,
@@ -227,6 +228,50 @@ describe('map', () => {
     expect(map((n: number) => n * 2, success(21))).toBe(42)
     const error = new Error('bad')
     expect(map((n: number) => n * 2, failure<number>(error))).toBe(error)
+  })
+})
+
+describe('mapError', () => {
+  it('passes a Success through without calling fn', () => {
+    let called = false
+    const outcome = mapError((error: Error) => {
+      called = true
+      return new WidgetError(error.message)
+    })(success(5))
+    expect(outcome).toBe(5)
+    expect(called).toBe(false)
+  })
+
+  it('translates a Failure into the callback’s error, staying a Failure', () => {
+    const translated = mapError(
+      (error: Error) => new WidgetError(error.message),
+    )(failure<number>(new Error('w-1')))
+    expect(isFailure(translated)).toBe(true)
+    expect(translated).toBeInstanceOf(WidgetError)
+    expect((translated as WidgetError).widgetId).toBe('w-1')
+  })
+
+  it('may recover, since fn returns a whole Result', () => {
+    // The same handler vocabulary tryCatch's errorHandler and
+    // promise/resultify's rejection mapper share.
+    const recovered = mapError((error: Error) => success(error.message.length))(
+      failure<number>(new Error('bad')),
+    )
+    expect(isSuccess(recovered)).toBe(true)
+    expect(recovered).toBe(3)
+  })
+
+  it('applies immediately when the value is supplied', () => {
+    const error = new Error('w-2')
+    expect(
+      mapError((error: Error) => new WidgetError(error.message), success(5)),
+    ).toBe(5)
+    expect(
+      mapError(
+        (error: Error) => new WidgetError(error.message),
+        failure<number>(error),
+      ),
+    ).toBeInstanceOf(WidgetError)
   })
 })
 

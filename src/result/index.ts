@@ -310,10 +310,73 @@ export function map<A, U extends NotAResult<U>, T extends A, E extends Error>(
 }
 
 /**
+ * Applies `fn` to a `Failure`'s `Error`, passing a `Success` through
+ * unchanged — {@link map}'s dual, over the other channel. Before this
+ * existed the failure channel could only be *erased*: {@link orElse} and
+ * {@link fallback} both end a chain by turning a `Failure` into a
+ * `Success`, so there was no way to translate a factory's error into the
+ * caller's own domain error and keep the chain going as a `Result`.
+ *
+ * `fn` shares the handler vocabulary of {@link tryCatch}'s `errorHandler`
+ * and `promise/resultify`'s rejection mapper: it returns a whole `Result`,
+ * not just an `Error`. A bare `F` already satisfies that — `Failure<T, F>`
+ * is `F` intersected with an optional phantom, so every `Error` is already
+ * a `Result` — which makes pure translation the simple case:
+ *
+ * ```ts
+ * mapError((error: FetchError) => new WidgetError(error))
+ * ```
+ *
+ * and recovery (returning a `Success`) available without a second
+ * combinator, exactly as it is in those handlers. {@link ValueOf} and
+ * {@link ErrorOf} keep the arms precise: a translating callback yields
+ * `Result<T, F>`, a recovering one drops the error type it recovered from.
+ *
+ * `fn` must resolve synchronously — see {@link NotAPromise}.
+ *
+ * `/maybe` deliberately has no counterpart: `Nothing` carries nothing to
+ * transform, which is the same reason `maybe/assertJust` takes a message
+ * where `result/assertSuccess` rethrows the carried `Error`.
+ *
+ * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
+ * by arity, never by inspecting the value (see docs/adr/0003-currying.md).
+ * Like {@link map}, the unapplied form stays generic: `T` and `E` bind at
+ * the eventual application.
+ */
+export function mapError<
+  A extends Error,
+  R extends NotAPromise<R>,
+  T,
+  E extends A,
+>(fn: (error: A) => R, value: Result<T, E>): Result<T | ValueOf<R>, ErrorOf<R>>
+export function mapError<A extends Error, R extends NotAPromise<R>>(
+  fn: (error: A) => R,
+): <T, E extends A>(value: Result<T, E>) => Result<T | ValueOf<R>, ErrorOf<R>>
+export function mapError<
+  A extends Error,
+  R extends NotAPromise<R>,
+  T,
+  E extends A,
+>(
+  fn: (error: A) => R,
+  ...value: [] | [Result<T, E>]
+): CurryableMapper<Result<T, E>, Result<T | ValueOf<R>, ErrorOf<R>>> {
+  return curry(
+    (value: Result<T, E>) =>
+      (isFailure(value) ? fn(value) : value) as unknown as Result<
+        T | ValueOf<R>,
+        ErrorOf<R>
+      >,
+    ...value,
+  )
+}
+
+/**
  * Lazy recovery from a `Failure`: `fn` receives the `Failure` and must
  * produce a `Success`, so the result is always a `Success`. Passes an
  * existing `Success` through without calling `fn`. Eager counterpart:
- * {@link orElse}.
+ * {@link orElse}. To transform the error while staying in the failure
+ * channel, use {@link mapError}.
  *
  * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
  * by arity, never by inspecting the value (see docs/adr/0003-currying.md).
