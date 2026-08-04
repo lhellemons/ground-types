@@ -373,8 +373,15 @@ export function orElse<T, E extends Error>(
  * itself an unresolved `Promise`. Names the sanctioned lift as the fix —
  * resolve with `promise/resultify` or `call/resultify` first, then compose
  * with `.then()`, as documented in the README's "asynchrony layer" section.
+ *
+ * Exported both so its exact wording can be pinned by type-level tests and
+ * for `maybe/map`, which runs synchronously over an unboxed encoding in
+ * exactly the same way and would otherwise let an `async` callback mint a
+ * `Just` that is an unresolved `Promise`. The import is type-only, so the
+ * maybe/result boundary stays free of a runtime cycle
+ * (see docs/adr/0001-unboxed-maybe-and-result.md).
  */
-type NotAPromise<R> =
+export type NotAPromise<R> =
   HasThenableArm<R> extends true
     ? 'This callback returns a Promise (or thenable) — resolve it first with promise/resultify or call/resultify, then compose with .then()'
     : unknown

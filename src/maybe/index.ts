@@ -1,6 +1,6 @@
 import { curry } from '../fn/index.js'
 import type { CurryableMapper } from '../fn/index.js'
-import type { Result } from '../result/index.js'
+import type { NotAPromise, Result } from '../result/index.js'
 
 /**
  * A value that may be absent, encoded unboxed as `T | undefined`. A `Maybe`
@@ -99,6 +99,15 @@ export function fallback<T>(
  * return a `Maybe<U>` without ever producing an observable nested value —
  * which is exactly what {@link andThen} relies on.
  *
+ * `fn` must resolve synchronously — the same rule `result/map` enforces,
+ * through the same `NotAPromise` guard (a type-only import, keeping the
+ * maybe/result boundary free of a runtime cycle). Nothing in this module
+ * otherwise asserts that a value resolves synchronously, so an `async`
+ * callback would type-check silently and mint a `Maybe<Promise<U>>`: a
+ * `Just` that is an unresolved `Promise`, present whatever it eventually
+ * settles to. Resolve with `promise/resultify` or `call/resultify` first,
+ * then compose with `.then()`.
+ *
  * Curryable: supply `value` to apply now, or omit it for a Mapper — decided
  * by arity, never by inspecting the value, which matters here more than
  * anywhere: `map(fn, nothing())` passes `undefined` as a real argument and
@@ -111,14 +120,14 @@ export function fallback<T>(
  * the spelling {@link maybe} itself uses at the boundary, for the same
  * reason. The same holds for every applied form in this module.
  */
-export function map<T, U>(
+export function map<T, U extends NotAPromise<U>>(
   fn: (value: Just<T>) => U,
   value: T | undefined,
 ): Maybe<U>
-export function map<T, U>(
+export function map<T, U extends NotAPromise<U>>(
   fn: (value: Just<T>) => U,
 ): (value: Maybe<T>) => Maybe<U>
-export function map<T, U>(
+export function map<T, U extends NotAPromise<U>>(
   fn: (value: Just<T>) => U,
   ...value: [] | [Maybe<T>]
 ): CurryableMapper<Maybe<T>, Maybe<U>> {

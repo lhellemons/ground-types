@@ -33,6 +33,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   platform already provides, resolved before anything inspects it — it does
   not erode the "a `Success` can never be an `Error`" guarantee.
 
+- **Breaking:** `maybe/map` (and `andThen`, its true alias) now rejects a
+  callback whose return type has a thenable arm, exactly as `result/map`
+  already did. `map(async (n) => ...)` compiled and produced
+  `Maybe<Promise<string>>` — a `Just` that is an unresolved `Promise`,
+  present whatever it eventually settles to — because nothing in `/maybe`
+  asserted that a value resolves synchronously. The guard is `/result`'s
+  own `NotAPromise`, now exported and imported type-only so the
+  maybe/result boundary stays free of a runtime cycle, and it surfaces
+  the identical diagnostic naming the sanctioned fix: resolve with
+  `promise/resultify` or `call/resultify` first, then compose with
+  `.then()`.
 - Every config-taking combinator in `maybe` (`map`, `andThen`, `orElse`,
   `fallback`) and `result` (`map`, `andThen`, `orElse`, `fallback`,
   `fromMaybe`) is now curryable: `map(fn)` still returns a unary Mapper,

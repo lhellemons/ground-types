@@ -1,6 +1,7 @@
 import { describe, expectTypeOf, it } from 'vitest'
-import { fallback, map, maybe, nothing, orElse } from './index.js'
+import { andThen, fallback, map, maybe, nothing, orElse } from './index.js'
 import type { Maybe } from './index.js'
+import type { NotAPromise } from '../result/index.js'
 
 declare const input: Maybe<number>
 
@@ -26,6 +27,49 @@ describe('map, curried and applied', () => {
     const labelled = map((n: number) => `n-${n}`, nothing<number>())
 
     expectTypeOf(labelled).toEqualTypeOf<Maybe<string>>()
+  })
+})
+
+describe('map with a callback that returns a thenable', () => {
+  it('rejects a callback that returns a Promise — map runs synchronously', () => {
+    // Without the guard this compiled and produced Maybe<Promise<string>>:
+    // a Just that is an unresolved Promise, present whatever it settles to.
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    map(async (n: number) => `n-${n}`)
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    map(async (n: number) => `n-${n}`, input)
+  })
+
+  it('rejects a callback that returns a non-native thenable', () => {
+    // A custom deferred resolves via `then` without being a real Promise
+    // instance; detection goes by shape, exactly as in result/map.
+    const makeThenable = (
+      n: number,
+    ): { then(onfulfilled: (v: number) => void): void } => ({
+      then: (onfulfilled) => onfulfilled(n),
+    })
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    map(makeThenable)
+  })
+
+  it('rejects a callback whose return type is a sync/async union', () => {
+    const maybeAsync = (n: number): number | Promise<number> =>
+      n > 0 ? n : Promise.resolve(n)
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    map(maybeAsync)
+  })
+
+  it('inherits the guard through andThen, the true alias', () => {
+    // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
+    andThen(async (n: number) => `n-${n}`)
+  })
+
+  it('pins the diagnostic to the same wording result/map surfaces', () => {
+    // `@ts-expect-error` alone would accept any rejection; pin the literal
+    // text so the compiler keeps naming the sanctioned fix.
+    expectTypeOf<
+      NotAPromise<Promise<number>>
+    >().toEqualTypeOf<'This callback returns a Promise (or thenable) — resolve it first with promise/resultify or call/resultify, then compose with .then()'>()
   })
 })
 
