@@ -104,16 +104,12 @@ export function success<T, E extends Error = Error>(value: T): Success<T, E> {
 }
 
 /**
- * Wraps a known error as a {@link Failure}. Error-first: the type
- * parameters are ordered `<E, T>`, the reverse of {@link success} and of
- * the `Result`/`Failure` types themselves, because the single explicit
- * type argument a caller plausibly writes — `failure<MyError>(e)` — names
- * the error being wrapped. Under the previous `<T, E>` order that spelling
- * silently bound the *success* type instead, yielding
- * `Failure<MyError, Error>`: the named error class quietly demoted to
- * plain `Error`, with no diagnostic. The asymmetry between the two
- * constructors is deliberate: each puts the type its caller actually has
- * in hand first, and leaves the phantom channel defaulted.
+ * Wraps a known error as a {@link Failure}. Type parameters are ordered
+ * `<E, T>` — the reverse of {@link success} and of the `Result`/`Failure`
+ * types themselves, deliberately: each constructor puts the type its
+ * caller actually has in hand first, so the single explicit type argument
+ * a caller plausibly writes — `failure<MyError>(e)` — names the error
+ * being wrapped, leaving the phantom channel defaulted.
  */
 export function failure<E extends Error = Error, T = unknown>(
   error: E,
@@ -208,12 +204,11 @@ export class ThrownError<T = unknown> extends Error {
  * fixes `E = Error`, which is precisely what the default handler can
  * honour: the `Error` as thrown, or a {@link ThrownError} around anything
  * else. `tryCatch(fn, handler)` is generic in `E`, because there the
- * handler is the caller's own promise to produce that `E`. Under the old
- * single signature the two were not tied together — `E` could be named
- * explicitly while the handler was left off, and the default's cast then
- * passed a thrown `TypeError` off as `Failure<T, MyError>`, a documented
- * unsound corner. Naming `E` without supplying a handler is now a compile
- * error: no overload takes three type arguments and one value argument.
+ * handler is the caller's own promise to produce that `E`. Naming `E`
+ * without supplying the handler that produces it is therefore a compile
+ * error — no overload takes three type arguments and one value argument —
+ * rather than a cast passing a thrown `TypeError` off as
+ * `Failure<T, MyError>`.
  */
 export function tryCatch<T extends NotAPromise<T>, Args extends unknown[]>(
   fn: (...args: Args) => T,
@@ -353,11 +348,12 @@ export function map<A, U extends NotAResult<U>, T extends A, E extends Error>(
 
 /**
  * Applies `fn` to a `Failure`'s `Error`, passing a `Success` through
- * unchanged — {@link map}'s dual, over the other channel. Before this
- * existed the failure channel could only be *erased*: {@link orElse} and
- * {@link fallback} both end a chain by turning a `Failure` into a
- * `Success`, so there was no way to translate a factory's error into the
- * caller's own domain error and keep the chain going as a `Result`.
+ * unchanged — {@link map}'s dual, over the other channel. This is the one
+ * combinator that transforms the failure channel while staying in it:
+ * {@link orElse} and {@link fallback} both end a chain by turning a
+ * `Failure` into a `Success`, where `mapError` translates a factory's
+ * error into the caller's own domain error and keeps the chain going as
+ * a `Result`.
  *
  * `fn` shares the handler vocabulary of {@link tryCatch}'s `errorHandler`
  * and `promise/resultify`'s rejection mapper: it returns a whole `Result`,

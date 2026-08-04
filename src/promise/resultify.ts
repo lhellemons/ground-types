@@ -47,10 +47,9 @@ export function resultify<O, E extends Error>(
       // Promise.resolve returns its argument only when the argument's
       // constructor is Promise itself, so a subclass instance is wrapped —
       // which is exactly how the lifted promise is stripped of abortability.
-      // The previous trailing .catch(mapRejection) is gone: `success` is a
-      // cast and cannot throw, so the only thing it could have caught was
-      // mapRejection failing, and handing a handler its own failure is not a
-      // recovery strategy.
+      // No trailing .catch(mapRejection): `success` is a cast and cannot
+      // throw, so the only thing it could catch is mapRejection failing,
+      // and handing a handler its own failure is not a recovery strategy.
       Promise.resolve(promise).then(
         success as Mapper<O, Result<O, E>>,
         mapRejection,

@@ -186,6 +186,15 @@ promise)` was curryable while `result/map(fn)` was not — so the whole
   at application, pinned by type-level tests. See
   [docs/adr/0003-currying.md](./docs/adr/0003-currying.md).
 
+- Docs: an editorial pass over the README and every docblock, harmonizing
+  them after the API-coherence batch above. History and experiment
+  narration ("under the previous order…", "confirmed by trying it") is
+  pruned from docblocks — the CHANGELOG and ADRs keep that record — and
+  drift is fixed: the README module table was missing
+  `intern-registry/internByKey` and `promise/TrackedState`, and its
+  Status section credited the unreleased `result/mapError` to v0.2.x.
+  No signature, type, or behaviour changes.
+
 An asynchrony layer, ported from another project and reworked to fit this
 library. No release cut; see
 [docs/adr/0002-abort-propagation.md](./docs/adr/0002-abort-propagation.md)

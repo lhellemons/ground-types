@@ -261,13 +261,11 @@ export function pipe(
  * value. An `input === undefined` test cannot answer it in this library:
  * `Nothing` *is* `undefined`, so a present-but-absent Maybe would be
  * indistinguishable from a missing argument and would silently return the
- * mapper instead of applying it. This is not a hypothetical for your own
- * combinator either, the moment its `T` can be `undefined` the same trap is
- * live — which is exactly why `curry` takes arity, not a value, and why your
- * wrapper must forward arity the same way.
+ * mapper instead of applying it — and the moment your own combinator's `T`
+ * can be `undefined`, the same trap is live.
  *
- * Callers must forward their own arity the same way — `curry(mapper, input)`
- * where `input` is an optional parameter always passes two arguments, which
+ * Your wrapper must forward its own arity the same way: `curry(mapper, input)`
+ * with `input` an optional parameter always passes two arguments, which
  * defeats the whole mechanism. Spread a `[] | [T]` rest tuple instead.
  */
 export function curry<T, U>(

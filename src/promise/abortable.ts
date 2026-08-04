@@ -78,9 +78,9 @@ class AbortState {
    *
    * The release is the point. A signal may outlive by far the promises bound
    * to it, and each binding that is never released pins its listener, its
-   * closure and this whole object for the signal's lifetime; binding many
-   * short-lived promises to one long-lived signal is an ordinary thing to do
-   * and used to accumulate all of them.
+   * closure and this whole object for the signal's lifetime — and binding
+   * many short-lived promises to one long-lived signal is an ordinary thing
+   * to do.
    *
    * Releasing is safe here, and only here, because this object *is* the
    * settlement bookkeeping — {@link claimSettlement} and {@link abort} are the
