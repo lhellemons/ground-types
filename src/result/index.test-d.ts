@@ -8,6 +8,8 @@ class Invalid extends Error {
 }
 
 declare const input: Result<number, RangeError>
+declare const invalidInput: Result<number, Invalid>
+declare const stringInput: Result<string, TypeError>
 
 describe('andThen', () => {
   it('infers the Success type through a callback that can also fail', () => {
@@ -38,9 +40,7 @@ describe('map, curried and applied', () => {
     const double = map((n: number) => n * 2)
 
     expectTypeOf(double(input)).toEqualTypeOf<Result<number, RangeError>>()
-    expectTypeOf(
-      double(input as unknown as Result<number, Invalid>),
-    ).toEqualTypeOf<Result<number, Invalid>>()
+    expectTypeOf(double(invalidInput)).toEqualTypeOf<Result<number, Invalid>>()
   })
 
   it('binds T and E from the value when applied in the same call', () => {
@@ -131,9 +131,7 @@ describe('mapError', () => {
     const widen = mapError((error: Error) => new Invalid(error.message))
 
     expectTypeOf(widen(input)).toEqualTypeOf<Result<number, Invalid>>()
-    expectTypeOf(
-      widen(input as unknown as Result<string, TypeError>),
-    ).toEqualTypeOf<Result<string, Invalid>>()
+    expectTypeOf(widen(stringInput)).toEqualTypeOf<Result<string, Invalid>>()
   })
 
   it('drops the recovered error type when the callback returns a Success', () => {

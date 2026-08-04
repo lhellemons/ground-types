@@ -75,8 +75,9 @@ for why `pipe` is shaped this way.
 ## The asynchrony layer composes with the primitives
 
 There is no `mapAsync`, no `AsyncResult`, and no second combinator set for
-asynchronous code. There does not need to be: every `Result` combinator is
-a unary function, so `.then` already composes with them.
+asynchronous code. There does not need to be: every `Result` combinator,
+given only its configuration, returns a unary function, so `.then` already
+composes with them.
 
 ```ts
 import { fail, resultify } from '@lhellemons/ground-types/promise'
@@ -139,10 +140,12 @@ merely happens to be Error-shaped.
 v0.2.x. `maybe` and `result` now offer a matching combinator set — `map`
 and `andThen`, eager `orElse` and lazy `fallback`, and a bridge each way
 between the two modules (`maybe/fromResult`, `result/fromMaybe`) — and
-every export carries a docblock. The names match, but one pair does not:
-`maybe/andThen` is a true alias of `maybe/map`, because a `Maybe` cannot
-nest, whereas `result/andThen` is genuinely distinct from `result/map`,
-because a `Result` can. See
+every export carries a docblock. The match is deliberate rather than
+mechanical, and so are its two exceptions: `maybe/andThen` is a true alias
+of `maybe/map`, because a `Maybe` cannot nest, whereas `result/andThen` is
+genuinely distinct from `result/map`, because a `Result` can; and
+`result/mapError` has no `maybe` counterpart, because `Nothing` carries
+nothing to transform. See
 [docs/adr/0001-unboxed-maybe-and-result.md](./docs/adr/0001-unboxed-maybe-and-result.md)
 for the rationale behind the encoding and these symmetry choices.
 
