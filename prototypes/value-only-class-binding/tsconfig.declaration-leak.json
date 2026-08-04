@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["./declaration-leak.ts", "./maybe-box.ts", "../../src/**/*.ts"],
+  "exclude": []
+}

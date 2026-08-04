@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "include": ["./*.ts", "../../src/**/*.ts"],
+  "exclude": ["./declaration-leak.ts"],
+  "compilerOptions": {
+    "rootDir": "../..",
+    "outDir": "../../.local/proto-dts",
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "sourceMap": false
+  }
+}
