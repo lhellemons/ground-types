@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-04
+
+Upgrading from 0.1.x or 0.2.x? See the
+[0.1.0 → 0.3.0 migration guide](./docs/migration/0.1.0-to-0.3.0.md).
+
 - Tests pinning the public API surface of every subpath and the root entry
   point, so an accidentally added, removed or renamed export fails CI
   instead of shipping silently. `scripts/assert-exports-resolve.mjs`

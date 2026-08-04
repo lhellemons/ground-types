@@ -12,7 +12,7 @@ Every term used here is defined in [CONTEXT.md](./CONTEXT.md).
 ## Install
 
 ```sh
-pnpm add github:lhellemons/ground-types#semver:^0.2.0
+pnpm add github:lhellemons/ground-types#semver:^0.3.0
 ```
 
 Not published to npm yet.
@@ -192,6 +192,9 @@ whole function vocabulary. Two things to know about it:
   were passed, never by inspecting a value — `Nothing` _is_ `undefined`,
   so `map(fn, nothing())` applies rather than handing back the Mapper.
   See [docs/adr/0003-currying.md](./docs/adr/0003-currying.md).
+
+Upgrading from 0.1.x or 0.2.x? See the
+[0.1.0 → 0.3.0 migration guide](./docs/migration/0.1.0-to-0.3.0.md).
 
 Not yet published to npm; expect breaking changes within 0.x.
 
