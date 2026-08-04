@@ -27,7 +27,7 @@ const UserFactory: DomainObjectFactory<User, UserDTO> = {
   from(dto) {
     return dto.name.length > 0
       ? success({ id: dto.id, name: dto.name })
-      : failure<User>(new Error('name must not be empty'))
+      : failure<Error, User>(new Error('name must not be empty'))
   },
 }
 

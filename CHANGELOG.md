@@ -44,6 +44,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the identical diagnostic naming the sanctioned fix: resolve with
   `promise/resultify` or `call/resultify` first, then compose with
   `.then()`.
+- **Breaking:** `result/failure`'s type parameters are reordered from
+  `<T, E extends Error>` to `<E extends Error, T = unknown>`. The single
+  explicit type argument a caller plausibly writes — `failure<MyError>(e)`
+  — used to bind the _success_ type, silently yielding
+  `Failure<MyError, Error>`: the named error class demoted to plain
+  `Error`, with no diagnostic. It now binds the error, and a non-`Error`
+  first argument is a compile error rather than a quiet mis-bind. Call
+  sites that named both parameters swap them
+  (`failure<number, E>` → `failure<E, number>`); call sites with no type
+  arguments are unaffected. `success<T, E>` keeps its value-first order —
+  the asymmetry is deliberate and documented on both constructors: each
+  puts the type its caller actually has in hand first.
 - `result/mapError` — `map`'s dual over the failure channel: applies a
   callback to a `Failure`'s `Error` and passes a `Success` through, so a
   factory's error can be translated into the caller's domain error

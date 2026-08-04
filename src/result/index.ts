@@ -93,13 +93,31 @@ export function result<T, E extends Error = Error>(value: T | E): Result<T, E> {
   return value as unknown as Result<T, E>
 }
 
-/** Wraps a known-good value as a {@link Success}. */
+/**
+ * Wraps a known-good value as a {@link Success}. Value-first: the single
+ * explicit type argument a caller writes — `success<Widget>(w)` — names the
+ * value being wrapped. See {@link failure} for why the two constructors
+ * order their parameters differently, on purpose.
+ */
 export function success<T, E extends Error = Error>(value: T): Success<T, E> {
   return value as Success<T, E>
 }
 
-/** Wraps a known error as a {@link Failure}. */
-export function failure<T, E extends Error = Error>(error: E): Failure<T, E> {
+/**
+ * Wraps a known error as a {@link Failure}. Error-first: the type
+ * parameters are ordered `<E, T>`, the reverse of {@link success} and of
+ * the `Result`/`Failure` types themselves, because the single explicit
+ * type argument a caller plausibly writes — `failure<MyError>(e)` — names
+ * the error being wrapped. Under the previous `<T, E>` order that spelling
+ * silently bound the *success* type instead, yielding
+ * `Failure<MyError, Error>`: the named error class quietly demoted to
+ * plain `Error`, with no diagnostic. The asymmetry between the two
+ * constructors is deliberate: each puts the type its caller actually has
+ * in hand first, and leaves the phantom channel defaulted.
+ */
+export function failure<E extends Error = Error, T = unknown>(
+  error: E,
+): Failure<T, E> {
   return error
 }
 

@@ -70,7 +70,7 @@ export function resultify<O, E extends Error>(
  * make `resultify(fail, promise)` infer `Promise<Result<Error, Error>>`.
  */
 export function fail<O = never>(reason: unknown): Result<O, Error> {
-  return failure<O, Error>(
+  return failure<Error, O>(
     reason instanceof Error ? reason : new RejectionError(reason),
   )
 }

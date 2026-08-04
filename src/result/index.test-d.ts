@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from 'vitest'
 import { andThen, failure, map, mapError, success, tryCatch } from './index.js'
-import type { NotAResult, Result } from './index.js'
+import type { Failure, NotAResult, Result, Success } from './index.js'
 
 /** A domain Failure type distinct from the one the input can already carry. */
 class Invalid extends Error {
@@ -179,6 +179,29 @@ describe('tryCatch', () => {
       n > 0 ? n : Promise.resolve(n)
     // @ts-expect-error - resolve first (promise/resultify or call/resultify), then compose with .then()
     tryCatch(maybeAsync)
+  })
+})
+
+describe('failure and success constructors', () => {
+  it('binds failure’s single explicit type argument to the error', () => {
+    // The trap the <E, T> order closes: under <T, E>, failure<Invalid>(e)
+    // silently bound the SUCCESS type, yielding Failure<Invalid, Error> —
+    // the named error class demoted to plain Error, with no diagnostic.
+    const f = failure<Invalid>(new Invalid('x'))
+
+    expectTypeOf(f).toEqualTypeOf<Failure<unknown, Invalid>>()
+  })
+
+  it('rejects a non-Error single type argument, where the old order accepted it', () => {
+    // @ts-expect-error - the first type parameter is the error now
+    failure<number>(new Invalid('x'))
+  })
+
+  it('keeps success value-first — the documented, deliberate asymmetry', () => {
+    expectTypeOf(success<number>(5)).toEqualTypeOf<Success<number, Error>>()
+    expectTypeOf(success<number, Invalid>(5)).toEqualTypeOf<
+      Success<number, Invalid>
+    >()
   })
 })
 
