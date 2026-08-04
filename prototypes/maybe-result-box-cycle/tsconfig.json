@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.json",
+  "include": ["./**/*.ts", "../../src/**/*.ts"],
+  "exclude": [
+    "./a-inferred-return",
+    "../../src/**/*.test.ts",
+    "../../src/**/*.test-d.ts"
+  ],
+  "compilerOptions": {
+    "rootDir": "../..",
+    "outDir": "../../.local/proto-cycle",
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false
+  }
+}
