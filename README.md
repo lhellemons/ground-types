@@ -19,7 +19,7 @@ Not published to npm yet.
 
 ## Modules
 
-Each module is a separate subpath export; there is no root entry point.
+Each module is a separate subpath export.
 
 | Subpath            | Exports                                                                                                                                                                                                 |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -48,6 +48,22 @@ rather than flattening them into one namespace.
 
 `/promise/fake` is a separate subpath rather than part of `/promise` so
 that test doubles cannot reach a production bundle by accident.
+
+There is also a root entry point, for a bare
+`import from '@lhellemons/ground-types'` and for tooling that predates or
+ignores the `exports` map. It re-exports each module as a namespace, named
+after its subpath (`intern-registry` becomes `internRegistry`,
+`value-object` becomes `valueObject`, the rest unchanged), so `maybe.map`
+and `result.map` stay distinct here too — nothing is flattened. Per-module
+import remains the recommended style, for the same reason as above;
+`/promise/fake` is not part of the root, for the same reason as above.
+
+```ts
+import { maybe, result } from '@lhellemons/ground-types'
+
+result.map(...)
+maybe.map(...)
+```
 
 ## Composing a chain of steps
 
