@@ -14,10 +14,18 @@ export type Mapper<T, U> = (t: T) => U
 
 /**
  * The return type of a curryable function: either the {@link Mapper} itself,
- * when no input was supplied, or the mapped value, when one was. Callers see
- * one branch or the other through overloads; this union is the implementation
- * signature covering both, and is not meant to be narrowed at a call site —
- * when `U` is itself a function type, the two branches are indistinguishable.
+ * when no input was supplied, or the mapped value, when one was. This is the
+ * extension point for writing your own curryable combinator — pair it with
+ * {@link curry} the way `promise/resultify` and `call/resultify` do. See
+ * {@link curry} for the worked example and the arity rule that makes it safe.
+ *
+ * A `CurryableMapper` is an implementation-signature type, meant for a
+ * function's return type, not for narrowing at a call site: callers see one
+ * branch or the other through your overloads (mirror `resultify`'s two-overload
+ * shape), and when `U` is itself a function type — as it is for
+ * `call/resultify`, whose `U` is a `Call` — the two branches are
+ * indistinguishable to both the compiler and the reader, so there is nothing
+ * to narrow to.
  */
 export type CurryableMapper<T, U> = Mapper<T, U> | U
 
@@ -224,14 +232,39 @@ export function pipe(
 /**
  * Produces a {@link CurryableMapper} by either applying `mapper` to an input
  * or returning `mapper` unapplied, depending on whether an input was given.
- * The building block every curryable export in this library delegates to.
+ * The building block every curryable export in this library delegates to —
+ * `promise/resultify` and `call/resultify` are both `curry` underneath — and
+ * the sanctioned way to give your own combinator the same "apply now, or hand
+ * back a Mapper for later" shape.
+ *
+ * Writing one means three parts, all present on `resultify`: two public
+ * overloads (applied form, then deferred form), an implementation signature
+ * whose trailing parameter is a `[] | [T]` rest tuple, and a body that spreads
+ * that tuple into `curry`:
+ *
+ * ```ts
+ * function scaleBy(factor: number, input: number): number
+ * function scaleBy(factor: number): Mapper<number, number>
+ * function scaleBy(
+ *   factor: number,
+ *   ...input: [] | [number]
+ * ): CurryableMapper<number, number> {
+ *   return curry((n: number) => n * factor, ...input)
+ * }
+ *
+ * scaleBy(2, 21) // 42, applied now
+ * scaleBy(2) // Mapper<number, number>, applied later
+ * ```
  *
  * The input arrives as a rest tuple rather than an optional parameter so that
  * "was an argument passed?" is answered by arity and never by inspecting the
  * value. An `input === undefined` test cannot answer it in this library:
  * `Nothing` *is* `undefined`, so a present-but-absent Maybe would be
  * indistinguishable from a missing argument and would silently return the
- * mapper instead of applying it.
+ * mapper instead of applying it. This is not a hypothetical for your own
+ * combinator either, the moment its `T` can be `undefined` the same trap is
+ * live — which is exactly why `curry` takes arity, not a value, and why your
+ * wrapper must forward arity the same way.
  *
  * Callers must forward their own arity the same way — `curry(mapper, input)`
  * where `input` is an optional parameter always passes two arguments, which

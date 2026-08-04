@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compose, constant, curry, identity, pipe } from './index.js'
-import type { Fn, Mapper } from './index.js'
+import type { CurryableMapper, Fn, Mapper } from './index.js'
 
 describe('compose', () => {
   it('applies g then f, right to left', () => {
@@ -104,6 +104,25 @@ describe('curry', () => {
     expect(curry(describeMaybe, undefined)).toBe('nothing')
     expect(curry(describeMaybe, 'widget')).toBe('just widget')
     expect(curry(describeMaybe)).toBeTypeOf('function')
+  })
+
+  it('backs a consumer-written curryable combinator, applied and deferred', () => {
+    // Mirrors curry's own docblock example: a combinator built the same way
+    // promise/resultify and call/resultify are, to confirm the documented
+    // pattern actually compiles and runs, not just reads plausibly.
+    function scaleBy(factor: number, input: number): number
+    function scaleBy(factor: number): Mapper<number, number>
+    function scaleBy(
+      factor: number,
+      ...input: [] | [number]
+    ): CurryableMapper<number, number> {
+      return curry((n: number) => n * factor, ...input)
+    }
+
+    expect(scaleBy(2, 21)).toBe(42)
+    const double = scaleBy(2)
+    expect(double).toBeTypeOf('function')
+    expect(double(21)).toBe(42)
   })
 })
 
