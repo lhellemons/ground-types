@@ -42,26 +42,98 @@ export function compose<A, B, C>(f: Fn<C, [B]>, g: Fn<B, [A]>): Fn<C, [A]> {
 }
 
 /**
- * Composes two {@link Mapper}s left to right: `pipe(f, g)(x)` is `g(f(x))`,
- * so the arguments read in the order the data flows through them. The mirror
- * of {@link compose}, which reads right to left — the two differ only in
- * argument order, so reaching for the wrong one applies the transformations
- * backwards rather than failing.
+ * Runs `value` through a sequence of {@link Mapper}s left to right: `pipe(x,
+ * f, g)` is `g(f(x))`, so the steps read in the order the data flows through
+ * them — the mirror of {@link compose}, which reads right to left.
  *
- * Curryable: supply `x` to apply immediately, or omit it for the composed
- * `Mapper`.
+ * Always applies immediately; there is no deferred form. Each step's
+ * parameter type is pinned to the previous step's return type, so a step
+ * that doesn't fit its neighbour is a compile error at that step, not a
+ * silent `unknown`.
  */
-export function pipe<X, Y, Z>(
-  xToY: Mapper<X, Y>,
-  yToZ: Mapper<Y, Z>,
-): Mapper<X, Z>
-export function pipe<X, Y, Z>(xToY: Mapper<X, Y>, yToZ: Mapper<Y, Z>, x: X): Z
-export function pipe<X, Y, Z>(
-  xToY: Mapper<X, Y>,
-  yToZ: Mapper<Y, Z>,
-  ...x: [] | [X]
-): CurryableMapper<X, Z> {
-  return curry((x: X) => yToZ(xToY(x)), ...x)
+export function pipe<A, B>(value: A, f1: Mapper<A, B>): B
+export function pipe<A, B, C>(value: A, f1: Mapper<A, B>, f2: Mapper<B, C>): C
+export function pipe<A, B, C, D>(
+  value: A,
+  f1: Mapper<A, B>,
+  f2: Mapper<B, C>,
+  f3: Mapper<C, D>,
+): D
+export function pipe<A, B, C, D, E>(
+  value: A,
+  f1: Mapper<A, B>,
+  f2: Mapper<B, C>,
+  f3: Mapper<C, D>,
+  f4: Mapper<D, E>,
+): E
+export function pipe<A, B, C, D, E, F>(
+  value: A,
+  f1: Mapper<A, B>,
+  f2: Mapper<B, C>,
+  f3: Mapper<C, D>,
+  f4: Mapper<D, E>,
+  f5: Mapper<E, F>,
+): F
+export function pipe<A, B, C, D, E, F, G>(
+  value: A,
+  f1: Mapper<A, B>,
+  f2: Mapper<B, C>,
+  f3: Mapper<C, D>,
+  f4: Mapper<D, E>,
+  f5: Mapper<E, F>,
+  f6: Mapper<F, G>,
+): G
+export function pipe<A, B, C, D, E, F, G, H>(
+  value: A,
+  f1: Mapper<A, B>,
+  f2: Mapper<B, C>,
+  f3: Mapper<C, D>,
+  f4: Mapper<D, E>,
+  f5: Mapper<E, F>,
+  f6: Mapper<F, G>,
+  f7: Mapper<G, H>,
+): H
+export function pipe<A, B, C, D, E, F, G, H, I>(
+  value: A,
+  f1: Mapper<A, B>,
+  f2: Mapper<B, C>,
+  f3: Mapper<C, D>,
+  f4: Mapper<D, E>,
+  f5: Mapper<E, F>,
+  f6: Mapper<F, G>,
+  f7: Mapper<G, H>,
+  f8: Mapper<H, I>,
+): I
+export function pipe<A, B, C, D, E, F, G, H, I, J>(
+  value: A,
+  f1: Mapper<A, B>,
+  f2: Mapper<B, C>,
+  f3: Mapper<C, D>,
+  f4: Mapper<D, E>,
+  f5: Mapper<E, F>,
+  f6: Mapper<F, G>,
+  f7: Mapper<G, H>,
+  f8: Mapper<H, I>,
+  f9: Mapper<I, J>,
+): J
+export function pipe<A, B, C, D, E, F, G, H, I, J, K>(
+  value: A,
+  f1: Mapper<A, B>,
+  f2: Mapper<B, C>,
+  f3: Mapper<C, D>,
+  f4: Mapper<D, E>,
+  f5: Mapper<E, F>,
+  f6: Mapper<F, G>,
+  f7: Mapper<G, H>,
+  f8: Mapper<H, I>,
+  f9: Mapper<I, J>,
+  f10: Mapper<J, K>,
+): K
+export function pipe(
+  value: unknown,
+  ...fns: Mapper<unknown, unknown>[]
+): unknown {
+  return fns.reduce((acc, fn) => fn(acc), value)
 }
 
 /**
