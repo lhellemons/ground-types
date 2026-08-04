@@ -5,8 +5,10 @@
 // typo in a subpath — or a module added to src and never exported — ships with
 // CI green and breaks at the consumer's import statement.
 //
-// Two directions are checked, because each catches a different mistake:
+// Three directions are checked, because each catches a different mistake:
 //   - every declared subpath resolves, and its JS entry really imports;
+//   - the top-level `main`/`types` fallback resolves and imports too, since
+//     tooling that ignores `exports` never sees the subpath checks below;
 //   - every built module is reachable through some subpath.
 //
 // The second direction is only meaningful against a build with nothing stale
@@ -19,14 +21,40 @@ import { dirname, resolve } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 
 const rootDir = dirname(dirname(fileURLToPath(import.meta.url)))
-const { exports: exportsMap } = JSON.parse(
-  readFileSync(resolve(rootDir, 'package.json'), 'utf8'),
-)
+const {
+  exports: exportsMap,
+  main: mainField,
+  types: typesField,
+} = JSON.parse(readFileSync(resolve(rootDir, 'package.json'), 'utf8'))
 
 execFileSync('pnpm', ['build'], { cwd: rootDir, stdio: 'inherit' })
 
 const problems = []
 const declaredTargets = new Set()
+
+// `main`/`types` exist for tooling that predates or ignores `exports`
+// entirely, so they are not reachable through the `exports` loop below and
+// need their own resolve-and-import check.
+for (const [field, file] of [
+  ['main', mainField],
+  ['types', typesField],
+]) {
+  if (!file) {
+    problems.push(`"${field}" is not set.`)
+    continue
+  }
+  if (!existsSync(resolve(rootDir, file))) {
+    problems.push(`"${field}" points at ${file}, which does not exist.`)
+    continue
+  }
+  if (field === 'main') {
+    try {
+      await import(pathToFileURL(resolve(rootDir, file)).href)
+    } catch (error) {
+      problems.push(`"${field}" fails to import: ${error.message}`)
+    }
+  }
+}
 
 for (const [subpath, target] of Object.entries(exportsMap)) {
   // `"./package.json": "./package.json"` is a bare string rather than a
@@ -87,5 +115,5 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `assert-exports-resolve: all ${Object.keys(exportsMap).length} declared subpaths resolve and import, and every built module is exported.`,
+  `assert-exports-resolve: all ${Object.keys(exportsMap).length} declared subpaths and the main/types fallback resolve and import, and every built module is exported.`,
 )

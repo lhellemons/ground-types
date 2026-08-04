@@ -28,7 +28,13 @@
   "files": [
     "dist"
   ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
     "./abort": {
       "types": "./dist/abort/index.d.ts",
       "default": "./dist/abort/index.js"

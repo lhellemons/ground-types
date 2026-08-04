@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A root entry point (`"."` in `exports`, plus top-level `main`/`types`
+  for tooling that ignores `exports`). It re-exports each module as a
+  namespace (`maybe`, `result`, `internRegistry`, `valueObject`, ...), so
+  the previously-undocumented bare `import from '@lhellemons/ground-types'`
+  now resolves instead of failing with an unhelpful module-resolution
+  error, without flattening the modules into one namespace — `maybe.map`
+  and `result.map` stay distinct. `/promise/fake` is excluded from the
+  root, for the same reason it is a separate subpath in the first place.
+  Closes #11.
+
 - **Breaking:** `result/map`, `result/andThen` and `result/tryCatch` now
   reject a callback whose return type has a thenable arm — a `Promise`, a
   non-native thenable, or a sync/async union such as
