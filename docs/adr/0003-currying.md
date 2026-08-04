@@ -83,3 +83,12 @@ promise)` is curryable, `result/map(fn)(value)` is not. This is known
   was renamed `pipe` rather than shipped under a name that already meant
   the opposite, since the failure mode of getting that wrong is silently
   applying transformations backwards.
+
+**Update, ADR-0004:** `pipe`'s shape described above (function-first,
+2-ary, curryable) was reversed to value-first and N-ary the same day, to
+actually serve chained `maybe`/`result` combinators — see
+[docs/adr/0004-pipe-value-first.md](./0004-pipe-value-first.md). `pipe`
+no longer has a deferred form, so the curry-arity trap this ADR fixed no
+longer applies to it specifically; `curry` and `CurryableMapper`
+themselves, and their use in `promise/resultify`/`call/resultify`, are
+unchanged.

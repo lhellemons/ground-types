@@ -57,7 +57,8 @@ and [docs/adr/0003-currying.md](./docs/adr/0003-currying.md).
 - `AbortablePromise.detach` — severs the upstream abort link, so a branch
   can be cancelled without cancelling the source it shares.
 - `fn` gains `Mapper`, `CurryableMapper`, `curry`, `identity`, `constant`
-  and `pipe`.
+  and `pipe` — `pipe(value, ...steps)` runs `value` through up to ten
+  `Mapper` steps left to right, applied immediately.
 - `State` gains constructors, guards, `settledResult` — the bridge to the
   primitives, `Nothing` while the operation is unfinished and a `Result`
   once it settles — and `stateOf`, a live view of a promise's State.
@@ -114,6 +115,17 @@ existing primitives, and closed the gaps it found.
   happened. Recognise them with `isAbortError`, not by identity.
 - `AbortablePromise.resolve` follows the standard `Promise.resolve`
   overloads; it previously widened the element type with `undefined`.
+- **Breaking: `pipe` reversed to value-first, N-ary, always immediate**, the same
+  day it was ported in as function-first, 2-ary and curryable. The
+  curryable shape couldn't chain more than two steps without nesting —
+  the exact problem it was meant to solve (#7) — and its deferred form
+  (`pipe(f1, f2)`, no value) cannot infer a bare unannotated step: there
+  is nothing in that call for TypeScript to anchor on, measured by
+  emitting declarations rather than assumed. `pipe(x, f1, ..., f10)` now
+  pins every step's parameter type to the previous step's return type,
+  and was run through a 7-step chain mixing `maybe` and `result`,
+  bridged mid-chain, without inference degrading. See
+  [docs/adr/0004-pipe-value-first.md](./docs/adr/0004-pipe-value-first.md).
 
 A review pass then found four places where the layer did not hold its own
 contracts, and closed them.

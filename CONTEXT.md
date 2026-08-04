@@ -66,12 +66,13 @@ _Avoid_: Reason, fault, err.
 A function of exactly one argument: the unary special case of Function,
 and the shape the combinators compose over. To **compose** two Mappers is
 to read them right to left — `compose(f, g)(x)` is `f(g(x))`. To **pipe**
-them is to read them left to right — `pipe(f, g)(x)` is `g(f(x))`. The
-two differ only in argument order, so naming them apart matters: reaching
-for the wrong one applies the transformations backwards rather than
-failing. To **curry** is to let a function either take its input now or
-hand back a Mapper that will take it later, decided by how many arguments
-were passed and never by their value.
+a value through a sequence of Mappers is to read them left to right and
+apply them immediately — `pipe(x, f, g)` is `g(f(x))`. The two differ in
+both direction and shape: `compose` builds a reusable Mapper without a
+value in hand, `pipe` always has the value and runs the chain now. To
+**curry** is to let a function either take its input now or hand back a
+Mapper that will take it later, decided by how many arguments were
+passed and never by their value.
 
 _Avoid_: Transformer, converter, flow, chain, partial application.
 
