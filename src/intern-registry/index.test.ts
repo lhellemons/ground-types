@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { InternRegistry } from './index.js'
+import { InternRegistry, internByKey } from './index.js'
 import { isJust, isNothing } from '../maybe/index.js'
+import type { CompoundValueObject } from '../domain/index.js'
 
 describe('InternRegistry', () => {
   it('creates a value on first access', () => {
@@ -51,5 +52,55 @@ describe('InternRegistry', () => {
       return undefined
     })
     expect(calls).toBe(1)
+  })
+})
+
+type Point = CompoundValueObject<string> & {
+  readonly x: number
+  readonly y: number
+}
+
+describe('internByKey', () => {
+  it('interns the created value under its own key', () => {
+    const registry = new InternRegistry<string, Point>()
+    const point = internByKey(registry, '1,2', () => ({
+      key: '1,2',
+      x: 1,
+      y: 2,
+    }))
+    expect(point).toEqual({ key: '1,2', x: 1, y: 2 })
+  })
+
+  it('returns the same reference on a second call, without recreating', () => {
+    const registry = new InternRegistry<string, Point>()
+    const first = internByKey(registry, '1,2', () => ({
+      key: '1,2',
+      x: 1,
+      y: 2,
+    }))
+    let calls = 0
+    const second = internByKey(registry, '1,2', () => {
+      calls++
+      return { key: '1,2', x: 1, y: 2 }
+    })
+    expect(second).toBe(first)
+    expect(calls).toBe(0)
+  })
+
+  it('throws if the created value is keyed differently than the interning key', () => {
+    const registry = new InternRegistry<string, Point>()
+    expect(() =>
+      internByKey(registry, '1,2', () => ({ key: 'wrong', x: 1, y: 2 })),
+    ).toThrow(/key/i)
+  })
+
+  it('does not throw when the key is NaN and matches, since Map treats NaN as equal to itself', () => {
+    type NanPoint = CompoundValueObject<number> & { readonly label: string }
+    const registry = new InternRegistry<number, NanPoint>()
+    const value = internByKey(registry, NaN, () => ({
+      key: NaN,
+      label: 'origin',
+    }))
+    expect(value).toEqual({ key: NaN, label: 'origin' })
   })
 })

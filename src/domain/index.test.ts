@@ -5,7 +5,16 @@ import type {
   DomainObjectFactory,
   Entity,
 } from './index.js'
-import { failure, isFailure, isSuccess, success } from '../result/index.js'
+import {
+  assertSuccess,
+  failure,
+  isFailure,
+  isSuccess,
+  success,
+  tryCatch,
+} from '../result/index.js'
+import type { Result } from '../result/index.js'
+import { InternRegistry, internByKey } from '../intern-registry/index.js'
 
 // Tuple-wrapped so the check doesn't distribute over union types.
 type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
@@ -32,6 +41,53 @@ describe('DomainObjectFactory', () => {
   it('reports a Failure explaining why the DTO was not admissible', () => {
     const outcome = UserFactory.from({ id: 'u1', name: '' })
     expect(isFailure(outcome)).toBe(true)
+  })
+})
+
+type PointDTO = { x: number; y: number }
+type PointKey = string
+
+const pointRegistry = new InternRegistry<PointKey, Point>()
+
+class Point
+  implements CompoundValueObject<PointKey>, DomainObjectDTO<PointDTO>
+{
+  readonly key: PointKey
+  readonly x: number
+  readonly y: number
+
+  private constructor(key: PointKey, x: number, y: number) {
+    this.key = key
+    this.x = x
+    this.y = y
+  }
+
+  static {
+    void (Point satisfies DomainObjectFactory<Point, PointDTO>)
+  }
+
+  static from(dto: PointDTO): Result<Point, Error> {
+    return tryCatch((dto: PointDTO) => {
+      const key: PointKey = `${dto.x},${dto.y}`
+      return internByKey(pointRegistry, key, () => new Point(key, dto.x, dto.y))
+    })(dto)
+  }
+
+  get dto(): PointDTO {
+    return { x: this.x, y: this.y }
+  }
+}
+
+describe('DomainObjectDTO round-trip', () => {
+  it('round-trips: from(dto).dto equals the original dto', () => {
+    const point = assertSuccess(Point.from({ x: 1, y: 2 }))
+    expect(point.dto).toEqual({ x: 1, y: 2 })
+  })
+
+  it('interns equal DTOs to the same instance, so value equality holds via reference equality', () => {
+    const a = assertSuccess(Point.from({ x: 3, y: 4 }))
+    const b = assertSuccess(Point.from({ x: 3, y: 4 }))
+    expect(a).toBe(b)
   })
 })
 
