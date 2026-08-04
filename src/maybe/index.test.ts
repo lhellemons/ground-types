@@ -3,6 +3,7 @@ import {
   andThen,
   assertJust,
   fallback,
+  fromNullable,
   fromResult,
   isJust,
   isNothing,
@@ -35,6 +36,24 @@ describe('maybe / just / nothing', () => {
 
   it('nothing returns undefined', () => {
     expect(nothing()).toBeUndefined()
+  })
+})
+
+describe('fromNullable', () => {
+  it('folds null to Nothing, where maybe would produce a Just', () => {
+    expect(fromNullable(null)).toBeUndefined()
+    expect(isNothing(fromNullable(null))).toBe(true)
+  })
+
+  it('folds undefined to Nothing, like maybe', () => {
+    expect(fromNullable(undefined)).toBeUndefined()
+  })
+
+  it('passes a present value through as a Just, including falsy ones', () => {
+    expect(fromNullable(5)).toBe(5)
+    expect(fromNullable(0)).toBe(0)
+    expect(fromNullable('')).toBe('')
+    expect(fromNullable(false)).toBe(false)
   })
 })
 

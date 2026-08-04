@@ -1,5 +1,13 @@
 import { describe, expectTypeOf, it } from 'vitest'
-import { andThen, fallback, map, maybe, nothing, orElse } from './index.js'
+import {
+  andThen,
+  fallback,
+  fromNullable,
+  map,
+  maybe,
+  nothing,
+  orElse,
+} from './index.js'
 import type { Just, Maybe, Nothing } from './index.js'
 import type { NotAPromise } from '../result/index.js'
 
@@ -105,5 +113,15 @@ declare const found: number | undefined
 describe('maybe', () => {
   it('infers the wrapped type from a boundary T | undefined', () => {
     expectTypeOf(maybe(found)).toEqualTypeOf<Maybe<number>>()
+  })
+})
+
+declare const queried: Element | null
+declare const optional: string | null | undefined
+
+describe('fromNullable', () => {
+  it('folds the null arm away rather than carrying it', () => {
+    expectTypeOf(fromNullable(queried)).toEqualTypeOf<Maybe<Element>>()
+    expectTypeOf(fromNullable(optional)).toEqualTypeOf<Maybe<string>>()
   })
 })

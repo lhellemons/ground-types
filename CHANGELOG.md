@@ -44,6 +44,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the identical diagnostic naming the sanctioned fix: resolve with
   `promise/resultify` or `call/resultify` first, then compose with
   `.then()`.
+- `maybe/fromNullable` — the boundary helper for null-convention APIs,
+  folding both `null` and `undefined` to `Nothing`. The encoding knows
+  exactly one absence — `Nothing` _is_ `undefined` — so to `maybe()` a
+  `null` is a value and becomes a `Just`: a trap for the stated boundary
+  use-case, since half the platform signals absence with `null`
+  (`querySelector`, `RegExp.prototype.exec`, a JSON field). The `null` is
+  folded away rather than carried — the return type is
+  `Maybe<NonNullable<T>>` — so downstream code never sees a null again
+  and the one-absence encoding stays clean. `maybe()` itself is
+  unchanged: only `undefined` is Nothing to it.
 - **Breaking:** `result/tryCatch` is split into two overloads so its
   default handler is sound. `tryCatch(fn)` fixes `E = Error` — exactly
   what the default handler can honour: the `Error` as thrown, or a

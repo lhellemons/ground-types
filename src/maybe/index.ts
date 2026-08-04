@@ -42,10 +42,30 @@ export type Nothing<T = unknown> = T extends undefined ? never : undefined
 /**
  * Wraps a possibly-absent value as a {@link Maybe}. Reach for this at the
  * boundary where a `T | undefined` enters code that deals in `Maybe`, e.g.
- * the result of `Array.prototype.find` or an optional property read.
+ * the result of `Array.prototype.find` or an optional property read. For an
+ * API that signals absence with `null` instead, use {@link fromNullable} —
+ * to this function a `null` is a value, and becomes a `Just`.
  */
 export function maybe<T>(value: T | undefined): Maybe<T> {
   return value as Maybe<T>
+}
+
+/**
+ * Wraps a value from a null-convention API as a {@link Maybe}, folding both
+ * `null` and `undefined` to `Nothing`. The encoding itself knows only one
+ * absence — `Nothing` *is* `undefined` (see
+ * docs/adr/0001-unboxed-maybe-and-result.md) — so to {@link maybe} a `null`
+ * is a value and becomes a `Just`: a trap for the boundary this module
+ * exists to serve, since half the platform signals absence with `null`
+ * (`querySelector`, `RegExp.prototype.exec`, a JSON field). This is the
+ * boundary helper for those APIs. The `null` is folded away rather than
+ * carried — the return type is `Maybe<NonNullable<T>>`, so downstream code
+ * never sees a null again and the one-absence encoding stays clean.
+ */
+export function fromNullable<T>(
+  value: T | null | undefined,
+): Maybe<NonNullable<T>> {
+  return (value ?? undefined) as Maybe<NonNullable<T>>
 }
 
 /** Wraps a known-present value as a {@link Just}. */
