@@ -14,8 +14,7 @@ import { AbortablePromise } from '../promise/index.js'
  * unobserved. Reach for this to make a Call's *interface* uniform, and give
  * the Call itself an `AbortSignal` if the work must actually stop.
  *
- * A Call that throws synchronously is caught and reported as a rejection, so
- * the returned AbortablePromise is one the declared type can be trusted for:
+ * A Call that throws synchronously is caught and reported as a rejection:
  * an AbortableCall never throws at the call site.
  */
 export function abortable<O = void, I = void>(

@@ -31,9 +31,7 @@ export type Settled<O> = Fulfilled<O> | Rejected
  * for an operation that has not finished, and only `Result` guarantees an
  * `Error` in its failing case. {@link settledResult} bridges the two.
  *
- * Unlike `Maybe` and `Result`, `State` is boxed. Four cases cannot be
- * discriminated by a primitive check on an unboxed value, so there is nothing
- * to be gained by pretending otherwise.
+ * Unlike `Maybe` and `Result`, `State` is boxed.
  */
 export type State<O> = Initial | Pending | Settled<O>
 
@@ -91,16 +89,12 @@ export function isSettled<O>(state: State<O>): state is Settled<O> {
  * an `Error` by {@link fail}, keeping its concrete subclass — so an abort
  * arrives as an `AbortError`.
  *
- * The `Maybe` is the honest part. A `Result` answers how something ended, and
- * an operation still running has not ended, so there is no `Result` to give.
- *
- * With one exception, which the unboxed encoding cannot close: when `O`
- * includes `undefined` or `void` — as it does for every Call that performs an
- * action rather than producing data, since `Call`'s output defaults to `void` —
- * a fulfilled `Success` *is* `undefined`, and `Nothing` is `undefined` too. The
- * two are the same value, so a finished action is indistinguishable here from
- * one still running. Branch on {@link isSettled} first when `O` can be absent;
- * this bridge is for operations that produce something.
+ * One hazard the unboxed encoding cannot close: when `O` includes `undefined`
+ * or `void` — as it does for every Call that performs an action rather than
+ * producing data — a fulfilled `Success` *is* `undefined`, the same value as
+ * `Nothing`, so a finished action is indistinguishable here from one still
+ * running. Branch on {@link isSettled} first when `O` can be absent; this
+ * bridge is for operations that produce something.
  */
 export function settledResult<O>(state: State<O>): Maybe<Result<O, Error>> {
   if (!isSettled(state)) {

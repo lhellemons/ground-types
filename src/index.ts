@@ -1,13 +1,9 @@
 /**
- * The root entry point. It exists so that a bare `import from
- * '@lhellemons/ground-types'` and tooling that ignores the `exports` map
- * (legacy `moduleResolution`, some bundler configs) both land somewhere,
- * per-module import remains the documented, recommended style — see the
- * "Modules" section of the README for why the modules are not flattened
- * into one namespace. Each module is re-exported under a namespace named
+ * The root entry point: each module re-exported under a namespace named
  * after its subpath, camelCased where the subpath has a hyphen
  * (`intern-registry` -> `internRegistry`), so `maybe.map` and `result.map`
- * stay distinct here too.
+ * stay distinct here too. Per-module import remains the documented,
+ * recommended style — see the "Modules" section of the README.
  *
  * `/promise/fake` is deliberately absent: it is a separate subpath
  * precisely so test doubles cannot reach a production bundle, and a

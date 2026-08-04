@@ -187,13 +187,18 @@ promise)` was curryable while `result/map(fn)` was not — so the whole
   [docs/adr/0003-currying.md](./docs/adr/0003-currying.md).
 
 - Docs: an editorial pass over the README and every docblock, harmonizing
-  them after the API-coherence batch above. History and experiment
-  narration ("under the previous order…", "confirmed by trying it") is
-  pruned from docblocks — the CHANGELOG and ADRs keep that record — and
-  drift is fixed: the README module table was missing
-  `intern-registry/internByKey` and `promise/TrackedState`, and its
-  Status section credited the unreleased `result/mapError` to v0.2.x.
-  No signature, type, or behaviour changes.
+  them after the API-coherence batch above. Docblocks now document nature,
+  usage and relationships only: motivation and design-rationale prose —
+  why an encoding is sound, why a name or parameter order was chosen, why
+  an alternative was rejected — is pruned along with history and
+  experiment narration ("under the previous order…", "confirmed by trying
+  it"); the ADRs and this CHANGELOG keep that record, and a docblock may
+  point at an ADR for the why but no longer contains it. Caller-facing
+  hazards stay (unhandled-rejection traps, `isAbortError` over
+  `instanceof`, synchronous-only callbacks). Drift is also fixed: the
+  README module table was missing `intern-registry/internByKey` and
+  `promise/TrackedState`, and its Status section credited the unreleased
+  `result/mapError` to v0.2.x. No signature, type, or behaviour changes.
 
 An asynchrony layer, ported from another project and reworked to fit this
 library. No release cut; see

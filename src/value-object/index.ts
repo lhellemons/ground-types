@@ -30,30 +30,18 @@ export type PrimitiveValueObject<
  * `.from` — built from `construct` via `tryCatch` — for the `Result` form.
  *
  * Type parameters are ordered `T, P, E`, matching {@link
- * PrimitiveValueObject} exactly. `T` — the branded type being defined —
- * is what a caller actually wants to name; `P` almost always defaults to
- * `string` and `E` to `Error`, so with both defaulted and `T` first, the
- * common case is a single explicit type argument,
- * `definePrimitiveValueObject<Email>(...)`, with nothing to get out of
- * order. Ordered `P` first, that lone argument would compile silently as
- * `P` instead — a branded type is structurally its own underlying
- * primitive — leaving `T` as `unknown`.
+ * PrimitiveValueObject} exactly. `P` defaults to `string` and `E` to
+ * `Error`, so the common case is a single explicit type argument:
+ * `definePrimitiveValueObject<Email>(...)`.
  *
  * `.from`'s Failure type is `Error` by default, matching `tryCatch`'s own
- * handler-less overload. Pass `errorHandler` to translate a thrown value
- * into a concrete `Error` subclass instead; it is forwarded to `tryCatch`
- * verbatim, so `.from` routes through `tryCatch`'s generic-in-`E` overload
- * instead. Name `E` explicitly alongside `T` when doing so: `Result`'s
- * `Success` carries an invariant `E` phantom (docs/adr/0001, 2026-08-04
- * amendment), which keeps TypeScript from reliably inferring `E` from
- * `errorHandler`'s return type alone. This is the same annotation the ADR
- * already asks for when constructing a `Result` directly at a call site
- * typed to a narrower error class.
- *
- * Two overloads, split for the same reason `tryCatch` itself is: naming `E`
- * without supplying an `errorHandler` would otherwise let a thrown value
- * other than `E` reach `.from` uncaught by the type system. Without a
- * handler, `E` cannot be named at all — `.from`'s Failure type is `Error`.
+ * handler-less overload. Pass `errorHandler` — forwarded to `tryCatch`
+ * verbatim — to translate a thrown value into a concrete `Error` subclass
+ * instead. Name `E` explicitly alongside `T` when doing so: `Success`'s
+ * invariant `E` phantom (docs/adr/0001, 2026-08-04 amendment) keeps
+ * TypeScript from reliably inferring `E` from `errorHandler`'s return type
+ * alone. Without a handler, `E` cannot be named at all — `.from`'s Failure
+ * type is `Error`, mirroring `tryCatch`'s own overload split.
  */
 export function definePrimitiveValueObject<
   T extends Branded<P, unknown>,

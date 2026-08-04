@@ -8,8 +8,7 @@ import { AbortablePromise } from './abortable.js'
  *
  * The handles are attached to the promise itself rather than handed back
  * alongside it, so a fake substitutes for the real promise everywhere without
- * a wrapper object to unpack. `Object.assign` mutates the promise to do it,
- * which is safe on one a test just created and owns.
+ * a wrapper object to unpack.
  *
  * Nothing settles a fake for you. A fake that is rejected and never awaited is
  * an unhandled rejection like any other, and one that is never settled at all

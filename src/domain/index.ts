@@ -17,10 +17,7 @@ export type CompoundValueObject<TKey> = { readonly key: TKey }
  * The seam that recovers a domain object's DTO: a readonly `dto` built
  * from the object's own current values, the mirror of what a {@link
  * DomainObjectFactory}'s `from` validated it out of in the first place.
- * Not the DTO itself — see CONTEXT.md's DTO entry — this is the domain
- * object's side of the round trip, which is why it is named for the
- * recovery it performs rather than reusing "DTO" for a shape that carries
- * no invariants of its own.
+ * Not the DTO itself — see CONTEXT.md's DTO Source entry.
  */
 export type DTOSource<TDTO> = { readonly dto: TDTO }
 
@@ -33,10 +30,8 @@ export type DTOSource<TDTO> = { readonly dto: TDTO }
  * `E` defaults to `Error`, but a factory can narrow it to a concrete
  * subclass — e.g. `DomainObjectFactory<User, UserDTO, InvalidUser>` — so a
  * caller can branch on the specific reason a DTO was rejected, per
- * CONTEXT.md's Failure entry. It sits ahead of `TExtra` because, like
- * `Result<T, E>`, it describes the shape of `from`'s return value rather
- * than an input; `TExtra` describes extra input and keeps its own default
- * so a factory with no extra arguments never has to name either.
+ * CONTEXT.md's Failure entry. `E` sits ahead of `TExtra`; both default, so
+ * a factory with no extra arguments names neither.
  */
 export type DomainObjectFactory<
   TDomain,

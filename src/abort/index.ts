@@ -1,8 +1,6 @@
 /**
  * The `name` the platform gives a `DOMException` raised by aborting an
- * `AbortSignal`. Matching on this rather than on a class is what lets
- * {@link isAbortError} recognise aborts raised by `fetch` and other platform
- * APIs, which never construct our {@link AbortError}.
+ * `AbortSignal` — what {@link isAbortError} matches on.
  */
 export const ABORT_ERROR_NAME = 'AbortError'
 
@@ -26,18 +24,14 @@ export class AbortError extends DOMException {
  * Type guard: true when `error` is an abort raised by calling `abort()` on an
  * `AbortSignal` — ours or the platform's.
  *
- * Prefer this over `instanceof AbortError` or reference equality against a
- * particular instance. Each abort constructs its own Error so that it carries
- * its own stack, and platform aborts are plain `DOMException`s that were
- * never instances of our subclass at all.
- *
- * The predicate is therefore deliberately wider than the class it names: it
- * narrows to {@link AbortError} for values that are only `DOMException`s.
- * That is sound because `AbortError` adds nothing to `DOMException` — it fixes
- * the `name` and stops — so there is no member the narrowing could promise and
- * fail to deliver. Naming the concept is worth more here than naming the
- * class, and `AbortError` is the concept this library's vocabulary uses.
+ * Recognise aborts with this, never with `instanceof AbortError` or
+ * reference equality: each abort constructs its own Error, and platform
+ * aborts are plain `DOMException`s that were never instances of our
+ * subclass at all.
  */
 export function isAbortError(error: unknown): error is AbortError {
+  // Wider than the class it narrows to, soundly: a platform abort is a plain
+  // DOMException, and AbortError adds nothing beyond the fixed name, so the
+  // narrowing promises no member it cannot deliver.
   return error instanceof DOMException && error.name === ABORT_ERROR_NAME
 }
