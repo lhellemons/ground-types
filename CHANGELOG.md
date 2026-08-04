@@ -263,6 +263,18 @@ docs/adr/0001-unboxed-maybe-and-result.md'` — instead of misdirecting to
   (`src/**/*.test-d.ts`), so a broken inference fails the suite instead of
   surfacing as a bare `tsc` error.
 
+### Changed
+
+- **Breaking:** `fn/Function` renamed to `fn/Fn`. The old name shadowed
+  the global `Function` at every import site. Same signature, same
+  behaviour. (#8)
+- **Breaking:** `brand/Brand`'s key is now a module-private unique
+  symbol instead of the plain string property `__brand`. A hand-rolled
+  `as string & { __brand: '...' }` cast no longer produces a value
+  assignable to a `Branded` type, and the brand key no longer appears in
+  `keyof` on a branded value. Legitimate construction (`value as T`
+  inside a validating constructor) is unaffected. (#9)
+
 ## [0.2.0] - 2026-08-03
 
 ### Added

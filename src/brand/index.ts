@@ -1,9 +1,13 @@
+declare const brand: unique symbol
+
 /**
  * A phantom marker attached to a type so that two structurally identical
- * types are not interchangeable. Exists only at compile time — `__brand`
- * has no runtime representation and is never actually present on a value.
+ * types are not interchangeable. Exists only at compile time — the brand
+ * key is a module-private `unique symbol`, so it has no runtime
+ * representation, cannot be forged from outside this module, and does not
+ * appear in `keyof` on a branded value.
  */
-export type Brand<B> = { __brand: B }
+export type Brand<B> = { readonly [brand]: B }
 
 /**
  * Applies a {@link Brand} to an underlying type `T`. A `Branded<T, B>` is
