@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Tests pinning the public API surface of every subpath and the root entry
+  point, so an accidentally added, removed or renamed export fails CI
+  instead of shipping silently. `scripts/assert-exports-resolve.mjs`
+  already proved a declared subpath resolves and imports against the
+  built package; it said nothing about which symbols came through it.
+  Runtime export names are asserted per subpath in `test/api-surface/*.test.ts`
+  (`import * as ns` plus a sorted, inline expected list — a snapshot file
+  would hide what actually changed); type-only exports, invisible at
+  runtime, are pinned separately in a companion `src/**/api-surface.test-d.ts`
+  per module that references every documented exported type, so a removal
+  or rename fails typecheck instead. The root entry point additionally
+  asserts that `/promise/fake` is unreachable from it, the test-double
+  isolation the README already documents. The `test/api-surface/*.test.ts`
+  files import from `src/` rather than `dist/`, so the suite runs under
+  plain vitest with no build; `assert-exports-resolve` remains the check
+  for the built-artifact side. To change the surface intentionally: add,
+  remove or rename the export in `src/`, then update the matching pin
+  (each pinning file's docblock says which one) and the README's module
+  table.
 - A root entry point (`"."` in `exports`, plus top-level `main`/`types`
   for tooling that ignores `exports`). It re-exports each module as a
   namespace (`maybe`, `result`, `internRegistry`, `valueObject`, ...), so

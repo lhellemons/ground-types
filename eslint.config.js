@@ -79,4 +79,14 @@ export default defineConfig(
     files: ['*.config.{js,ts}'],
     extends: [tseslint.configs.disableTypeChecked],
   },
+
+  /* API-surface pinning tests (see test/api-surface) import straight from
+     src/ but deliberately sit outside it, so tsconfig.json's `rootDir:
+     "src"` cannot include them in a type-aware project. Plain TS parsing is
+     enough for what these files do: import a namespace and assert its
+     export names. */
+  {
+    files: ['test/**/*.ts'],
+    extends: [tseslint.configs.disableTypeChecked],
+  },
 )
