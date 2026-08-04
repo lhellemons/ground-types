@@ -136,6 +136,27 @@ existing primitives, and closed the gaps it found.
   and was run through a 7-step chain mixing `maybe` and `result`,
   bridged mid-chain, without inference degrading. See
   [docs/adr/0004-pipe-value-first.md](./docs/adr/0004-pipe-value-first.md).
+- `compose` extended from a fixed 2-ary to up to ten Mappers, right to
+  left, mirroring `pipe`'s per-arity overload set: every step's parameter
+  type is pinned to its neighbour's return type, and an eleventh Mapper is
+  a compile error rather than a silent `unknown`. `pipe`'s redesign closed
+  #7 for the value-in-hand case; `compose` was still capped at two, which
+  recreated the same nesting problem for the deferred, no-value-yet case
+  the README already told readers to reach for it for. Non-breaking: every
+  existing 2-ary call typechecks and behaves exactly as before.
+- `curry` and `CurryableMapper` stay public, with their docblocks rewritten
+  to present them as the extension point for a consumer writing their own
+  curryable combinator, rather than reading as an implementation detail
+  that happens to be exported. `CurryableMapper`'s docblock already said
+  its union "is not meant to be narrowed at a call site", and `curry`'s
+  said callers must forward arity via a `[] | [T]` rest tuple or the
+  mechanism silently breaks — true, but written for a reader who already
+  knew what these two were for. Both docblocks now show the same
+  three-part shape `promise/resultify` and `call/resultify` already use
+  (two overloads, a rest-tuple implementation signature, a body that
+  spreads into `curry`), with a worked `scaleBy` example pinned as a
+  runtime test in `src/fn/index.test.ts`. No behaviour or signature
+  change.
 
 A review pass then found four places where the layer did not hold its own
 contracts, and closed them.
