@@ -1,6 +1,6 @@
 {
   "name": "@lhellemons/ground-types",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Tactical DDD building blocks and the functional primitives they stand on.",
   "license": "MIT",
   "author": "Laurens Hellemons",
