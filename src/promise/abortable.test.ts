@@ -89,13 +89,13 @@ describe('AbortablePromise', () => {
     )
 
     await expect(
-      abThatResolves.then((value) => 'then ' + value),
+      abThatResolves.then((value) => 'then ' + String(value)),
     ).resolves.toEqual('then resolved')
 
     const abThatHangs = new AbortablePromise<unknown>(() => {})
     abThatHangs.abort()
     await expect(
-      abThatHangs.then((value) => 'then ' + value),
+      abThatHangs.then((value) => 'then ' + String(value)),
     ).rejects.toSatisfy(isAbortError)
   })
   it('accepts and uses an optional AbortController', async () => {
@@ -328,14 +328,14 @@ describe('AbortablePromise.then', () => {
 
     await expect(
       AbortablePromise.reject('rejected').then(
-        (val) => val + ' then fulfilled',
+        (val) => String(val) + ' then fulfilled',
         (reason) => reason + ' then rejected',
       ),
     ).resolves.toEqual('rejected then rejected')
 
     await expect(
       AbortablePromise.abort().then(
-        (val) => val + ' then fulfilled',
+        (val) => String(val) + ' then fulfilled',
         (reason) => reason + ' then rejected',
       ),
     ).resolves.toEqual('AbortError: AbortablePromise aborted then rejected')
@@ -605,7 +605,7 @@ describe('AbortablePromise abort context', () => {
         built++
       }
     }
-    globalThis.AbortController = Counting as unknown as typeof AbortController
+    globalThis.AbortController = Counting
     try {
       await body()
     } finally {

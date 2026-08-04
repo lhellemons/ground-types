@@ -1,5 +1,5 @@
 import { failure, success } from '../result/index.js'
-import type { Failure, Result } from '../result/index.js'
+import type { Result } from '../result/index.js'
 import { constant, curry } from '../fn/index.js'
 import type { CurryableMapper, Mapper } from '../fn/index.js'
 import { RejectionError } from './types.js'

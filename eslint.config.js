@@ -1,11 +1,19 @@
 // @ts-check
 import js from '@eslint/js'
 import { defineConfig, globalIgnores } from 'eslint/config'
+import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 export default defineConfig(
   globalIgnores(['dist', 'coverage']),
   js.configs.recommended,
+
+  /* The build/dev scripts are Node ESM, not browser or library code. Without
+     this they trip `no-undef` on `console`, `process` and `URL`. */
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: { globals: globals.node },
+  },
 
   /* Type-aware linting for the library source. `projectService` resolves
      each file's tsconfig automatically instead of naming one statically, so
@@ -43,6 +51,24 @@ export default defineConfig(
         'error',
         { argsIgnorePattern: '^_' },
       ],
+    },
+  },
+
+  /* Tests keep every type-aware rule above except the three that a test
+     suite for *this* library structurally cannot satisfy. `/promise`,
+     `/call` and `/result` exist to normalise an arbitrary thrown or
+     rejected value into a `Failure` carrying an `Error` (`RejectionError`,
+     `ThrownError`); rejecting or throwing a bare string is the input under
+     test, not a mistake, so `prefer-promise-reject-errors` and
+     `only-throw-error` would fire on the assertions that matter most.
+     `require-await` fires on `async () => value`, the shortest way to spell
+     a promise-returning stub. Relaxed here rather than at ~30 call sites. */
+  {
+    files: ['src/**/*.test.ts', 'src/**/*.test-d.ts'],
+    rules: {
+      '@typescript-eslint/prefer-promise-reject-errors': 'off',
+      '@typescript-eslint/only-throw-error': 'off',
+      '@typescript-eslint/require-await': 'off',
     },
   },
 

@@ -19,8 +19,11 @@ export default defineConfig({
         'src/**/*.test-d.ts',
         // `export type`-only modules erase to an empty JS file and are
         // never loaded at runtime, so v8 reports them as 0% covered
-        // rather than vacuously 100% — excluded rather than chased.
+        // rather than vacuously 100% — excluded rather than chased. This
+        // list is by hand because "erases to nothing" is not something a
+        // glob can see; a new type-only module has to be added here.
         'src/brand/index.ts',
+        'src/call/types.ts',
         'src/domain/index.ts',
       ],
       thresholds: {
