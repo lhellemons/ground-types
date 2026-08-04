@@ -250,6 +250,9 @@ export class AbortablePromise<T> extends Promise<T> {
   }
 
   static reject<T = never>(reason?: unknown): AbortablePromise<T> {
+    // Mirrors `Promise.reject`, whose reason is deliberately unconstrained.
+    // Normalising a non-Error reason is `resultify`'s job, downstream of here.
+    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
     return AbortablePromise.of(Promise.reject(reason))
   }
 
@@ -258,9 +261,7 @@ export class AbortablePromise<T> extends Promise<T> {
   static resolve<T>(
     value?: T | PromiseLike<T>,
   ): AbortablePromise<Awaited<T> | void> {
-    return AbortablePromise.of(
-      Promise.resolve(value),
-    ) as AbortablePromise<Awaited<T> | void>
+    return AbortablePromise.of(Promise.resolve(value))
   }
 
   /**
@@ -414,6 +415,10 @@ export class AbortablePromise<T> extends Promise<T> {
             // no-op for the delegating shape this class exists for —
             // `new AbortablePromise((resolve) => resolve(fetchThing()))`. Adopt
             // it instead, and claim only when it really settles.
+            // Bound to its own const because the `instanceof` below narrows
+            // `value` to `AbortablePromise<any>`, and that `any` would leak
+            // out through the adopted value's type.
+            const adopted: PromiseLike<T> = value
             if (value instanceof AbortablePromise) {
               // Delegation is upstream, so abort travels it like any other
               // upstream link: the delegate is where the work actually is, and
@@ -422,7 +427,7 @@ export class AbortablePromise<T> extends Promise<T> {
               // so the rejection this causes is handled.
               state.link(() => value.abort())
             }
-            Promise.resolve(value).then(
+            Promise.resolve(adopted).then(
               (settledValue) => {
                 if (state.claimSettlement()) {
                   resolve(settledValue)
@@ -526,11 +531,17 @@ export class AbortablePromise<T> extends Promise<T> {
     return new AbortablePromise(executor, this.#state.sharedController)
   }
 
+  /*
+   * `reason: any` here and in `catch` is copied from lib.es5's `Promise`, not
+   * a shortcut. These are function-typed parameters, so `strictFunctionTypes`
+   * checks them contravariantly: with `unknown` the compiler would reject the
+   * ordinary `.catch((e: Error) => ...)` that the base `Promise` accepts, and
+   * the override would no longer be a compatible subtype.
+   */
   then<TResult1 = T, TResult2 = never>(
-    onFulfilled?:
-      ((value: T) => PromiseLike<TResult1> | TResult1) | undefined | null,
-    onRejected?:
-      ((reason: any) => PromiseLike<TResult2> | TResult2) | undefined | null,
+    onFulfilled?: ((value: T) => PromiseLike<TResult1> | TResult1) | null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onRejected?: ((reason: any) => PromiseLike<TResult2> | TResult2) | null,
   ): AbortablePromise<TResult1 | TResult2> {
     // .then supports subclassing, so super.then returns an AbortablePromise.
     // See https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/then
@@ -544,13 +555,13 @@ export class AbortablePromise<T> extends Promise<T> {
   }
 
   catch<TResult = never>(
-    onrejected?:
-      ((reason: any) => PromiseLike<TResult> | TResult) | undefined | null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onrejected?: ((reason: any) => PromiseLike<TResult> | TResult) | null,
   ): AbortablePromise<T | TResult> {
     return super.catch(onrejected) as AbortablePromise<T | TResult>
   }
 
-  finally(onfinally?: (() => void) | undefined | null): AbortablePromise<T> {
+  finally(onfinally?: (() => void) | null): AbortablePromise<T> {
     return super.finally(onfinally) as AbortablePromise<T>
   }
 }

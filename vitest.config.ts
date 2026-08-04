@@ -11,5 +11,27 @@ export default defineConfig({
       include: ['src/**/*.test-d.ts'],
       tsconfig: './tsconfig.json',
     },
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts'],
+      exclude: [
+        'src/**/*.test.ts',
+        'src/**/*.test-d.ts',
+        // `export type`-only modules erase to an empty JS file and are
+        // never loaded at runtime, so v8 reports them as 0% covered
+        // rather than vacuously 100% — excluded rather than chased. This
+        // list is by hand because "erases to nothing" is not something a
+        // glob can see; a new type-only module has to be added here.
+        'src/brand/index.ts',
+        'src/call/types.ts',
+        'src/domain/index.ts',
+      ],
+      thresholds: {
+        lines: 90,
+        statements: 90,
+        branches: 90,
+        functions: 90,
+      },
+    },
   },
 })

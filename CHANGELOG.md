@@ -274,6 +274,41 @@ docs/adr/0001-unboxed-maybe-and-result.md'` — instead of misdirecting to
 - Type-level tests now run as real tests via Vitest's `typecheck` mode
   (`src/**/*.test-d.ts`), so a broken inference fails the suite instead of
   surfacing as a bare `tsc` error.
+- ESLint with type-aware `typescript-eslint` rules, wired into `pnpm check`
+  and CI (#12): `no-floating-promises`, `no-misused-promises`,
+  `no-unnecessary-type-assertion`, `no-unnecessary-condition`,
+  `no-explicit-any` and the `no-unsafe-*` family. `no-unnecessary-type-assertion`
+  found four genuinely redundant casts in `result/index.ts` (`failure`,
+  `tryCatch`'s catch branch, and an inner cast each in `map` and `andThen`),
+  now removed. The handful of casts that remain in that file route around a
+  TypeScript limit the compiler can't reduce — a deferred conditional type —
+  confirmed load-bearing by re-running the type suite with each removed one
+  at a time; the two remaining false-positive spots (`maybe/isJust`,
+  `maybe/isNothing`, `result/fromMaybe`) carry a narrow, commented
+  `eslint-disable-next-line` rather than a blanket file-level exemption.
+
+  Run against the async layer, the same rules turned up an unused `Failure`
+  import in `promise/resultify`, two redundant casts, and an `any` leaking
+  out of `AbortablePromise`'s constructor — `value instanceof
+AbortablePromise` narrows to `AbortablePromise<any>`, which then infected
+  the type of the value it adopts. All four are fixed rather than silenced.
+  Tests turn off exactly three rules (`prefer-promise-reject-errors`,
+  `only-throw-error`, `require-await`): `/promise`, `/call` and `/result`
+  exist to normalise an arbitrary thrown or rejected value into a `Failure`
+  carrying an `Error`, so rejecting a bare string is the input under test.
+  `AbortablePromise.then` and `.catch` keep `reason: any` — copied from
+  lib.es5, where `unknown` would make the override reject the ordinary
+  `.catch((e: Error) => …)` its base class accepts.
+
+- Coverage via `@vitest/coverage-v8`, with a 90% threshold across lines,
+  statements, branches and functions, wired into `pnpm check` and CI (#12).
+  Coverage would not have caught the `result/andThen` and `result/map`
+  inference bugs above — those lines were fully covered; the existing tests
+  just used callbacks with a single return path, which infers correctly
+  regardless. Coverage catches untested branches, not untested types; ESLint
+  is what catches the latter. Currently 98.95%; the shortfall is
+  `call/index.ts`, a barrel no test imports directly, and the untested
+  `reason` getter on `promise/RejectionError`.
 
 ### Changed
 

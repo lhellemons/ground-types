@@ -34,11 +34,17 @@ export function nothing<T>(): Nothing<T> {
 
 /** Type guard: true when `value` is present, narrowing to {@link Just}. */
 export function isJust<T>(value: Maybe<T>): value is Just<T> {
+  // `Maybe<T>`'s conditional can't reduce for a generic `T`, so the checker
+  // treats `value` as never (or always) `undefined` here — a false
+  // positive, not a redundant check: the runtime comparison is exactly
+  // what makes the narrowing sound.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   return value !== undefined
 }
 
 /** Type guard: true when `value` is absent, narrowing to {@link Nothing}. */
 export function isNothing<T>(value: Maybe<T>): value is Nothing<T> {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- see isJust
   return value === undefined
 }
 

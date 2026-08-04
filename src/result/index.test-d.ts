@@ -33,7 +33,7 @@ describe('map', () => {
     // extends Error` collapses `Success<T, E>` to `never`. The callback
     // below returns no `Result` at all, so the fix cannot be `andThen`.
     // @ts-expect-error - a Success can never be an Error
-    map((n: number) => new Invalid('as a value'))
+    map((_n: number) => new Invalid('as a value'))
   })
 
   it('rejects a callback that returns a Promise, which resolves outside map', () => {

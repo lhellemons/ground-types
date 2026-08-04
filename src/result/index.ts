@@ -99,7 +99,7 @@ export function success<T, E extends Error = Error>(value: T): Success<T, E> {
 
 /** Wraps a known error as a {@link Failure}. */
 export function failure<T, E extends Error = Error>(error: E): Failure<T, E> {
-  return error as Failure<T, E>
+  return error
 }
 
 /** Type guard: true when `value` is a {@link Success}, narrowing to it. */
@@ -287,9 +287,7 @@ export function map<A, U extends NotAResult<U>>(
   fn: (value: A) => U,
 ): <T extends A, E extends Error = Error>(value: Result<T, E>) => Result<U, E> {
   return <T extends A, E extends Error = Error>(value: Result<T, E>) =>
-    (isSuccess(value)
-      ? result(fn(value as unknown as A))
-      : value) as unknown as Result<U, E>
+    (isSuccess(value) ? result(fn(value)) : value) as unknown as Result<U, E>
 }
 
 /**
@@ -350,7 +348,7 @@ export function andThen<A, R extends NotAPromise<R>>(
   value: Result<T, E>,
 ) => Result<ValueOf<R>, E | ErrorOf<R>> {
   return <T extends A, E extends Error = Error>(value: Result<T, E>) =>
-    (isSuccess(value) ? fn(value as unknown as A) : value) as unknown as Result<
+    (isSuccess(value) ? fn(value) : value) as unknown as Result<
       ValueOf<R>,
       E | ErrorOf<R>
     >
@@ -370,5 +368,6 @@ export function fromMaybe<T, E extends Error = Error>(
   // maybe/result boundary or the two modules form a real import cycle
   // (see docs/adr/0001-unboxed-maybe-and-result.md).
   return (value: Maybe<T>) =>
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Maybe<T>'s conditional can't reduce for generic T; see maybe/isJust
     (value === undefined ? failure(error) : success(value)) as Result<T, E>
 }

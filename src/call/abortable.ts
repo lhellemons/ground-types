@@ -25,6 +25,10 @@ export function abortable<O = void, I = void>(
     try {
       return AbortablePromise.of(call(input))
     } catch (error) {
+      // A synchronous throw becomes a rejection with the value thrown, verbatim
+      // — wrapping a non-Error here would pre-empt `resultify`, which is where
+      // this library decides how a non-Error becomes a `Failure`.
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
       return AbortablePromise.reject<O>(error)
     }
   }
