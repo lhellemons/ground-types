@@ -81,6 +81,43 @@ passed and never by their value.
 
 _Avoid_: Transformer, converter, flow, chain, partial application.
 
+### Act
+
+To **act** on a value is to run a side effect over it and hand it back
+unchanged: the value flows through untouched, and whatever the side
+effect returns is discarded. Unrelated to _Action_, which the Call entry
+rejects as a name for a callable — an Act is something done _to_ a value
+in passing, never the callable itself. The conditional forms —
+**ifSuccess**, **ifFailure**, **ifJust**, **ifNothing** — act only when
+the value has that case; they belong to this entry and carry no
+vocabulary of their own.
+
+_Avoid_: tap, peek, inspect (side effects over a passing value), Action
+(see Call).
+
+### Box
+
+A transient chain builder over an unboxed value or function: enter
+through a static factory, chain, and leave through a **terminal**. To
+**unbox** is to leave a Box, receiving what it holds; each class also
+names what it holds with a getter (`value`, `result`, `fn`, `call`), and
+`Fn`'s `apply` and `Call`'s `invoke` terminate by running the held
+function. A Box exists between the factory and the terminal and nowhere
+else — never stored in a field, never a parameter or return type, never
+held across an `await`; everything stored or passed stays unboxed.
+
+There are four Box classes — `Maybe`, `Result`, `Fn`, `Call` — one per
+module, each at its module's `/box` subpath and re-exported from the
+root. Lowercase is the functional namespace; capitalised is the Box
+class in value position and the module's unboxed type in type position.
+
+_Boxed_ describes an encoding that allocates a runtime object; a _Box_
+is this transient object. A State is boxed but is not a Box — a State is
+stored, a Box is released.
+
+_Avoid_: Chain, Wrapper, Builder, Monad, container, fluent interface,
+unwrap (a Box is not a Wrapper).
+
 ## Domain building blocks
 
 ### Brand
