@@ -1,0 +1,14 @@
+{
+  "name": "root-export-bundle-cost-harness",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@lhellemons/ground-types": "link:../.."
+  },
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^16.0.0",
+    "esbuild": "^0.28.1",
+    "rollup": "^4.62.4",
+    "webpack": "^5.102.0"
+  }
+}

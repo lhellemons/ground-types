@@ -19,3 +19,11 @@ export * as maybe from './maybe/index.js'
 export * as promise from './promise/index.js'
 export * as result from './result/index.js'
 export * as valueObject from './value-object/index.js'
+
+/* PROTOTYPE — charting decision 4: the four Box classes alongside the
+   namespaces, so `import { Maybe, maybe }` works and the rule reads
+   "lowercase is the functional namespace, capitalised is the Box class". */
+export { Call } from './call/box.js'
+export { Fn } from './fn/box.js'
+export { Maybe } from './maybe/box.js'
+export { Result } from './result/box.js'
