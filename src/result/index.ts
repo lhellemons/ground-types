@@ -37,7 +37,11 @@ export type Failure<T, E extends Error = Error> = E & {
  * {@link Failure} arms. Used to type a combinator's output from whatever its
  * callback actually returned, rather than inferring into `Result<U, E>`.
  */
-type ValueOf<R> =
+// PROTOTYPE (#49): exported on this branch only, so the Box declaration in
+// prototype/result-chain-error-union.ts can restate member types with the
+// real helpers. The phantom-handle symbols are module-private, so a Box
+// outside this file cannot otherwise see them — a constraint for #44.
+export type ValueOf<R> =
   Exclude<R, Error> extends infer S
     ? S extends { readonly [_value]?: infer U }
       ? // A plain value carries no `_value` handle, so `U` infers as
@@ -56,7 +60,8 @@ type ValueOf<R> =
  * no `_error` handle — without the fallback it would be dropped from the
  * error union entirely.
  */
-type ErrorOf<R> =
+// PROTOTYPE (#49): see ValueOf above.
+export type ErrorOf<R> =
   Extract<R, Error> extends infer S
     ? S extends Error
       ? // A raw `Error` subclass matches neither the `_error` handle (weak
