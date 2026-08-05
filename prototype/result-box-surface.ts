@@ -53,6 +53,13 @@ declare class ResultBox<R> {
 
   // ---- clause 1: ways in — statics returning a Box ----
   static from<T, E extends Error = Error>(value: T | E): ResultBox<Result<T, E>>
+  // #51: the way in for a Result already in hand — a factory's output. Its
+  // parameter is the Result union itself, so both arms infer exactly where
+  // `from`'s T | E shape lands the whole union in T (assertion 1). Poison
+  // first, per the guard statics: a Box needs no second boxing.
+  /** @deprecated a Box is already boxed — chain on it directly. */
+  static box(value: ResultBox<unknown>): never
+  static box<T, E extends Error>(value: Result<T, E>): ResultBox<Result<T, E>>
   // E defaults to never, diverging from the functional default (#44): a
   // known-good seed carries no error arm, so the chain's union holds exactly
   // what the links contribute — #49's riding-Error-arm wart cannot form.
@@ -360,3 +367,50 @@ FnBox.from(fetchCount).tryCatch()
 expectType<'This callback returns a Result — use andThen, not map'>()(
   null as unknown as NotAResult<Result<number, Error>>,
 )
+
+// ================= 6. Result.box (the #51 addendum) =================
+
+// The domain building blocks gain no Box-returning variants (#51); instead
+// the Box gains the way in their outputs need. A DomainObjectFactory-shaped
+// producer stands in for any function returning a Result.
+declare class InvalidUser extends Error {
+  readonly why: string
+}
+type User = { readonly id: string }
+declare const UserFactory: {
+  from(dto: { id: unknown }): Result<User, InvalidUser>
+}
+
+// 31: a Result in hand boxes with both arms exact — no explicit type
+// arguments, no degraded Error arm.
+const inHand = ResultBox.box(UserFactory.from({ id: 'u1' }))
+expectType<ResultBox<Result<User, InvalidUser>>>()(inHand)
+
+// 32: …which is precisely what `from` needs BOTH type arguments to say.
+// The zero-argument form is the trap box exists to close: the whole union
+// lands in T and the error arm degrades to a phantom Error (assertion 1's
+// quirk, met in the wild). Uncloseable structurally — the phantoms are
+// optional, so no overload can tell a Result from a raw value — hence a
+// soft-marked ADR trap, not a gate.
+expectType<typeof inHand>()(
+  ResultBox.from<User, InvalidUser>(UserFactory.from({ id: 'u1' })),
+)
+expectType<ResultBox<Result<Result<User, InvalidUser>, Error>>>()(
+  ResultBox.from(UserFactory.from({ id: 'u1' })),
+)
+
+// 33: the boxed chain proceeds from the value arm, error union intact.
+const chained = inHand.map((u) => {
+  expectType<User>()(u)
+  return u.id
+})
+expectType<ResultBox<Result<string, InvalidUser>>>()(chained)
+
+// 34: a raw non-Result value cannot be rejected (32's optional phantoms);
+// it degrades to exactly `from`'s behavior — same shape, defaulted Error.
+declare const rawUser: User
+expectType<ResultBox<Result<User, Error>>>()(ResultBox.box(rawUser))
+expectType<ResultBox<Result<User, Error>>>()(ResultBox.from(rawUser))
+
+// 35: the poison overload catches a Box handed back in — soft, per 17.
+expectType<never>()(ResultBox.box(inHand))
