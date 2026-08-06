@@ -16,11 +16,14 @@ import * as maybe from '../../src/maybe/index.js'
 describe('/maybe runtime exports', () => {
   it('exports exactly this set of names', () => {
     expect(Object.keys(maybe).sort((a, b) => a.localeCompare(b))).toEqual([
+      'act',
       'andThen',
       'assertJust',
       'fallback',
       'fromNullable',
       'fromResult',
+      'ifJust',
+      'ifNothing',
       'isJust',
       'isNothing',
       'just',

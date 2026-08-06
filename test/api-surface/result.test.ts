@@ -18,11 +18,14 @@ import * as result from '../../src/result/index.js'
 describe('/result runtime exports', () => {
   it('exports exactly this set of names', () => {
     expect(Object.keys(result).sort((a, b) => a.localeCompare(b))).toEqual([
+      'act',
       'andThen',
       'assertSuccess',
       'failure',
       'fallback',
       'fromMaybe',
+      'ifFailure',
+      'ifSuccess',
       'isFailure',
       'isSuccess',
       'map',

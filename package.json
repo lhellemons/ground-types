@@ -47,6 +47,10 @@
       "types": "./dist/call/index.d.ts",
       "default": "./dist/call/index.js"
     },
+    "./call/box": {
+      "types": "./dist/call/box.d.ts",
+      "default": "./dist/call/box.js"
+    },
     "./domain": {
       "types": "./dist/domain/index.d.ts",
       "default": "./dist/domain/index.js"
@@ -55,6 +59,10 @@
       "types": "./dist/fn/index.d.ts",
       "default": "./dist/fn/index.js"
     },
+    "./fn/box": {
+      "types": "./dist/fn/box.d.ts",
+      "default": "./dist/fn/box.js"
+    },
     "./intern-registry": {
       "types": "./dist/intern-registry/index.d.ts",
       "default": "./dist/intern-registry/index.js"
@@ -62,6 +70,10 @@
     "./maybe": {
       "types": "./dist/maybe/index.d.ts",
       "default": "./dist/maybe/index.js"
+    },
+    "./maybe/box": {
+      "types": "./dist/maybe/box.d.ts",
+      "default": "./dist/maybe/box.js"
     },
     "./promise": {
       "types": "./dist/promise/index.d.ts",
@@ -74,6 +86,10 @@
     "./result": {
       "types": "./dist/result/index.d.ts",
       "default": "./dist/result/index.js"
+    },
+    "./result/box": {
+      "types": "./dist/result/box.d.ts",
+      "default": "./dist/result/box.js"
     },
     "./value-object": {
       "types": "./dist/value-object/index.d.ts",
