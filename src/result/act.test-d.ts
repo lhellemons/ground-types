@@ -1,5 +1,6 @@
 import { describe, expectTypeOf, it } from 'vitest'
-import { act, ifFailure, ifSuccess, map } from './index.js'
+import { act, ifFailure, ifSuccess } from './act.js'
+import { map } from './index.js'
 import { pipe } from '../fn/index.js'
 import type { Result } from './index.js'
 

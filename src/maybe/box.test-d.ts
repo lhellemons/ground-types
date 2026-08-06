@@ -1,6 +1,5 @@
 import { describe, expectTypeOf, it } from 'vitest'
 import { Maybe } from './box.js'
-import { Maybe as RootMaybe } from '../index.js'
 import type { Just, Maybe as MaybeIndex, Nothing } from './index.js'
 import type { Result } from '../result/index.js'
 
@@ -186,7 +185,7 @@ describe('what must not compile', () => {
   })
 })
 
-describe('the merged name and the root re-export', () => {
+describe('the merged name', () => {
   it('the type meaning is the module type, at the module arity', () => {
     expectTypeOf<Maybe<string>>().toEqualTypeOf<MaybeIndex<string>>()
   })
@@ -194,13 +193,5 @@ describe('the merged name and the root re-export', () => {
   it('the alias restates the arity: the type argument is required', () => {
     // @ts-expect-error — bare Maybe does not resolve, exactly like the module type
     expectTypeOf<Maybe>().toBeUnknown()
-  })
-
-  it('the root re-export carries the value meaning', () => {
-    expectTypeOf(RootMaybe).toEqualTypeOf<typeof Maybe>()
-  })
-
-  it('the root re-export carries the type meaning', () => {
-    expectTypeOf<RootMaybe<number>>().toEqualTypeOf<MaybeIndex<number>>()
   })
 })

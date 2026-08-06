@@ -26,12 +26,14 @@ export default defineConfig({
         'src/call/types.ts',
         'src/domain/index.ts',
         'src/result/internal.ts',
-        // The Box surface is pinned but unimplemented — every member
-        // throws (see docs/adr/0005-box-classes.md). The implementation
-        // effort removes these lines along with the stubs.
+        // The Box surface and the act family are pinned but unimplemented
+        // — every member throws (see docs/adr/0005-box-classes.md). The
+        // implementation effort removes these lines along with the stubs.
         'src/call/box.ts',
         'src/fn/box.ts',
+        'src/maybe/act.ts',
         'src/maybe/box.ts',
+        'src/result/act.ts',
         'src/result/box.ts',
       ],
       thresholds: {

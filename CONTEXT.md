@@ -102,7 +102,9 @@ through a static factory, chain, and leave through a **terminal**. To
 **unbox** is to leave a Box, receiving what it holds; each class also
 names what it holds with a getter (`value`, `result`, `fn`, `call`), and
 `Fn`'s `apply` and `Call`'s `invoke` terminate by running the held
-function. A Box exists between the factory and the terminal and nowhere
+function. To **box** a value is to put it in a Box through one of the
+static factories; `Result.box` is the way in for a `Result` already in
+hand. A Box exists between the factory and the terminal and nowhere
 else — never stored in a field, never a parameter or return type, never
 held across an `await`; everything stored or passed stays unboxed.
 

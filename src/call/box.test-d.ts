@@ -1,6 +1,5 @@
 import { describe, expectTypeOf, it } from 'vitest'
 import { Call } from './box.js'
-import { Call as RootCall } from '../index.js'
 import { Fn } from '../fn/box.js'
 import type { NotAbortable } from './box.js'
 import type { AbortableCall, AsyncCall, Call as CallIndex } from './index.js'
@@ -138,7 +137,7 @@ describe('the worded gate, pinned by message string', () => {
   })
 })
 
-describe('the merged name and the root re-export', () => {
+describe('the merged name', () => {
   it('the type meaning is the module type, defaults included', () => {
     expectTypeOf<Call<User, Id>>().toEqualTypeOf<CallIndex<User, Id>>()
     expectTypeOf<Call>().toEqualTypeOf<CallIndex>()
@@ -149,10 +148,5 @@ describe('the merged name and the root re-export', () => {
       lookup,
     ).resultify(fail).call
     expectTypeOf(lifted).toEqualTypeOf<AsyncCall<Result<User, TypeError>, Id>>()
-  })
-
-  it('the root re-export carries both meanings', () => {
-    expectTypeOf(RootCall).toEqualTypeOf<typeof Call>()
-    expectTypeOf<RootCall<User, Id>>().toEqualTypeOf<CallIndex<User, Id>>()
   })
 })

@@ -19,7 +19,7 @@ library allocating a wrapper, which is exactly what ADR-0001 forbids.
 This ADR records the resolution of that tension: a **Box** — a class-based,
 fluent layer over the existing combinators — and, more importantly, its
 boundaries. A boxed chain class looks like a contradiction of ADR-0001. It
-is admissible only because of how far it is *not* allowed to travel, and
+is admissible only because of how far it is _not_ allowed to travel, and
 because the checker, not the documentation, is what stops it.
 
 The layer was designed across eleven tickets of the
@@ -33,7 +33,7 @@ of the outcome.
 
 A **Box** is an object that holds one value (or one function) so that
 chaining methods can be called on it. You enter through a static factory,
-chain, and leave through a terminal. The boxed form exists *between* a
+chain, and leave through a terminal. The boxed form exists _between_ a
 factory call and a terminal call, and nowhere else:
 
 - never stored in a field,
@@ -52,7 +52,7 @@ The transience rule above would be documentation if `Maybe<T>` could appear
 in an annotation. It cannot: **each class is exported as a value binding
 only**, with no accompanying class type binding — the class is declared
 privately and exported as `export const Maybe = MaybeBox`. Writing
-`Maybe<T>` in type position resolves to the *unboxed* type (see below), so
+`Maybe<T>` in type position resolves to the _unboxed_ type (see below), so
 annotating a field, parameter, or return type with it produces plain
 `T | undefined` — the Box object itself has no spellable name to escape
 through. The private constructor is load-bearing: it is what closes the
@@ -129,18 +129,26 @@ Where a helper lands on a class is decided by four clauses, in order:
 1. **A way in is a static returning a Box.** `from` (the eponymous
    constructor's name on every class — `Maybe.maybe` would stutter),
    `Maybe.just`, `Maybe.nothing`, `Maybe.fromNullable`, `Result.success`,
-   `Result.failure`, `Fn.identity`, `Fn.constant`, and the two crossings
-   (`Maybe.fromResult`, `Result.fromMaybe`).
+   `Result.failure`, `Fn.identity`, `Fn.constant`, the two crossings
+   (`Maybe.fromResult`, `Result.fromMaybe`), and `Result.box` — the way in
+   for a `Result` already in hand, a factory's output above all. `box`
+   exists on `Result` alone: only Result's encoding can lose an arm on the
+   way in (`from`'s `T | E` inference), where `Maybe.from` already takes
+   the Maybe exactly and `Fn.from`/`Call.from` take the thing itself — on
+   those three, `box` would be a mere alias, against the no-aliases line.
+   The domain building blocks gain no Box-returning variants: the gap
+   their outputs exposed is the Box's own, and `Result.box` closes it
+   where it lives.
 2. **Anything transforming a subject in hand is an instance method.**
    `map`, `andThen`, `mapError`, `orElse`, `fallback`, the chaining
    asserts, the side-effect members, `Fn`'s `pipe`/`compose`/`tryCatch`,
    `Call`'s `abortable`/`resultify`.
-3. **A guard or assert is *also* a static taking an unboxed value** — the
+3. **A guard or assert is _also_ a static taking an unboxed value** — the
    one clause where a static returns a non-Box. `Maybe.isJust(value)`
    narrows a raw `Maybe<T>` exactly as the free function does, because a
    type guard cannot be curried and so cannot fall to the rule below.
 4. **Style plumbing gets no member.** `pipe` the free function, `compose`
-   the free function, and `curry` have no static form — they *are* the
+   the free function, and `curry` have no static form — they _are_ the
    functional style. (`Fn` has instance `pipe`/`compose`, which are
    clause 2: same names, subject in hand.)
 
@@ -166,7 +174,7 @@ reason.
 ADR-0003's arity rule still governs the one optional argument on the
 surface: `unbox(undefined)` is an argument, and applies the fold.
 
-The functional side of this effort (the `act`/`if*` helpers below) *is*
+The functional side of this effort (the `act`/`if*` helpers below) _is_
 curryable per ADR-0003, with one note for the record: their unapplied
 forms are deferred-generic on all five — the maybe module's first, on
 typechecked evidence that config-bound `T` collapses `pipe` chains under
@@ -202,7 +210,7 @@ styles — measured at 32 links against the real modules, every arm intact,
 both styles identical at every checkpoint apart from the two Box
 strengthenings above.
 
-Where the Box is *weaker*, by design: **crossing modules costs a second
+Where the Box is _weaker_, by design: **crossing modules costs a second
 statement.** See the next section.
 
 ### No cross-Box members
@@ -214,7 +222,7 @@ import between the Box modules. The instance bridges (`.toResult()`,
 `.toMaybe()`) that would have forced one are dropped. The naive cycle
 actually runs clean under deferred use, but one eager static turns it into
 a `ReferenceError` that fires or not depending on which subpath the
-*consumer* imports first — with nothing in CI to catch it. Convention over
+_consumer_ imports first — with nothing in CI to catch it. Convention over
 gamble.
 
 Crossing therefore costs a second statement — unbox, re-enter through the
@@ -232,14 +240,14 @@ effort's scope (it was declined once already, PR #4).
 ### Guards, asserts, and narrowing on a Box
 
 The transience rule invites a question the charting decisions did not
-answer: how do you *branch* on a Box without storing one? Answer: **query
+answer: how do you _branch_ on a Box without storing one? Answer: **query
 and narrow it in place.** The four guards become instance predicates
 typed as `this is Box<…>` — `box.isJust()` narrows the same generic class
 to a narrower held type (`this is MaybeBox<Exclude<R, undefined>>`), no
 subclass hierarchy, verified under `--strict`. Narrowing needs no type
 binding, so the unspellable instance type survives untouched.
 
-The guards *also* stay as statics under the same name (clause 3). The
+The guards _also_ stay as statics under the same name (clause 3). The
 overlap creates one trap: `Result.isSuccess(box)` — the static handed a
 Box instead of an unboxed value — typechecks and is always true, since a
 Box is never an `instanceof Error`. It is closed **softly**: a poison
@@ -273,7 +281,7 @@ Parity required these to exist as free functions too, so this effort
 `maybe/ifJust`, `maybe/ifNothing`. Their callback contract, verified
 rather than assumed: a `void`-typed callback parameter rejects nothing
 under `--strict` (TypeScript's void-assignability special case admits
-value-returning *and* async callbacks silently), so the callbacks are
+value-returning _and_ async callbacks silently), so the callbacks are
 generic over `R extends NotAPromise<R>` — any synchronous return is
 accepted and discarded, a thenable return is a worded compile error. An
 unawaited `ifSuccess(async v => save(v))` cannot corrupt the chain's
@@ -288,11 +296,11 @@ inspect. The functional forms take and return the whole widened type; the
 Box members return `this`, preserving narrowing, sanctioned by the
 amended parity rule.
 
-The name `act` was kept over the recommended `tap` even though *Action*
-sits on the Call entry's `_Avoid_` list — an Act is something done *to* a
+The name `act` was kept over the recommended `tap` even though _Action_
+sits on the Call entry's `_Avoid_` list — an Act is something done _to_ a
 value in passing, never the callable itself, and CONTEXT.md's Act entry
 disambiguates the two the same way the Box entry disambiguates against
-*boxed*.
+_boxed_.
 
 ### `Fn` and `Call`
 
@@ -355,10 +363,21 @@ absent from the exports map.
   reaches, not what it counts: `Maybe`, `Result`, and `Fn` land at
   0.27–0.57 kB gzip; `Call` is ~1 kB because `Call.prototype.abortable`
   reaches `AbortablePromise`. Recorded, not acted on.
-- The implementation effort inherits: the bodies, runtime tests, README
-  placement, CHANGELOG, the release-shape decision, extending
+- **The surface ships with its implementation, as 0.4.0 — minor, and
+  nothing publishes before that.** Until then the gap on main is guarded
+  by unwiring, not convention: the signature files and their `.test-d.ts`
+  pins are on main, but no `/box` subpath is declared in the exports map,
+  the root re-exports nothing new, and the `act` family sits in its own
+  modules (`src/maybe/act.ts`, `src/result/act.ts`) not re-exported from
+  the module indexes — so a mid-gap release ships exactly today's
+  package, and the built-but-undeclared state passes
+  `assert-exports-resolve` and the api-surface pins as-is.
+- The implementation effort inherits: the bodies; the wiring (the four
+  `exports` entries, the root re-exports, re-exporting the `act` family
+  from its module indexes, and the api-surface list updates that follow);
+  runtime tests; README placement; the CHANGELOG entry; extending
   `scripts/assert-exports-resolve.mjs`'s reachability walk to nested
-  non-index modules, and extending `test/api-surface/root.test.ts` past
+  non-index modules; and extending `test/api-surface/root.test.ts` past
   namespaces to the four class bindings.
 
 ### The name collision, and the forms that do not work
@@ -374,11 +393,11 @@ both it and the functional subpath.
 The merged-name mechanism itself is narrow. Only `export const` plus a
 locally declared alias works:
 
-| Form                                                                                              | Result                                                                                                                          |
-| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `export const Maybe = MaybeBox` + `export type Maybe<T> = import('./index.js').Maybe<T>`           | **works**                                                                                                                        |
-| `export const Maybe = MaybeBox` + `export type { Maybe } from './index.js'`                        | `TS2323: Cannot redeclare exported variable`                                                                                     |
-| `export { MaybeBox as Maybe }` + `export type { MaybeValue as Maybe }`                             | `TS2300` — **and the class wins the type meaning**, so `Maybe<string>` annotates the Box: a silent reversal of the enforcement |
+| Form                                                                                     | Result                                                                                                                         |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `export const Maybe = MaybeBox` + `export type Maybe<T> = import('./index.js').Maybe<T>` | **works**                                                                                                                      |
+| `export const Maybe = MaybeBox` + `export type { Maybe } from './index.js'`              | `TS2323: Cannot redeclare exported variable`                                                                                   |
+| `export { MaybeBox as Maybe }` + `export type { MaybeValue as Maybe }`                   | `TS2300` — **and the class wins the type meaning**, so `Maybe<string>` annotates the Box: a silent reversal of the enforcement |
 
 The third row is the dangerous one: a well-meant refactor to matched
 export clauses would quietly hand the type meaning to the class. The
@@ -418,3 +437,12 @@ of shipping.
    `unbox` gained the folding overload.
 8. **A dangling Box is accepted.** Nothing forces a terminal; the
    transience rule confines the waste to one function body.
+9. **`Result.from(resultInHand)` typechecks and silently degrades.**
+   Handed a whole `Result` without explicit type arguments, `from` lands
+   the union in the value arm and the error arm becomes a phantom
+   `Error`. Structurally uncloseable — the phantom markers are optional,
+   so no overload can tell a Result from a raw value — hence soft-marked:
+   `from`'s docblock steers Results-in-hand at `Result.box`, whose
+   parameter is the Result union itself and infers both arms exactly.
+   (`box`'s own raw-value degradation to `from`'s behaviour is recorded
+   in its docblock, harmless.)

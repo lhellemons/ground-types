@@ -1,6 +1,5 @@
 import { describe, expectTypeOf, it } from 'vitest'
 import { Result } from './box.js'
-import { Result as RootResult } from '../index.js'
 import { assertSuccess, map as mapResult, result, success } from './index.js'
 import type {
   Failure,
@@ -28,6 +27,19 @@ declare function step<N extends number>(
 declare const userError: Err<1>
 declare const numberOrError: number | Err<1>
 declare const maybeString: string | undefined
+
+/* UserFactory stands in for any function returning a Result — the
+   library's own factories among them (#51). */
+declare class InvalidUser extends Error {
+  readonly why: string
+}
+interface BoxUser {
+  readonly id: string
+}
+declare const UserFactory: {
+  from(dto: { id: unknown }): ResultIndex<BoxUser, InvalidUser>
+}
+declare const rawUser: BoxUser
 
 const full = Result.from<number, Err<1> | Err<2>>(0)
 const queried = Result.from<number, Err<1>>(0)
@@ -73,6 +85,52 @@ describe('ways in', () => {
     expectTypeOf(
       Result.fromMaybe(userError, maybeString).unbox(),
     ).toEqualTypeOf<ResultIndex<string, Err<1>>>()
+  })
+})
+
+describe('box: the way in for a Result in hand (#51)', () => {
+  it('a Result in hand boxes with both arms exact — no type arguments, no degraded Error arm', () => {
+    expectTypeOf(
+      Result.box(UserFactory.from({ id: 'u1' })).unbox(),
+    ).toEqualTypeOf<ResultIndex<BoxUser, InvalidUser>>()
+  })
+
+  it('…which is what from needs BOTH type arguments to say; forgetting them is the soft trap', () => {
+    expectTypeOf(
+      Result.from<BoxUser, InvalidUser>(UserFactory.from({ id: 'u1' })).unbox(),
+    ).toEqualTypeOf<ResultIndex<BoxUser, InvalidUser>>()
+    // The zero-argument form compiles and silently degrades: the whole
+    // union lands in the value arm and the error arm becomes a phantom
+    // Error — the soft-marked trap box exists to close
+    // (docs/adr/0005-box-classes.md).
+    expectTypeOf(
+      Result.from(UserFactory.from({ id: 'u1' })).unbox(),
+    ).toEqualTypeOf<ResultIndex<ResultIndex<BoxUser, InvalidUser>, Error>>()
+  })
+
+  it('the boxed chain proceeds from the value arm, error union intact', () => {
+    const chained = Result.box(UserFactory.from({ id: 'u1' })).map((u) => {
+      expectTypeOf(u).toEqualTypeOf<BoxUser>()
+      return u.id
+    })
+    expectTypeOf(chained.unbox()).toEqualTypeOf<
+      ResultIndex<string, InvalidUser>
+    >()
+  })
+
+  it("a raw non-Result value cannot be rejected; it degrades to exactly from's behaviour", () => {
+    expectTypeOf(Result.box(rawUser).unbox()).toEqualTypeOf<
+      ResultIndex<BoxUser, Error>
+    >()
+    expectTypeOf(Result.from(rawUser).unbox()).toEqualTypeOf<
+      ResultIndex<BoxUser, Error>
+    >()
+  })
+
+  it('the poison overload catches a Box handed back in — soft, like the guard statics', () => {
+    expectTypeOf(
+      Result.box(Result.box(UserFactory.from({ id: 'u1' }))),
+    ).toEqualTypeOf<never>()
   })
 })
 
@@ -269,7 +327,7 @@ describe('what must not compile', () => {
   })
 })
 
-describe('the merged name and the root re-export', () => {
+describe('the merged name', () => {
   it('the type meaning is the module type, defaults included', () => {
     expectTypeOf<Result<number>>().toEqualTypeOf<ResultIndex<number, Error>>()
     expectTypeOf<Result<number, Err<1>>>().toEqualTypeOf<
@@ -280,15 +338,5 @@ describe('the merged name and the root re-export', () => {
   it('the alias restates the arity: the value argument is required', () => {
     // @ts-expect-error — bare Result does not resolve, exactly like the module type
     expectTypeOf<Result>().toBeUnknown()
-  })
-
-  it('the root re-export carries the value meaning', () => {
-    expectTypeOf(RootResult).toEqualTypeOf<typeof Result>()
-  })
-
-  it('the root re-export carries the type meaning', () => {
-    expectTypeOf<RootResult<number>>().toEqualTypeOf<
-      ResultIndex<number, Error>
-    >()
   })
 })

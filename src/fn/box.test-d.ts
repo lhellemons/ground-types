@@ -1,6 +1,5 @@
 import { describe, expectTypeOf, it } from 'vitest'
 import { Fn } from './box.js'
-import { Fn as RootFn } from '../index.js'
 import type { NotAsync, UnaryInput } from './box.js'
 import type { Fn as FnIndex, Mapper } from './index.js'
 import type { Result } from '../result/index.js'
@@ -227,7 +226,7 @@ describe('the worded gates, pinned by message string', () => {
   })
 })
 
-describe('the merged name and the root re-export', () => {
+describe('the merged name', () => {
   it('the type meaning is the module type — decision 5 degrades usefully here', () => {
     // `Fn` as an annotation is NOT an error: it resolves to the function
     // type from /fn, which is the type you wanted.
@@ -237,12 +236,5 @@ describe('the merged name and the root re-export', () => {
 
   it('the alias restates the defaults: bare Fn resolves', () => {
     expectTypeOf<Fn>().toEqualTypeOf<FnIndex>()
-  })
-
-  it('the root re-export carries both meanings', () => {
-    expectTypeOf(RootFn).toEqualTypeOf<typeof Fn>()
-    expectTypeOf<RootFn<string, [number]>>().toEqualTypeOf<
-      FnIndex<string, [number]>
-    >()
   })
 })

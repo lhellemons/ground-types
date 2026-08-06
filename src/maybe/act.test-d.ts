@@ -1,5 +1,6 @@
 import { describe, expectTypeOf, it } from 'vitest'
-import { act, ifJust, ifNothing, map } from './index.js'
+import { act, ifJust, ifNothing } from './act.js'
+import { map } from './index.js'
 import { pipe } from '../fn/index.js'
 import type { Maybe } from './index.js'
 

@@ -19,13 +19,3 @@ export * as maybe from './maybe/index.js'
 export * as promise from './promise/index.js'
 export * as result from './result/index.js'
 export * as valueObject from './value-object/index.js'
-
-/* The four Box classes, re-exported bare (see docs/adr/0005-box-classes.md
-   and CONTEXT.md's Box entry). A re-export cannot select a meaning, so each
-   name carries both: the Box class in value position and the module's
-   unboxed type in type position. The rule this makes true everywhere:
-   lowercase is the functional namespace, capitalised is the Box class. */
-export { Call } from './call/box.js'
-export { Fn } from './fn/box.js'
-export { Maybe } from './maybe/box.js'
-export { Result } from './result/box.js'

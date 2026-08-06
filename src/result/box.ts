@@ -49,9 +49,34 @@ class ResultBox<R> {
     /* Instances come only from the static factories. */
   }
 
-  /** Boxes a value-or-error: the counterpart of `result()`, both arms. */
+  /**
+   * Boxes a value-or-error: the counterpart of `result()`, both arms. For
+   * a `Result` already in hand — a factory's output, say — use
+   * {@link box}: handed a whole `Result` without explicit type arguments,
+   * `from` lands the union in the value arm and degrades the error arm to
+   * a phantom `Error`.
+   */
   static from<T, E extends Error = Error>(
     value: T | E,
+  ): ResultBox<ResultValue<T, E>> {
+    return notImplemented(value)
+  }
+
+  /** @deprecated a Box is already boxed — chain on it directly. */
+  static box(value: ResultBox<unknown>): never
+  /**
+   * Boxes a `Result` already in hand — a factory's output, a combinator
+   * chain's result — with both arms exact and no type arguments needed.
+   * The way in {@link from} cannot be for a whole `Result`. A raw
+   * non-Result value cannot be rejected and degrades to exactly `from`'s
+   * behaviour. `Result` only: the other classes' `from` already takes the
+   * thing itself, so `box` there would be a mere alias.
+   */
+  static box<T, E extends Error>(
+    value: ResultValue<T, E>,
+  ): ResultBox<ResultValue<T, E>>
+  static box<T, E extends Error>(
+    value: ResultBox<unknown> | ResultValue<T, E>,
   ): ResultBox<ResultValue<T, E>> {
     return notImplemented(value)
   }

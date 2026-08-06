@@ -12,28 +12,20 @@ import * as groundTypes from '../../src/index.js'
  * To change intentionally: add/remove/rename the `export * as` line in
  * `src/index.ts`, update the list below to match, and update the README's
  * "Modules" section and root-entry-point paragraph (owned separately).
- *
- * The four capitalised names are the Box classes (see
- * docs/adr/0005-box-classes.md): lowercase is the functional namespace,
- * capitalised is the Box class.
  */
 describe('root entry point', () => {
-  it('re-exports exactly this set of namespaces and Box classes', () => {
+  it('re-exports exactly this set of namespaces', () => {
     expect(Object.keys(groundTypes).sort((a, b) => a.localeCompare(b))).toEqual(
       [
         'abort',
         'brand',
         'call',
-        'Call',
         'domain',
         'fn',
-        'Fn',
         'internRegistry',
         'maybe',
-        'Maybe',
         'promise',
         'result',
-        'Result',
         'valueObject',
       ],
     )
