@@ -1,0 +1,60 @@
+diff --git a/src/result/index.ts b/src/result/index.ts
+index 52c7a38..3e6f0f6 100644
+--- a/src/result/index.ts
++++ b/src/result/index.ts
+@@ -23,7 +23,6 @@ export type Success<T, E extends Error = Error> = (T extends Error
+  * specific error type it was given.
+  */
+ export type Failure<T, E extends Error = Error> = E & {
+-  readonly [_phantom]?: T
+   readonly [_error]?: E
+ }
+ 
+@@ -40,6 +39,24 @@ export type Result<T, E extends Error = Error> = Success<T, E> | Failure<T, E>
+  * Wraps a value-or-error as a {@link Result}. Reach for this at the
+  * boundary where a `T | E` enters code that deals in `Result`.
+  */
++/**
++ * The error arm `result` infers from a value's type: each `Error` member
++ * of `V` as itself, and `Error` for a member that merely admits an `Error`
++ * (`object`, `{}`, `unknown`, a narrowed `catch` binding), so the Failure
++ * arm never disappears for a type a plain `Error` could hide in.
++ */
++type ErrorArmOf<V> = unknown extends V
++  ? Error
++  : V extends Error
++    ? V
++    : Error extends V
++      ? Error
++      : never
++
++export function result<V>(
++  value: V,
++): Result<Exclude<V, Error>, ErrorArmOf<V>>
++export function result<T, E extends Error = Error>(value: T | E): Result<T, E>
+ export function result<T, E extends Error = Error>(value: T | E): Result<T, E> {
+   return value as unknown as Result<T, E>
+ }
+@@ -49,7 +66,9 @@ export function result<T, E extends Error = Error>(value: T | E): Result<T, E> {
+  * value-first: `success<Widget>(w)` names the value being wrapped.
+  * {@link failure} orders its parameters the other way round.
+  */
+-export function success<T, E extends Error = Error>(value: T): Success<T, E> {
++export function success<T, E extends Error = never>(
++  value: T,
++): Success<T, NoInfer<E>> {
+   return value as Success<T, E>
+ }
+ 
+@@ -59,9 +78,9 @@ export function success<T, E extends Error = Error>(value: T): Success<T, E> {
+  * types themselves: `failure<MyError>(e)` names the error being wrapped,
+  * leaving the phantom channel defaulted.
+  */
+-export function failure<E extends Error = Error, T = unknown>(
++export function failure<E extends Error, T = never>(
+   error: E,
+-): Failure<T, E> {
++): Failure<NoInfer<T>, E> {
+   return error
+ }
+ 
