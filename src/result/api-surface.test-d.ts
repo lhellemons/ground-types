@@ -1,3 +1,8 @@
+import { catchOnly, tryCatch } from './index.js'
+import { resultify } from '../promise/index.js'
+import { resultify as callResultify } from '../call/index.js'
+import { definePrimitiveValueObject } from '../value-object/index.js'
+import type { Branded } from '../brand/index.js'
 import { describe, expectTypeOf, it } from 'vitest'
 import type {
   Failure,
@@ -47,5 +52,43 @@ describe('/result type exports', () => {
     expectTypeOf<
       NotAPromise<Promise<number>>
     >().toEqualTypeOf<'This callback returns a Promise (or thenable) — resolve it first with promise/resultify or call/resultify, then compose with .then()'>()
+  })
+})
+
+class Selected extends Error {
+  readonly selected = true
+}
+class Other extends Error {
+  readonly other = true
+}
+declare const construct: (value: string) => Branded<string, 'Selected'>
+describe('selective handler inference', () => {
+  it('infers the selected union at each site', () => {
+    const handler = catchOnly(Selected, Other)
+    expectTypeOf(tryCatch(() => 1, handler)()).toEqualTypeOf<
+      Result<number, Selected | Other>
+    >()
+    expectTypeOf(resultify(handler, Promise.resolve(1))).toEqualTypeOf<
+      Promise<Result<number, Selected | Other>>
+    >()
+    expectTypeOf(callResultify(handler, () => 1)()).toEqualTypeOf<
+      Promise<Result<number, Selected | Other>>
+    >()
+    expectTypeOf(
+      definePrimitiveValueObject(construct, handler).from('x'),
+    ).toEqualTypeOf<Result<Branded<string, 'Selected'>, Selected | Other>>()
+
+    expectTypeOf(tryCatch(() => 1, [Selected, Other])()).toEqualTypeOf<
+      Result<number, Selected | Other>
+    >()
+    expectTypeOf(tryCatch(() => 1, [Selected])()).toEqualTypeOf<
+      Result<number, Selected>
+    >()
+    // @ts-expect-error Bare constructors are not handlers; use a list
+    tryCatch(() => 1, Selected)
+    // @ts-expect-error At least one class is required
+    catchOnly()
+    // @ts-expect-error At least one class is required
+    tryCatch(() => 1, [])
   })
 })

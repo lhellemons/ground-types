@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add `result/catchOnly(...ErrorClasses)` and nonempty class-list shorthand for
+  `tryCatch`, preserving selected local-realm errors and rethrowing unexpected
+  values, including foreign-realm errors.
+
 - The README's install line now points at the built tarball attached to the
   v0.3.0 GitHub Release, which installs with no build step. The `github:` form
   still builds through `prepare`, and pnpm 11 refuses that without an allow-list.
