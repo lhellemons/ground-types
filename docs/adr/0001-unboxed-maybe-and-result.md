@@ -199,14 +199,31 @@ failure<E extends Error, T = never>(error: E): Failure<NoInfer<T>, E>
 the argument, keeping the two-parameter signature for explicit calls:
 
 ```ts
-result<V>(value: V): Result<Exclude<V, Error>, unknown extends V ? Error : Extract<V, Error>>
+type ErrorArmOf<V> = unknown extends V
+  ? Error
+  : V extends Error
+    ? V
+    : Error extends V
+      ? Error
+      : never
+
+result<V>(value: V): Result<Exclude<V, Error>, ErrorArmOf<V>>
 ```
 
-The `unknown` guard is load-bearing: `Extract<unknown, Error>` is `never`,
-which would collapse `result(caught)` to its `Success` arm and let a
-caught plain `Error` pass where `Invalid` is required. With the guard,
-`result` of an `unknown` or `any` value is `Result<unknown, Error>` or
-`Result<any, Error>`, as on the old signature.
+`ErrorArmOf` is load-bearing. A plain `Extract<V, Error>` is `never` for
+every type a plain `Error` is assignable to without being one: `unknown`,
+`object`, `{}`, `{ message: string }`, and the narrowed `catch` binding
+`typeof e === 'object' && e !== null`. That would collapse `result(e)` to
+its `Success` arm and let a caught plain `Error` pass where `Invalid` is
+required. `ErrorArmOf` keeps each `Error` member of `V` as itself and
+answers `Error` for a member that merely admits one, so `result(o)` with
+`o: object` is `Result<object, Error>` as on the old signature,
+`result(u)` with `u: number | Invalid | Other` is `Result<number, Invalid
+| Other>`, and `result(new Error())` is `Failure<never, Error>`.
+
+`NoInfer` needs TypeScript 5.4 or later. `src/` uses nothing newer than
+that today and the package declares no TypeScript range, so the
+implementation's CHANGELOG entry states the floor.
 
 The Result Box's `from` takes the same overload, so the parity between
 `from` and `result()` that the Box tests pin survives. That breaks a
@@ -223,8 +240,9 @@ Invalid | Other> => failure(new Invalid())`, `(x: number | Invalid):
 Result<number, Invalid> => result(x)`, and `if (isFailure(r)) return
 failure(r)` into a `Result` with a different `T`. Both guarantees hold,
 checked rather than assumed: a plain `Error` is still rejected where
-`Invalid` is expected, through `failure`, through `result` of a union and
-of an `unknown` value, and through a bare `Failure<_, Error>`; and
+`Invalid` is expected, through `failure`, through `result` of a union, of
+an `unknown` value and of an `object` or narrowed `catch` binding, and
+through a bare `Failure<_, Error>`; and
 `Result<Result<T>>` is still not assignable to `Result<T>`. Every existing type-level test stays green but two, whose
 expectations change from `Success<number, Error>` to `Success<number,
 never>` and from `Failure<unknown, Invalid>` to `Failure<never, Invalid>`,

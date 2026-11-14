@@ -20,12 +20,15 @@ cd "$WT"
 cp prototypes/57/probe.test-d.ts src/result/proto57.test-d.ts
 cp prototypes/57/probe-b.test-d.ts src/result/proto57b.test-d.ts
 # Reuse the main checkout's dependencies; only a different TypeScript is
-# installed, and then only in the worktree.
+# installed, and then only in the worktree. `--ignore-scripts` keeps
+# `prepare` (the build) from running against a patched source that is
+# meant to fail typecheck.
+[ -d "$ROOT/node_modules" ] || { echo "run pnpm install in $ROOT first" >&2; exit 2; }
 ln -s "$ROOT/node_modules" node_modules
 if [ -n "$TSV" ]; then
   rm node_modules
-  pnpm install --frozen-lockfile >/dev/null 2>&1
-  pnpm add -D "typescript@$TSV" >/dev/null 2>&1
+  pnpm install --frozen-lockfile --ignore-scripts >/dev/null
+  pnpm add -D --ignore-scripts "typescript@$TSV" >/dev/null
 fi
 echo "== arm $ARM, typescript $(node_modules/.bin/tsc -v)"
 pnpm vitest run 2>&1 | grep -E "^ +×|Test Files|Tests |Type Errors" || true

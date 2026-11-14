@@ -76,6 +76,35 @@ describe('ADR 0001 safety properties', () => {
     expectTypeOf(result(loose)).toEqualTypeOf<Result<any, Error>>()
   })
 
+  it('result() of a supertype of Error keeps its Error arm', () => {
+    // `Extract<object, Error>` is `never` too: every type an Error is
+    // assignable to, without being one, needs the same fallback.
+    const take = (_r: Result<unknown, Invalid>): void => undefined
+    const o = null as unknown as object
+    expectTypeOf(result(o)).toEqualTypeOf<Result<object, Error>>()
+    // @ts-expect-error - Error is not Invalid
+    take(result(o))
+    const empty = null as unknown as {}
+    expectTypeOf(result(empty)).toEqualTypeOf<Result<{}, Error>>()
+    const shaped = null as unknown as { message: string }
+    expectTypeOf(result(shaped)).toEqualTypeOf<
+      Result<{ message: string }, Error>
+    >()
+    try {
+      throw new Error('x')
+    } catch (e) {
+      if (typeof e === 'object' && e !== null) {
+        // @ts-expect-error - Error is not Invalid
+        take(result(e))
+      }
+    }
+    // An Error itself has no Success arm left.
+    expectTypeOf(result(new Error('x'))).toEqualTypeOf<Failure<never, Error>>()
+    // A union keeps each Error member as itself.
+    const u = null as unknown as number | Invalid | Other
+    expectTypeOf(result(u)).toEqualTypeOf<Result<number, Invalid | Other>>()
+  })
+
   it('rejects a plain Failure<_, Error> where Failure<_, Invalid> is expected', () => {
     const plain = null as unknown as Failure<number, Error>
     // @ts-expect-error - Error is not Invalid
