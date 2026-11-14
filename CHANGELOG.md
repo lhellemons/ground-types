@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- The README's install line now points at the built tarball attached to the
+  v0.3.0 GitHub Release, which installs with no build step. The `github:` form
+  still builds through `prepare`, and pnpm 11 refuses that without an allow-list.
+
 ## [0.3.0] - 2026-08-04
 
 Upgrading from 0.1.x or 0.2.x? See the

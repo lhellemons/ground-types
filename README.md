@@ -12,8 +12,12 @@ Every term used here is defined in [CONTEXT.md](./CONTEXT.md).
 ## Install
 
 ```sh
-pnpm add github:lhellemons/ground-types#semver:^0.3.0
+pnpm add https://github.com/lhellemons/ground-types/releases/download/v0.3.0/lhellemons-ground-types-0.3.0.tgz
 ```
+
+This is a built tarball attached to the GitHub Release, so nothing builds on
+install. Add it with pnpm 10.34.9 or pnpm 11, which record its integrity hash in
+the lockfile: pnpm 10.8.1 records no hash and a download URL that expires.
 
 Not published to npm yet.
 
