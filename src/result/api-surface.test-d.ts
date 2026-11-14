@@ -81,9 +81,11 @@ describe('selective handler inference', () => {
     expectTypeOf(tryCatch(() => 1, [Selected, Other])()).toEqualTypeOf<
       Result<number, Selected | Other>
     >()
-    expectTypeOf(tryCatch(() => 1, Selected)()).toEqualTypeOf<
+    expectTypeOf(tryCatch(() => 1, [Selected])()).toEqualTypeOf<
       Result<number, Selected>
     >()
+    // @ts-expect-error Bare constructors are not handlers; use a list
+    tryCatch(() => 1, Selected)
     // @ts-expect-error At least one class is required
     catchOnly()
     // @ts-expect-error At least one class is required

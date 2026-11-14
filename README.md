@@ -74,7 +74,8 @@ maybe.map(...)
 For domain code, use `tryCatch(construct, catchOnly(InvalidValue))` or
 `definePrimitiveValueObject(construct, catchOnly(InvalidValue))`, importing
 `catchOnly` from `@lhellemons/ground-types/result`. Listed errors (including
-subclasses) become failures unchanged; all other throws propagate unchanged.
+subclasses) from the current realm become failures unchanged; all other throws,
+including foreign-realm errors, propagate unchanged.
 `tryCatch(construct, [InvalidValue, OtherError])` is shorthand.
 Handlers such as `() => new InvalidValue()` turn bugs into domain failures.
 
