@@ -47,7 +47,7 @@ phantom. The `unknown extends V` guard on `result` matters:
 | `Result<Result<number>>` not assignable to `Result<number>`                                              | holds                    | holds                            |
 | `if (isFailure(r)) return r` into a `Result<string, …>` (Arm B's goal)                                   | error                    | error                            |
 
-Full suite under Arm A: 452 passed, 4 failed, identically on TypeScript
+Full suite under Arm A: 454 passed, 4 failed, identically on TypeScript
 5.9.3, 6.0.3 and 7.0.2. The four:
 
 - `index.test-d.ts` "binds failure's single explicit type argument": now
