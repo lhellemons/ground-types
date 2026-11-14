@@ -128,10 +128,6 @@ describe('map', () => {
 })
 
 describe('andThen', () => {
-  it('is the same function as map, not merely equivalent', () => {
-    expect(andThen).toBe(map)
-  })
-
   it('does not nest when fn itself returns a Maybe', () => {
     const halveIfEven = andThen((n: number) =>
       n % 2 === 0 ? maybe(n / 2) : nothing<number>(),
@@ -140,13 +136,24 @@ describe('andThen', () => {
     expect(halveIfEven(maybe(3))).toBeUndefined()
   })
 
-  it('applies immediately when the value is supplied, being the same function as map', () => {
+  it('applies immediately when the value is supplied', () => {
     expect(
       andThen(
         (n: number) => (n % 2 === 0 ? maybe(n / 2) : nothing<number>()),
         maybe(10),
       ),
     ).toBe(5)
+  })
+
+  it('applies to an explicit Nothing rather than returning the Mapper', () => {
+    // The arity trap ADR-0003 closes: Nothing IS undefined, so this call
+    // has arity 2 and must produce Nothing, not hand back the Mapper.
+    expect(
+      andThen(
+        (n: number) => (n % 2 === 0 ? maybe(n / 2) : nothing<number>()),
+        nothing<number>(),
+      ),
+    ).toBeUndefined()
   })
 })
 
