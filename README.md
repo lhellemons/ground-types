@@ -110,6 +110,100 @@ including foreign-realm errors, propagate unchanged.
 `tryCatch(construct, [InvalidValue, OtherError])` is shorthand.
 Handlers such as `() => new InvalidValue()` turn bugs into domain failures.
 
+## Validating domain values
+
+A Primitive Value Object factory is callable. Use the throwing form when
+invalid input is a programming bug; use `.from` when invalid input is
+expected and the caller should handle a Failure.
+
+```ts
+import type { Branded } from '@lhellemons/ground-types/brand'
+import { definePrimitiveValueObject } from '@lhellemons/ground-types/value-object'
+import { isFailure } from '@lhellemons/ground-types/result'
+
+type BoardId = Branded<string, 'BoardId'>
+const BoardId = definePrimitiveValueObject<BoardId>((value) => {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error('BoardId must be a non-empty string')
+  }
+  return value as BoardId
+})
+
+const id = BoardId('board-1') // throws on invalid input
+const outcome = BoardId.from('')
+if (isFailure(outcome)) console.log(outcome.message)
+```
+
+`BoardId(x)` expresses the same throwing intent as
+`assertSuccess(BoardId.from(x))` directly.
+
+For a class Factory, `implements` checks only instances. A static block
+checks the class's static side against `DomainObjectFactory`:
+
+```ts
+import type { DomainObjectFactory } from '@lhellemons/ground-types/domain'
+import { tryCatch } from '@lhellemons/ground-types/result'
+import type { Result } from '@lhellemons/ground-types/result'
+
+class InvalidDoor extends Error {}
+type DoorDTO = { open: boolean }
+class Door {
+  private constructor(readonly open: boolean) {}
+
+  static {
+    void (Door satisfies DomainObjectFactory<Door, DoorDTO>)
+  }
+
+  static from(dto: DoorDTO): Result<Door> {
+    return tryCatch(() => {
+      if (typeof dto.open !== 'boolean') throw new InvalidDoor('Invalid door')
+      return new Door(dto.open)
+    }, [InvalidDoor])()
+  }
+}
+```
+
+Brands exist only in TypeScript; JSON preserves neither proof of validation
+nor class prototypes. Treat parsed data as untrusted and re-validate a
+Branded primitive with `BoardId.from`, or rebuild a domain object through
+its Factory's `from(dto)`. Never use `JSON.parse(text) as Play` to bypass
+that boundary. Check the DTO's shape before passing it to a typed Factory:
+
+```ts
+const parsed: unknown = JSON.parse('{"open":true}')
+if (
+  typeof parsed === 'object' &&
+  parsed !== null &&
+  'open' in parsed &&
+  typeof parsed.open === 'boolean'
+) {
+  const restored = Door.from({ open: parsed.open })
+}
+const restoredId = BoardId.from(JSON.parse('"board-1"'))
+```
+
+## Interned instance lifetime
+
+`InternRegistry<K, V>` holds object values weakly. While a caller keeps an
+instance alive, equal keys return that same instance:
+
+```ts
+import { InternRegistry } from '@lhellemons/ground-types/intern-registry'
+
+const registry = new InternRegistry<string, { key: string }>()
+const first = registry.getOrCreate('a', () => ({ key: 'a' }))
+const second = registry.getOrCreate('a', () => ({ key: 'a' }))
+console.log(first === second) // true
+```
+
+After callers release an instance, garbage collection may reclaim it;
+`get` then returns Nothing and `getOrCreate` can create a fresh instance.
+Collection and finalizer cleanup have no guaranteed timing. Keys remain
+strongly held until cleanup, so prefer identifier keys: a key that refers
+to its canonical instance keeps that instance alive, even with weak values.
+A module-scope registry therefore does not by itself retain every value
+forever, but it is not a bounded store or a deterministic eviction policy.
+
 ## Composing a chain of steps
 
 Given only its configuration, every `maybe`/`result` combinator returns a
