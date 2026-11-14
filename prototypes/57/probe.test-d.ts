@@ -59,6 +59,23 @@ describe('ADR 0001 safety properties', () => {
     void g
   })
 
+  it('result() of an unknown or any value keeps its Error arm', () => {
+    // `Extract<unknown, Error>` is `never`, which would collapse the Result
+    // to its Success arm and let a caught plain Error pass where a narrower
+    // class is required. The overload falls back to `Error` instead.
+    const caught = null as unknown
+    const take = (_r: Result<unknown, Invalid>): void => undefined
+    const r = result(caught)
+    expectTypeOf(r).toEqualTypeOf<Result<unknown, Error>>()
+    // @ts-expect-error - Error is not Invalid
+    take(r)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const loose = null as any
+    // `any` keeps its Error arm too; its Success arm is `any`, as on main,
+    // so nothing downstream can be rejected for it.
+    expectTypeOf(result(loose)).toEqualTypeOf<Result<any, Error>>()
+  })
+
   it('rejects a plain Failure<_, Error> where Failure<_, Invalid> is expected', () => {
     const plain = null as unknown as Failure<number, Error>
     // @ts-expect-error - Error is not Invalid
@@ -78,6 +95,19 @@ describe('ADR 0001 safety properties', () => {
     // @ts-expect-error - a Result cannot nest
     const flatNarrow: Result<number, Invalid> = nestedNarrow
     void flatNarrow
+  })
+
+  it("Success's phantom E is covariant, on main and under every arm", () => {
+    // What the 2026-08-04 amendment called invariance: only the widening
+    // direction was ever allowed, and the narrowing one is what cost the
+    // annotation when the default was `Error`.
+    const narrow = null as unknown as Success<number, Invalid>
+    const wide: Success<number, Error> = narrow
+    void wide
+    const plain = null as unknown as Success<number, Error>
+    // @ts-expect-error - Error is not Invalid
+    const narrowed: Success<number, Invalid> = plain
+    void narrowed
   })
 
   it('Success<T, never> is assignable to any Result<T, E> — it carries no error', () => {

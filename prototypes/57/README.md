@@ -5,36 +5,47 @@ Throwaway probe for
 is part of the library: `src/` never imports it, and `run.sh` copies the
 probes into `src/result/` only for the length of one measurement.
 
-    prototypes/57/run.sh <main|a|b> [typescript-version]
+    prototypes/57/run.sh <main|a|b1|b> [typescript-version]
 
-`arm-a.patch` and `arm-b.patch` are the diffs to `src/result/index.ts`
-that each arm applies. `probe.test-d.ts` holds the scenarios every arm
-must satisfy; `probe-b.test-d.ts` holds Arm B's extra goal.
+The script measures in a temporary `git worktree` of `HEAD`, so commit
+what you want measured; the checkout you run it from is never touched.
+`arm-a.patch`, `arm-b1.patch` and `arm-b.patch` are the diffs to
+`src/result/index.ts` that each arm applies. `probe.test-d.ts` holds the
+scenarios every arm must satisfy; `probe-b.test-d.ts` holds Arm B's extra
+goal.
 
 ## Arm A — constructor signatures only
 
 ```ts
 success<T, E extends Error = never>(value: T): Success<T, NoInfer<E>>
 failure<E extends Error, T = never>(error: E): Failure<NoInfer<T>, E>
-result<V>(value: V): Result<Exclude<V, Error>, Extract<V, Error>>   // new first overload
+result<V>(value: V): Result<Exclude<V, Error>, unknown extends V ? Error : Extract<V, Error>>  // new first overload
 result<T, E extends Error = Error>(value: T | E): Result<T, E>       // kept, for explicit calls
 ```
 
 Why it works: a `Success` carries no error, so `E = never` is its honest
 type, and `Success<T, never>` is assignable to any `Result<T, E>`. The
-phantom stays, and stays invariant. The cost came from the top-type
-defaults (`E = Error`, `T = unknown`) that the old signatures forced onto
-every inferred call, not from invariance.
+phantom stays, and it was never invariant: `readonly [_phantom]?: E` is
+covariant, so `Success<number, Invalid>` widens to `Success<number,
+Error>` and only the narrowing direction is rejected. The cost came from
+the top-type defaults (`E = Error`, `T = unknown`) that the old
+signatures forced onto every inferred call, meeting that covariant
+phantom. The `unknown extends V` guard on `result` matters:
+`Extract<unknown, Error>` is `never`, which would collapse
+`result(caught)` to its Success arm and let a plain `Error` pass where
+`Invalid` is required.
 
-| Scenario (no type arguments)                                                                  | main     | Arm A                            |
-| --------------------------------------------------------------------------------------------- | -------- | -------------------------------- |
-| `(n): Result<number, Invalid> => success(n)`                                                  | error    | ok                               |
-| `(): Result<number, Invalid \| Other> => failure(new Invalid())`                              | error    | ok                               |
-| `(x: number \| Invalid): Result<number, Invalid> => result(x)`                                | error    | ok (needs the `result` overload) |
-| `if (isFailure(r)) return failure(r)` into a `Result<string, …>`                              | error    | ok                               |
-| plain `Error` rejected where `Invalid` is expected (`failure`, `result`, `Failure<_, Error>`) | rejected | rejected                         |
-| `Result<Result<number>>` not assignable to `Result<number>`                                   | holds    | holds                            |
-| `if (isFailure(r)) return r` into a `Result<string, …>` (Arm B's goal)                        | error    | error                            |
+| Scenario (no type arguments)                                                                             | main                     | Arm A                            |
+| -------------------------------------------------------------------------------------------------------- | ------------------------ | -------------------------------- |
+| `(n): Result<number, Invalid> => success(n)`                                                             | error                    | ok                               |
+| `(): Result<number, Invalid \| Other> => failure(new Invalid())`                                         | error                    | ok                               |
+| `(x: number \| Invalid): Result<number, Invalid> => result(x)`                                           | error                    | ok (needs the `result` overload) |
+| `if (isFailure(r)) return failure(r)` into a `Result<string, …>`                                         | error                    | ok                               |
+| plain `Error` rejected where `Invalid` is expected (`failure`, `result` of a union, `Failure<_, Error>`) | rejected                 | rejected                         |
+| `result(caught)` with `caught: unknown` keeps its `Error` arm                                            | `Result<unknown, Error>` | `Result<unknown, Error>`         |
+| `Success<number, Invalid>` widens to `Success<number, Error>`; the reverse is rejected                   | yes                      | yes                              |
+| `Result<Result<number>>` not assignable to `Result<number>`                                              | holds                    | holds                            |
+| `if (isFailure(r)) return r` into a `Result<string, …>` (Arm B's goal)                                   | error                    | error                            |
 
 Full suite under Arm A: 452 passed, 4 failed, identically on TypeScript
 5.9.3, 6.0.3 and 7.0.2. The four:
@@ -52,6 +63,14 @@ Full suite under Arm A: 452 passed, 4 failed, identically on TypeScript
   Box expectations (the "soft trap" at `box.test-d.ts:108` and the raw
   non-Result case at `:126`): `from` handed a whole `Result` then yields
   `Result<Success<…>, Failure<…>>`, still nested, so `box` keeps its job.
+  It also breaks `box`'s promise that a raw value "degrades to exactly
+  `from`'s behaviour": `Result.from(raw)` becomes `Result<T, never>` while
+  `Result.box(raw)` stays `Result<T, Error>`. Which promise `box` keeps is
+  for the implementation task and #66.
+- Note for the implementation task's tests: `failure(narrowed)` with
+  `narrowed: Failure<number, Invalid>` is `Failure<never, Failure<number,
+Invalid>>`, which flows into a different `Result<X, Invalid | …>` only
+  because the two phantoms intersect to `undefined`. Pin that.
 - `probe-b.test-d.ts`: Arm B's goal, expected to fail under Arm A.
 
 `definePrimitiveValueObject`: `E` is not inferred from `errorHandler`
@@ -64,13 +83,15 @@ Arm A. The docblock's diagnosis (the invariant phantom) is wrong.
 
 ## Arm B — return a narrowed failure as-is
 
-B1: `isFailure` narrows to `Failure<never, E>`. `return r` compiles, but
+B1 (`arm-b1.patch`, Arm A plus the narrowing): `isFailure` narrows to
+`Failure<never, E>`. `return r` compiles, but
 the false branch of `isFailure` no longer narrows: TypeScript removes
 only the constituents that are subtypes of the narrowed type, and
 `Failure<T, E>` is not a subtype of `Failure<never, E>`. Every
 `if (isFailure(r)) return r; use(r)` then sees `r` as the whole `Result`.
 
-B2: drop `Failure`'s `[_phantom]?: T`. `return r` compiles and the false
+B2 (`arm-b.patch`, Arm A plus the drop): drop `Failure`'s `[_phantom]?:
+T`. `return r` compiles and the false
 branch narrows, but `Result<Result<number>>` becomes assignable to
 `Result<number>`: `Success`'s `[_value]?: T` handle cannot guard it,
 because `Success<Result<T>>` intersects the inner `Success<T>`'s own

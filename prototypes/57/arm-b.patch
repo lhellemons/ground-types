@@ -1,5 +1,5 @@
 diff --git a/src/result/index.ts b/src/result/index.ts
-index 52c7a38..31e704c 100644
+index 52c7a38..e1b174e 100644
 --- a/src/result/index.ts
 +++ b/src/result/index.ts
 @@ -23,7 +23,6 @@ export type Success<T, E extends Error = Error> = (T extends Error
@@ -16,7 +16,7 @@ index 52c7a38..31e704c 100644
   */
 +export function result<V>(
 +  value: V,
-+): Result<Exclude<V, Error>, Extract<V, Error>>
++): Result<Exclude<V, Error>, unknown extends V ? Error : Extract<V, Error>>
 +export function result<T, E extends Error = Error>(value: T | E): Result<T, E>
  export function result<T, E extends Error = Error>(value: T | E): Result<T, E> {
    return value as unknown as Result<T, E>
