@@ -37,13 +37,11 @@ export type PrimitiveValueObject<
  * `.from`'s Failure type is `Error` by default, matching `tryCatch`'s own
  * handler-less overload. Pass `errorHandler` — forwarded to `tryCatch`
  * verbatim — to translate a thrown value into a concrete `Error` subclass
- * instead. Name `E` explicitly alongside `T` when doing so: `Success`'s
- * invariant `E` phantom (docs/adr/0001, 2026-08-04 amendment) keeps
- * TypeScript from reliably inferring `E` from `errorHandler`'s return type
- * alone. Without a handler, `E` cannot be named at all — `.from`'s Failure
- * type is `Error`, mirroring `tryCatch`'s own overload split.
+ * instead. For domain errors, use
+ * `definePrimitiveValueObject(construct, catchOnly(InvalidValue))`;
+ * the error type is inferred from the listed classes when type arguments
+ * are omitted. Without a handler, the Failure type is `Error`.
  */
-/** Use `definePrimitiveValueObject(construct, catchOnly(InvalidValue))` for domain errors. */
 export function definePrimitiveValueObject<
   T extends Branded<P, unknown>,
   P extends Primitive = string,

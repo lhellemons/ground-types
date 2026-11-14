@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `InternRegistry<K, V>` now requires `V extends object` and holds
   canonical instances weakly, allowing unused instances to be collected.
 
+- Add `result/catchOnly(...ErrorClasses)` and class/list shorthand for
+  `tryCatch`, preserving selected errors and rethrowing unexpected values.
+
 - The README's install line now points at the built tarball attached to the
   v0.3.0 GitHub Release, which installs with no build step. The `github:` form
   still builds through `prepare`, and pnpm 11 refuses that without an allow-list.
@@ -578,6 +581,3 @@ Initial extraction from Slider's `src/util`.
   `DomainObjectFactory`.
 - `intern-registry` — `InternRegistry` for canonicalising Value Objects.
 - `fn` — `compose` and the `Function` type.
-
-- Add `result/catchOnly(...ErrorClasses)` and class/list shorthand for
-  `tryCatch`, preserving selected errors and rethrowing unexpected values.

@@ -1,39 +1,114 @@
-import { expect, it } from 'vitest'
-import { catchOnly, tryCatch } from './index.js'
+import { describe, expect, it } from 'vitest'
+import { catchOnly, isFailure, tryCatch } from './index.js'
 import { resultify } from '../promise/index.js'
 import { resultify as callResultify } from '../call/index.js'
+import { definePrimitiveValueObject } from '../value-object/index.js'
+import type { Branded } from '../brand/index.js'
 
 class A extends Error {}
 class B extends A {}
-
-it('preserves subclasses and rethrows every other value by identity', async () => {
-  const error = new B()
-  expect(catchOnly(A)(error)).toBe(error)
-  expect(
-    tryCatch(() => {
-      throw error
-    }, A)(),
-  ).toBe(error)
-  expect(
-    tryCatch(() => {
-      throw error
-    }, [A])(),
-  ).toBe(error)
-  expect(await resultify(catchOnly(A), Promise.reject(error))).toBe(error)
-  expect(
-    await callResultify(catchOnly(A), () => {
-      throw error
-    })(),
-  ).toBe(error)
-  for (const other of [new TypeError(), {}, null, undefined, 'bad']) {
-    try {
-      catchOnly(A)(other)
-      expect.fail('must throw')
-    } catch (caught) {
-      expect(caught).toBe(other)
-    }
-    await expect(resultify(catchOnly(A), Promise.reject(other))).rejects.toBe(
-      other,
-    )
+class Other extends Error {}
+const unexpected = [new TypeError(), {}, null, undefined, 'bad']
+function throws(value: unknown): never {
+  throw value
+}
+function expectThrow(fn: () => unknown, value: unknown) {
+  let caught = false
+  try {
+    fn()
+  } catch (error) {
+    caught = true
+    expect(error).toBe(value)
   }
+  expect(caught).toBe(true)
+}
+
+describe('catchOnly', () => {
+  it('preserves selected errors and subclasses unchanged', () => {
+    for (const error of [new A(), new B(), new Other()]) {
+      const result = catchOnly(A, Other)(error)
+      expect(result).toBe(error)
+      expect(isFailure(result)).toBe(true)
+    }
+  })
+  it('rethrows all other values by identity', () => {
+    for (const value of unexpected)
+      expectThrow(() => catchOnly(A)(value), value)
+  })
+})
+
+describe('tryCatch shorthand', () => {
+  it('catches each unrelated class in a list', () => {
+    for (const error of [new A(), new Other()]) {
+      expect(tryCatch(() => throws(error), [A, Other])()).toBe(error)
+    }
+  })
+  it('catches a subclass with a single class', () => {
+    const error = new B()
+    expect(tryCatch(() => throws(error), A)()).toBe(error)
+  })
+  it('rethrows unlisted values for class and list forms', () => {
+    for (const value of unexpected) {
+      expectThrow(() => tryCatch(() => throws(value), A)(), value)
+      expectThrow(() => tryCatch(() => throws(value), [A, Other])(), value)
+    }
+  })
+})
+
+describe('value-object catchOnly handler', () => {
+  it('returns selected failures while the callable form still throws', () => {
+    const error = new B()
+    const factory = definePrimitiveValueObject((value: string) => {
+      if (value === 'bad') throw error
+      return value as Branded<string, 'Test'>
+    }, catchOnly(A))
+    expect(factory('ok')).toBe('ok')
+    expect(factory.from('ok')).toBe('ok')
+    expect(factory.from('bad')).toBe(error)
+    expect(isFailure(factory.from('bad'))).toBe(true)
+    expectThrow(() => factory('bad'), error)
+  })
+  it('rethrows unexpected values from both forms', () => {
+    for (const value of unexpected) {
+      const factory = definePrimitiveValueObject((_input: string) => {
+        throws(value)
+        return '' as Branded<string, 'Test'>
+      }, catchOnly(A))
+      expectThrow(() => factory.from('x'), value)
+      expectThrow(() => factory('x'), value)
+    }
+  })
+})
+
+describe('promise resultify catchOnly handler', () => {
+  it('preserves selected rejections', async () => {
+    const error = new B()
+    expect(await resultify(catchOnly(A), Promise.reject(error))).toBe(error)
+  })
+  it('propagates unlisted rejections', async () => {
+    for (const value of unexpected)
+      await expect(resultify(catchOnly(A), Promise.reject(value))).rejects.toBe(
+        value,
+      )
+  })
+})
+
+describe('call resultify catchOnly handler', () => {
+  it('preserves selected synchronous throws and rejections', async () => {
+    const error = new B()
+    expect(await callResultify(catchOnly(A), () => throws(error))()).toBe(error)
+    expect(
+      await callResultify(catchOnly(A), () => Promise.reject(error))(),
+    ).toBe(error)
+  })
+  it('propagates unlisted synchronous throws and rejections', async () => {
+    for (const value of unexpected) {
+      await expect(
+        callResultify(catchOnly(A), () => throws(value))(),
+      ).rejects.toBe(value)
+      await expect(
+        callResultify(catchOnly(A), () => Promise.reject(value))(),
+      ).rejects.toBe(value)
+    }
+  })
 })
