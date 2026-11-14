@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Breaking:** `InternRegistry<K, V>` now requires `V extends object` and holds
   canonical instances weakly, allowing unused instances to be collected.
+- Version tags now run CI checks and attach a built tarball to their GitHub
+  Release, validating the package version and replacing an existing asset on rerun.
+- Use pnpm 12.18.0 and document tarball installs, Git installs and Renovate.
 
 - Add `result/catchOnly(...ErrorClasses)` and nonempty class-list shorthand for
   `tryCatch`, preserving selected local-realm errors and rethrowing unexpected
