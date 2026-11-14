@@ -161,3 +161,78 @@ sites that hit this still need an explicit `success<T, E>(...)` /
 inference would produce. (`failure` binds the error first — its parameter
 order was deliberately reversed from the other two; see the constructor
 docblocks.)
+
+### 2026-11-14 — The #17 amendment is reversed: the constructors drop their top-type defaults (#57)
+
+The 2026-08-04 amendment kept the annotation burden on the grounds that
+the annotation was rare and that the phantom's invariance was its cause.
+A consumer feedback round (#56) found neither to hold. Consumers do not
+chain with `map`/`andThen`; they write early returns, and that is where
+the cost lands: zinbow carries 261 `failure<E, T>(…)` and 127
+`success<T, E>(…)` sites, 92 of them re-wrapping an already-narrowed
+failure only to change its phantom `T`, and has made the annotation a
+project rule. over-and-out has the same pattern. slider avoids it by
+never narrowing `E`, so its typed errors go unused.
+
+A probe (`prototypes/57/`, measured on TypeScript 5.9.3, 6.0.3 and 7.0.2)
+corrects the diagnosis. The cost does not come from invariance. It comes
+from the constructors' top-type defaults, `E = Error` on `success` and
+`T = unknown` on `failure`, which every call without type arguments is
+forced to take: a `Success<number, Error>` cannot flow into a
+`Result<number, Invalid>`, so the caller has to say `Invalid` by hand.
+A `Success` carries no error, so its honest error type is `never`, and
+`Success<T, never>` is assignable to every `Result<T, E>`; likewise a
+`Failure` carries no value. With `never` defaults and `NoInfer` on the
+phantom position, the phantom stays, stays invariant, and stops costing
+anything in the cases consumers actually write:
+
+```ts
+success<T, E extends Error = never>(value: T): Success<T, NoInfer<E>>
+failure<E extends Error, T = never>(error: E): Failure<NoInfer<T>, E>
+```
+
+`result` has a different shape of cost: a union argument lands wholly in
+`T` and `E` defaults to `Error`. It gains a first overload that splits
+the argument, `result<V>(value: V): Result<Exclude<V, Error>, Extract<V,
+Error>>`, keeping the two-parameter signature for explicit calls. The
+Result Box's `from` takes the same overload, so the parity the Box tests
+pin survives.
+
+Under these signatures, with no type arguments, all of the following
+compile: `(n): Result<number, Invalid> => success(n)`, `(): Result<number,
+Invalid | Other> => failure(new Invalid())`, `(x: number | Invalid):
+Result<number, Invalid> => result(x)`, and `if (isFailure(r)) return
+failure(r)` into a `Result` with a different `T`. Both guarantees hold,
+checked rather than assumed: a plain `Error` is still rejected where
+`Invalid` is expected, through `failure`, `result` and a bare
+`Failure<_, Error>`; and `Result<Result<T>>` is still not assignable to
+`Result<T>`. Every existing type-level test stays green but two, whose
+expectations change from `Success<number, Error>` to `Success<number,
+never>` and from `Failure<unknown, Invalid>` to `Failure<never, Invalid>`,
+plus the Box `from` expectations the overload moves.
+
+**Decision: reverse the 2026-08-04 amendment.** The phantom is kept, and
+the annotation is no longer accepted as a sharp edge: the constructors
+take the signatures above. Explicit type arguments remain allowed, so
+consumer code that still writes them keeps compiling.
+
+Two things were ruled out on the way:
+
+- **Returning a narrowed failure as-is** (`if (isFailure(r)) return r`
+  into a `Result` with a different `T`) is not achievable. Narrowing
+  `isFailure` to `Failure<never, E>` breaks its false branch, because
+  TypeScript removes only constituents that are subtypes of the narrowed
+  type and `Failure<T, E>` is not one. Dropping `Failure`'s `[_phantom]?:
+T` makes `Result<Result<T>>` assignable to `Result<T>`: `Success`'s
+  `[_value]?: T` handle cannot hold the invariant alone, since
+  `Success<Result<T>>` intersects the inner `Success<T>`'s handle and an
+  intersection is assignable to either side. The invariant is held by
+  `Failure`'s phantom `T` and nothing else, so that phantom stays. The
+  same site is `return failure(r)`, which needs no type arguments.
+- **`definePrimitiveValueObject` inferring `E` from `errorHandler`** was
+  never blocked by the phantom. `definePrimitiveValueObject<Email>(…)`
+  names `T`, and TypeScript never infers the type parameters a partial
+  list leaves out; they take their defaults. With no type arguments at
+  all, `T`, `P` and `E` all infer, on the old signatures as well. The
+  docblock's diagnosis is corrected by the implementation of this
+  amendment.
