@@ -32,4 +32,9 @@ if [ -n "$TSV" ]; then
   pnpm add -D --ignore-scripts "typescript@$TSV" >/dev/null
 fi
 echo "== arm $ARM, typescript $(node_modules/.bin/tsc -v)"
-pnpm vitest run 2>&1 | grep -E "^ +×|Test Files|Tests |Type Errors" || true
+# TypeScript 7 prints diagnostics with paths vitest cannot attribute to a
+# test file when the worktree sits outside the project, so they show under
+# "Errors" rather than "Type Errors"; the direct tsc count below is the
+# version-independent figure.
+pnpm vitest run 2>&1 | grep -E "^ +×|Test Files|Tests |Type Errors|^ +Errors" || true
+echo "-- tsc --noEmit diagnostics: $(node_modules/.bin/tsc --noEmit 2>&1 | grep -c 'error TS')"
