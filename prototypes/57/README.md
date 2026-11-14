@@ -19,6 +19,7 @@ goal.
 ```ts
 success<T, E extends Error = never>(value: T): Success<T, NoInfer<E>>
 failure<E extends Error, T = never>(error: E): Failure<NoInfer<T>, E>
+type Success<T, E> = … & { [_phantom]?: E; [_value]?: T; [_error]?: never }  // new third marker
 type ErrorArmOf<V> = unknown extends V ? Error : V extends Error ? V : Error extends V ? Error : never
 result<V>(value: V): Result<Exclude<V, Error>, ErrorArmOf<V>>          // new first overload
 result<T, E extends Error = Error>(value: T | E): Result<T, E>       // kept, for explicit calls
@@ -35,24 +36,30 @@ phantom. `ErrorArmOf` on `result` matters: `Extract<V, Error>` is `never`
 for every `V` an Error is assignable to without being one (`unknown`,
 `object`, `{}`, a narrowed `catch` binding), which would collapse
 `result(e)` to its Success arm and let a plain `Error` pass where
-`Invalid` is required. `ErrorArmOf` answers `Error` for those.
+`Invalid` is required. `ErrorArmOf` answers `Error` for those. The
+`[_error]?: never` marker on `Success` closes the hole review round 3
+found: with `failure`'s `T` defaulting to `never`, `Failure<never, Error>`
+fitted `Success<unknown, Invalid>` structurally (phantom `never` passes,
+an Error object satisfies `unknown`), so `(): Result<unknown, Invalid> =>
+failure(new Error())` compiled. No Failure can satisfy `[_error]?: never`.
 
-| Scenario (no type arguments)                                                                             | main                                        | Arm A                              |
-| -------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ---------------------------------- |
-| `(n): Result<number, Invalid> => success(n)`                                                             | error                                       | ok                                 |
-| `(): Result<number, Invalid \| Other> => failure(new Invalid())`                                         | error                                       | ok                                 |
-| `(x: number \| Invalid): Result<number, Invalid> => result(x)`                                           | error                                       | ok (needs the `result` overload)   |
-| `if (isFailure(r)) return failure(r)` into a `Result<string, …>`                                         | error                                       | ok                                 |
-| plain `Error` rejected where `Invalid` is expected (`failure`, `result` of a union, `Failure<_, Error>`) | rejected                                    | rejected                           |
-| `result(caught)` with `caught: unknown` keeps its `Error` arm                                            | `Result<unknown, Error>`                    | `Result<unknown, Error>`           |
-| `result(o)` with `o: object`, `{}`, `{ message: string }`, or a narrowed `catch` binding                 | `Result<object, Error>`                     | `Result<object, Error>`            |
-| `result(new Error())`                                                                                    | `Result<Error, Error>`                      | `Failure<never, Error>`            |
-| `result(u)` with `u: number \| Invalid \| Other`                                                         | `Result<number \| Invalid \| Other, Error>` | `Result<number, Invalid \| Other>` |
-| `Success<number, Invalid>` widens to `Success<number, Error>`; the reverse is rejected                   | yes                                         | yes                                |
-| `Result<Result<number>>` not assignable to `Result<number>`                                              | holds                                       | holds                              |
-| `if (isFailure(r)) return r` into a `Result<string, …>` (Arm B's goal)                                   | error                                       | error                              |
+| Scenario (no type arguments)                                                                               | main                                        | Arm A                                         |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------- | --------------------------------------------- |
+| `(n): Result<number, Invalid> => success(n)`                                                               | error                                       | ok                                            |
+| `(): Result<number, Invalid \| Other> => failure(new Invalid())`                                           | error                                       | ok                                            |
+| `(x: number \| Invalid): Result<number, Invalid> => result(x)`                                             | error                                       | ok (needs the `result` overload)              |
+| `if (isFailure(r)) return failure(r)` into a `Result<string, …>`                                           | error                                       | ok                                            |
+| plain `Error` rejected where `Invalid` is expected (`failure`, `result` of a union, `Failure<_, Error>`)   | rejected                                    | rejected                                      |
+| `result(caught)` with `caught: unknown` keeps its `Error` arm                                              | `Result<unknown, Error>`                    | `Result<unknown, Error>`                      |
+| `result(o)` with `o: object`, `{}`, `{ message: string }`, or a narrowed `catch` binding                   | `Result<object, Error>`                     | `Result<object, Error>`                       |
+| `result(new Error())`                                                                                      | `Result<Error, Error>`                      | `Failure<never, Error>`                       |
+| `result(u)` with `u: number \| Invalid \| Other`                                                           | `Result<number \| Invalid \| Other, Error>` | `Result<number, Invalid \| Other>`            |
+| `failure(new Error())` or `result(err)` into `Result<unknown \| object \| {} \| { id?: string }, Invalid>` | rejected                                    | rejected (via `Success`'s `[_error]?: never`) |
+| `Success<number, Invalid>` widens to `Success<number, Error>`; the reverse is rejected                     | yes                                         | yes                                           |
+| `Result<Result<number>>` not assignable to `Result<number>`                                                | holds                                       | holds                                         |
+| `if (isFailure(r)) return r` into a `Result<string, …>` (Arm B's goal)                                     | error                                       | error                                         |
 
-Full suite under Arm A: 455 passed, 4 failed, identically on TypeScript
+Full suite under Arm A: 456 passed, 4 failed, identically on TypeScript
 5.9.3, 6.0.3 and 7.0.2. The four:
 
 - `index.test-d.ts` "binds failure's single explicit type argument": now

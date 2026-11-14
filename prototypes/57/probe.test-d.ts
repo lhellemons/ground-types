@@ -105,6 +105,28 @@ describe('ADR 0001 safety properties', () => {
     expectTypeOf(result(u)).toEqualTypeOf<Result<number, Invalid | Other>>()
   })
 
+  it('a plain Error is rejected where T admits an object (review round 3)', () => {
+    // With `failure`'s `T` defaulting to `never`, `Failure<never, Error>`
+    // would fit `Success<unknown, Invalid>` structurally: its phantom
+    // `never` passes and an Error object satisfies `unknown`. `Success`
+    // carries `[_error]?: never`, which no Failure can satisfy.
+    // @ts-expect-error - Error is not Invalid
+    const a = (): Result<unknown, Invalid> => failure(new Error('x'))
+    // @ts-expect-error - Error is not Invalid
+    const b = (): Result<object, Invalid> => failure(new Error('x'))
+    // @ts-expect-error - Error is not Invalid
+    const c = (): Result<{}, Invalid> => failure(new Error('x'))
+    // @ts-expect-error - Error is not Invalid
+    const d = (): Result<{ id?: string }, Invalid> => failure(new Error('x'))
+    // @ts-expect-error - Error is not Invalid
+    const e = (err: Error): Result<unknown, Invalid> => result(err)
+    const take = (_r: Result<unknown, Invalid>): void => undefined
+    const x = null as unknown as Error | Invalid
+    // @ts-expect-error - Error is not Invalid
+    take(result(x))
+    void [a, b, c, d, e]
+  })
+
   it('rejects a plain Failure<_, Error> where Failure<_, Invalid> is expected', () => {
     const plain = null as unknown as Failure<number, Error>
     // @ts-expect-error - Error is not Invalid

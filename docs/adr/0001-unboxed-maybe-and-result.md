@@ -194,6 +194,15 @@ success<T, E extends Error = never>(value: T): Success<T, NoInfer<E>>
 failure<E extends Error, T = never>(error: E): Failure<NoInfer<T>, E>
 ```
 
+`Success` gains a third marker, `readonly [_error]?: never`, next to its
+`[_phantom]` and `[_value]`. Without it the `never` default opens a hole
+the old `unknown` default happened to cover: `Failure<never, Error>` has
+`[_phantom]?: never`, which fits `Success<unknown, Invalid>`'s
+`[_phantom]?: Invalid`, and an Error object satisfies any `T` that admits
+an object, so `(): Result<unknown, Invalid> => failure(new Error())` would
+compile. Every `Failure` carries `[_error]?: E`, which `never` refuses, so
+no Failure can pass as a Success whatever `T` is.
+
 `result` has a different shape of cost: a union argument lands wholly in
 `T` and `E` defaults to `Error`. It gains a first overload that splits
 the argument, keeping the two-parameter signature for explicit calls:
@@ -241,8 +250,9 @@ Result<number, Invalid> => result(x)`, and `if (isFailure(r)) return
 failure(r)` into a `Result` with a different `T`. Both guarantees hold,
 checked rather than assumed: a plain `Error` is still rejected where
 `Invalid` is expected, through `failure`, through `result` of a union, of
-an `unknown` value and of an `object` or narrowed `catch` binding, and
-through a bare `Failure<_, Error>`; and
+an `unknown` value and of an `object` or narrowed `catch` binding, through
+a bare `Failure<_, Error>`, and at a target whose `T` is `unknown`,
+`object`, `{}` or an all-optional object; and
 `Result<Result<T>>` is still not assignable to `Result<T>`. Every existing type-level test stays green but two, whose
 expectations change from `Success<number, Error>` to `Success<number,
 never>` and from `Failure<unknown, Invalid>` to `Failure<never, Invalid>`,

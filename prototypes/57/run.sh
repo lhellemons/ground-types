@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # PROTOTYPE #57 — measure one arm in a temporary git worktree of HEAD: apply
 # its patch, drop the probes into src/result, run the full suite. The main
-# checkout is never touched.
+# checkout's tracked files are never touched (vitest writes its gitignored
+# cache under node_modules/.vite through the symlink).
 #   prototypes/57/run.sh <main|a|b1|b> [typescript version]
 set -euo pipefail
 ARM=${1:?arm: main, a, b1 or b}
