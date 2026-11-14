@@ -1,5 +1,5 @@
 diff --git a/src/result/index.ts b/src/result/index.ts
-index 52c7a38..3c68ee3 100644
+index 52c7a38..2c28ed4 100644
 --- a/src/result/index.ts
 +++ b/src/result/index.ts
 @@ -15,7 +15,11 @@ declare const _phantom: unique symbol
@@ -15,23 +15,24 @@ index 52c7a38..3c68ee3 100644
  
  /**
   * The `Error`-carrying case of a {@link Result}, unboxed — a `Failure` *is*
-@@ -36,10 +40,28 @@ export type Failure<T, E extends Error = Error> = E & {
+@@ -36,10 +40,29 @@ export type Failure<T, E extends Error = Error> = E & {
   */
  export type Result<T, E extends Error = Error> = Success<T, E> | Failure<T, E>
  
 +/**
 + * The error arm `result` infers from a value's type: each `Error` member
-+ * of `V` as itself, and `Error` for a member that merely admits an `Error`
-+ * (`object`, `{}`, `unknown`, a narrowed `catch` binding), so the Failure
-+ * arm never disappears for a type a plain `Error` could hide in.
++ * of `V` as itself, nothing for a member that provably holds no Error (a
++ * primitive, branded or not, `null` or `undefined`), and `Error` for
++ * every other member, because any object type some `Error` subclass is
++ * assignable to can hide one (`{ code: string }` can be an `Invalid`).
 + */
 +type ErrorArmOf<V> = unknown extends V
 +  ? Error
 +  : V extends Error
 +    ? V
-+    : Error extends V
-+      ? Error
-+      : never
++    : V extends string | number | boolean | bigint | symbol | null | undefined
++      ? never
++      : Error
 +
  /**
   * Wraps a value-or-error as a {@link Result}. Reach for this at the
@@ -44,7 +45,7 @@ index 52c7a38..3c68ee3 100644
  export function result<T, E extends Error = Error>(value: T | E): Result<T, E> {
    return value as unknown as Result<T, E>
  }
-@@ -49,7 +71,9 @@ export function result<T, E extends Error = Error>(value: T | E): Result<T, E> {
+@@ -49,7 +72,9 @@ export function result<T, E extends Error = Error>(value: T | E): Result<T, E> {
   * value-first: `success<Widget>(w)` names the value being wrapped.
   * {@link failure} orders its parameters the other way round.
   */
@@ -55,7 +56,7 @@ index 52c7a38..3c68ee3 100644
    return value as Success<T, E>
  }
  
-@@ -59,9 +83,9 @@ export function success<T, E extends Error = Error>(value: T): Success<T, E> {
+@@ -59,9 +84,9 @@ export function success<T, E extends Error = Error>(value: T): Success<T, E> {
   * types themselves: `failure<MyError>(e)` names the error being wrapped,
   * leaving the phantom channel defaulted.
   */

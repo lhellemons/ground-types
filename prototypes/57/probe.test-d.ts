@@ -127,6 +127,25 @@ describe('ADR 0001 safety properties', () => {
     void [a, b, c, d, e]
   })
 
+  it('result() of an object type that can hide an Error subclass keeps an Error arm (review round 4)', () => {
+    // `Other` is assignable to `{ code: string }`, so a value of that type
+    // may be an Error at runtime; the arm must say so, as on main.
+    const hidden: { code: string } = new Other('x')
+    expectTypeOf(result(hidden)).toEqualTypeOf<
+      Result<{ code: string }, Error>
+    >()
+    // @ts-expect-error - Error is not Invalid
+    const accepted: Result<{ code: string }, Invalid> = result(hidden)
+    void accepted
+    // A primitive, branded or not, provably holds no Error.
+    const email = '' as Branded<string, 'Email'>
+    expectTypeOf(result(email)).toEqualTypeOf<
+      Result<Branded<string, 'Email'>, never>
+    >()
+    expectTypeOf(result(5 as number)).toEqualTypeOf<Result<number, never>>()
+    expectTypeOf(result(null)).toEqualTypeOf<Result<null, never>>()
+  })
+
   it('rejects a plain Failure<_, Error> where Failure<_, Invalid> is expected', () => {
     const plain = null as unknown as Failure<number, Error>
     // @ts-expect-error - Error is not Invalid

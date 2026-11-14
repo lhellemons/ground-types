@@ -212,23 +212,31 @@ type ErrorArmOf<V> = unknown extends V
   ? Error
   : V extends Error
     ? V
-    : Error extends V
-      ? Error
-      : never
+    : V extends string | number | boolean | bigint | symbol | null | undefined
+      ? never
+      : Error
 
 result<V>(value: V): Result<Exclude<V, Error>, ErrorArmOf<V>>
 ```
 
-`ErrorArmOf` is load-bearing. A plain `Extract<V, Error>` is `never` for
-every type a plain `Error` is assignable to without being one: `unknown`,
-`object`, `{}`, `{ message: string }`, and the narrowed `catch` binding
-`typeof e === 'object' && e !== null`. That would collapse `result(e)` to
-its `Success` arm and let a caught plain `Error` pass where `Invalid` is
-required. `ErrorArmOf` keeps each `Error` member of `V` as itself and
-answers `Error` for a member that merely admits one, so `result(o)` with
-`o: object` is `Result<object, Error>` as on the old signature,
-`result(u)` with `u: number | Invalid | Other` is `Result<number, Invalid
-| Other>`, and `result(new Error())` is `Failure<never, Error>`.
+`ErrorArmOf` is load-bearing, and conservative by decision (review round
+4). A plain `Extract<V, Error>` is `never` for every type a plain `Error`
+is assignable to without being one (`unknown`, `object`, `{}`, a narrowed
+`catch` binding), and so is any rule that asks whether `Error` fits the
+member: `{ code: string }` admits no plain `Error`, yet an `Error`
+subclass with a `code` fits it, so a value of that type may be an `Error`
+at runtime. Dropping the arm there would label `result(hidden)` a pure
+`Success` and let it pass where `Result<{ code: string }, Invalid>` is
+required, which the old signature rejects. The only sound rule from the
+input type alone keeps an `Error` arm for every non-primitive member and
+drops it only for members that provably hold no `Error`: primitives,
+branded or not, `null` and `undefined`. So `result(u)` with `u: number |
+Invalid | Other` is `Result<number, Invalid | Other>`, `result(email)`
+with a branded string is `Result<Email, never>`, `result(o)` with `o:
+object` or `{ code: string }` keeps `Error` in its arm as on the old
+signature, and `result(new Error())` is `Failure<never, Error>`. For an
+object-valued `result()` call at a site typed to a narrower error class
+the annotation therefore stays; no consumer in the sample writes one.
 
 `NoInfer` needs TypeScript 5.4 or later. `src/` uses nothing newer than
 that today and the package declares no TypeScript range, so the
@@ -250,9 +258,10 @@ Result<number, Invalid> => result(x)`, and `if (isFailure(r)) return
 failure(r)` into a `Result` with a different `T`. Both guarantees hold,
 checked rather than assumed: a plain `Error` is still rejected where
 `Invalid` is expected, through `failure`, through `result` of a union, of
-an `unknown` value and of an `object` or narrowed `catch` binding, through
-a bare `Failure<_, Error>`, and at a target whose `T` is `unknown`,
-`object`, `{}` or an all-optional object; and
+an `unknown` value, of an `object` or narrowed `catch` binding and of an
+object type an `Error` subclass could hide in, through a bare `Failure<_,
+Error>`, and at a target whose `T` is `unknown`, `object`, `{}` or an
+all-optional object; and
 `Result<Result<T>>` is still not assignable to `Result<T>`. Every existing type-level test stays green but two, whose
 expectations change from `Success<number, Error>` to `Success<number,
 never>` and from `Failure<unknown, Invalid>` to `Failure<never, Invalid>`,
