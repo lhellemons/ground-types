@@ -16,8 +16,10 @@ pnpm add https://github.com/lhellemons/ground-types/releases/download/v0.3.0/lhe
 ```
 
 This is a built tarball attached to the GitHub Release, so nothing builds on
-install. Add it with pnpm 10.34.9 or pnpm 11, which record its integrity hash in
-the lockfile: pnpm 10.8.1 records no hash and a download URL that expires.
+install. Consumer installs can use pnpm 10.34.9, 11 or 12, which record its
+integrity hash in the lockfile: pnpm 10.8.1 records no hash and a download URL that expires.
+
+The repository itself uses pnpm 12.18.0 for development and CI.
 
 Alternatively, `pnpm add github:lhellemons/ground-types#semver:^0.3.0`
 tracks compatible tags, but runs `prepare` to build during installation. On pnpm
