@@ -49,3 +49,29 @@ describe('/result type exports', () => {
     >().toEqualTypeOf<'This callback returns a Promise (or thenable) — resolve it first with promise/resultify or call/resultify, then compose with .then()'>()
   })
 })
+
+import { catchOnly, tryCatch } from './index.js'
+import { resultify } from '../promise/index.js'
+import { resultify as callResultify } from '../call/index.js'
+import { definePrimitiveValueObject } from '../value-object/index.js'
+import type { Branded } from '../brand/index.js'
+class Selected extends Error {
+  readonly selected = true
+}
+class Other extends Error {
+  readonly other = true
+}
+const handler = catchOnly(Selected, Other)
+expectTypeOf(tryCatch(() => 1, handler)()).toEqualTypeOf<
+  Result<number, Selected | Other>
+>()
+expectTypeOf(resultify(handler, Promise.resolve(1))).toEqualTypeOf<
+  Promise<Result<number, Selected | Other>>
+>()
+expectTypeOf(callResultify(handler, () => 1)()).toEqualTypeOf<
+  Promise<Result<number, Selected | Other>>
+>()
+declare const construct: (value: string) => Branded<string, 'Selected'>
+expectTypeOf(
+  definePrimitiveValueObject(construct, handler).from('x'),
+).toEqualTypeOf<Result<Branded<string, 'Selected'>, Selected | Other>>()
