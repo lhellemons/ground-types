@@ -12,7 +12,7 @@ Every term used here is defined in [CONTEXT.md](./CONTEXT.md).
 ## Installing
 
 ```sh
-pnpm add https://github.com/lhellemons/ground-types/releases/download/v0.3.0/lhellemons-ground-types-0.3.0.tgz
+pnpm add https://github.com/lhellemons/ground-types/releases/download/v0.4.0/lhellemons-ground-types-0.4.0.tgz
 ```
 
 This is a built tarball attached to the GitHub Release, so nothing builds on
@@ -21,7 +21,7 @@ integrity hash in the lockfile: pnpm 10.8.1 records no hash and a download URL t
 
 The repository itself uses pnpm 12.18.0 for development and CI.
 
-Alternatively, `pnpm add github:lhellemons/ground-types#semver:^0.3.0`
+Alternatively, `pnpm add github:lhellemons/ground-types#semver:^0.4.0`
 tracks compatible tags, but runs `prepare` to build during installation. On pnpm
 11 and later, explicitly allow this dependency's build in your pnpm configuration
 before installing; review the resolved source before approving it.
