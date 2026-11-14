@@ -41,10 +41,32 @@ describe('InternRegistry', () => {
     const replacement = registry.getOrCreate('a', () => ({}))
     cleanup(registrations[0])
     expect(registry.get('a')).toBe(replacement)
-    refs[1].value = undefined
+    // Keep the fake referent live so only map deletion can make get absent.
+    expect(registry.get('a')).toBe(replacement)
     cleanup(registrations[1])
     expect(registry.get('a')).toBeUndefined()
     expect(registry.getOrCreate('a', () => ({}))).not.toBe(replacement)
+  })
+
+  it('retains object keys and their references to canonical instances in cleanup holdings', () => {
+    const holdings: { key: { value: object }; ref: WeakRef<object> }[] = []
+    vi.stubGlobal(
+      'FinalizationRegistry',
+      class {
+        register(_value: object, entry: (typeof holdings)[number]) {
+          holdings.push(entry)
+        }
+      },
+    )
+    const registry = new InternRegistry<{ value: object }, object>()
+    const value = {}
+    const key = { value }
+    registry.getOrCreate(key, () => value)
+    // Holdings remain strong even though the canonical value uses WeakRef.
+    expect(holdings[0].key).toBe(key)
+    expect(holdings[0].key.value).toBe(value)
+    expect(holdings[0].ref.deref()).toBe(value)
+    expect(registry.get(key)).toBe(value)
   })
 
   it('creates a value on first access', () => {

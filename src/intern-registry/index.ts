@@ -7,6 +7,9 @@ import type { CompoundValueObject } from '../domain/index.js'
  * shared instance, making reference equality agree with value equality.
  * Instances are held weakly: a live instance is reused, while an instance
  * no longer held by callers may be collected and recreated on later access.
+ * Keys are held strongly: a key that references its canonical instance
+ * keeps that instance alive. Prefer identifier keys that do not reference
+ * their canonical instances.
  */
 export class InternRegistry<K, V extends object> {
   readonly #map = new Map<K, WeakRef<V>>()
@@ -18,8 +21,9 @@ export class InternRegistry<K, V extends object> {
 
   /**
    * Returns the canonical instance for `key`, creating and interning one
-   * via `create` on first access. A second call with the same `key` returns
-   * the exact same reference without invoking `create` again.
+   * via `create` when no live instance exists. While the instance is live,
+   * another call with the same `key` returns the exact same reference
+   * without invoking `create` again.
    */
   getOrCreate(key: K, create: () => V): V {
     const existing = this.#map.get(key)?.deref()
