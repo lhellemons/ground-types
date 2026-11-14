@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # PROTOTYPE #57 — measure one arm in a temporary git worktree of HEAD: apply
 # its patch, drop the probes into src/result, run the full suite. The main
-# checkout's tracked files are never touched (vitest writes its gitignored
-# cache under node_modules/.vite through the symlink).
+# checkout keeps its tracked files; vitest is run from its own binary, never
+# through pnpm, so pnpm 12 cannot re-install through the shared node_modules
+# symlink (it writes only its gitignored cache under node_modules/.vite).
 #   prototypes/57/run.sh <main|a|b1|b> [typescript version]
 set -euo pipefail
 ARM=${1:?arm: main, a, b1 or b}
@@ -36,5 +37,5 @@ echo "== arm $ARM, typescript $(node_modules/.bin/tsc -v)"
 # test file when the worktree sits outside the project, so they show under
 # "Errors" rather than "Type Errors"; the direct tsc count below is the
 # version-independent figure.
-pnpm vitest run 2>&1 | grep -E "^ +×|Test Files|Tests |Type Errors|^ +Errors" || true
+node_modules/.bin/vitest run 2>&1 | grep -E "^ +×|Test Files|Tests |Type Errors|^ +Errors" || true
 echo "-- tsc --noEmit diagnostics: $(node_modules/.bin/tsc --noEmit 2>&1 | grep -c 'error TS')"

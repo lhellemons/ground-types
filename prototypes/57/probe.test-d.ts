@@ -172,6 +172,26 @@ describe('ADR 0001 safety properties', () => {
     >().toEqualTypeOf<'This value may be an Error — wrap it with result(), not success()'>()
   })
 
+  it('success() of an unresolved type parameter, or an explicit unknown, no longer compiles (Breaking, review round 5)', () => {
+    // An unresolved `T` cannot be judged; both compiled on main.
+    function w<T>(x: T): Result<T> {
+      // @ts-expect-error - T may be an Error: cast, or wrap with result()
+      return success(x)
+    }
+    function w2<T extends { id: string }>(x: T): Result<T, Invalid> {
+      // @ts-expect-error - T may be an Error, constrained or not, type arguments or not
+      return success<T, Invalid>(x)
+    }
+    const caught = null as unknown
+    // @ts-expect-error - unknown may be an Error
+    success<unknown>(caught)
+    // `any` passes, as it passes every constraint.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const loose = null as any
+    success(loose)
+    void [w, w2]
+  })
+
   it('success() stays annotation-free for domain objects, arrays, DTOs and primitives', () => {
     class Game {
       constructor(
@@ -187,11 +207,18 @@ describe('ADR 0001 safety properties', () => {
     const j = (): Result<void, Invalid> => success(undefined)
     expectTypeOf(g).returns.toEqualTypeOf<Result<Game, Invalid>>()
     void [h, i, j]
-    // The residual: a plain interface some Error subclass fits structurally
-    // cannot be told from a safe object. Known sharp edge, on record.
+    // The residual: any object type some Error subclass fits structurally
+    // cannot be told from a safe object — a plain interface, a DTO, a class
+    // instance without private members. Known sharp edge, on record.
     const hidden: { code: string } = new Other('x')
     const k = (): Result<{ code: string }, Invalid> => success(hidden)
-    void k
+    class Sneaky extends Error {
+      readonly id = 'x'
+      readonly round = 1
+    }
+    const sneaky: Game = new Sneaky()
+    const l = (): Result<Game, Invalid> => success(sneaky)
+    void [k, l]
   })
 
   it('rejects a plain Failure<_, Error> where Failure<_, Invalid> is expected', () => {
@@ -256,5 +283,19 @@ describe('definePrimitiveValueObject', () => {
     expectTypeOf(Email.from).returns.toEqualTypeOf<
       Result<Email, InvalidEmail>
     >()
+  })
+
+  it('a handler written with failure() or result() infers E too (fails on main)', () => {
+    const E2 = definePrimitiveValueObject(
+      (value: string) => value as Email,
+      () => failure(new InvalidEmail('x')),
+    )
+    expectTypeOf(E2.from).returns.toEqualTypeOf<Result<Email, InvalidEmail>>()
+    const E3 = definePrimitiveValueObject(
+      (value: string) => value as Email,
+      (e) =>
+        result(e instanceof InvalidEmail ? e : new InvalidEmail(String(e))),
+    )
+    expectTypeOf(E3.from).returns.toEqualTypeOf<Result<Email, InvalidEmail>>()
   })
 })

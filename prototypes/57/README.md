@@ -8,7 +8,9 @@ probes into `src/result/` only for the length of one measurement.
     prototypes/57/run.sh <main|a|b1|b> [typescript-version]
 
 The script measures in a temporary `git worktree` of `HEAD`, so commit
-what you want measured; the checkout you run it from is never touched.
+what you want measured. The checkout you run it from keeps its tracked
+files; the script runs the worktree's own `vitest` binary, so pnpm never
+re-installs through the shared `node_modules`.
 `arm-a.patch`, `arm-b1.patch` and `arm-b.patch` are the diffs to
 `src/result/index.ts` that each arm applies. `probe.test-d.ts` holds the
 scenarios every arm must satisfy; `probe-b.test-d.ts` holds Arm B's extra
@@ -43,14 +45,17 @@ non-primitive member and drops it only for primitives (branded too),
 (review round 4).
 
 `NotPossiblyAnError<T>` (review round 4, part 2) rejects a `success` of a
-value whose type detectably admits an Error (`unknown`/`any`, `object`,
-`{}`, an all-optional object, a union with an Error member, a `Result` or
+value whose type detectably admits an Error (`unknown`, `object`, `{}`,
+an all-optional object, a union with an Error member, a `Result` or
 `Failure`), naming `result()` as the fix; class instances, arrays, DTOs
 with a required member and primitives pass with no type arguments. The
-residual, on record: a plain interface some Error subclass fits
-structurally (`{ code: string }` holding an `Other`) passes. Generic code
-wrapping an unresolved `T` casts instead (three library-internal sites in
-the patch). The
+residual, on record: any object type some Error subclass fits
+structurally passes, a plain interface (`{ code: string }` holding an
+`Other`), a DTO, a class instance without private members (`Game`
+holding a `Sneaky extends Error` with the same members); `any` passes
+too. Breaking: `success` of an unresolved `T` and an explicit
+`success<unknown>` no longer compile (they did on main); generic code
+casts instead (three library-internal sites in the patch). The
 `[_error]?: never` marker on `Success` closes the hole review round 3
 found: with `failure`'s `T` defaulting to `never`, `Failure<never, Error>`
 fitted `Success<unknown, Invalid>` structurally (phantom `never` passes,
@@ -71,14 +76,16 @@ failure(new Error())` compiled. No Failure can satisfy `[_error]?: never`.
 | `result(email)` with a branded string, `result(n: number)`, `result(null)`                                                                                                                             | `E = Error`                                 | `E = never`                                   |
 | `success(caught: unknown)`, `success(o: object)`, `success(x: number \| Error)`, `success(ro: Result<number, Other>)`, `success(result(x))`, `success(opt: { id?: string })` into `Result<…, Invalid>` | rejected (via `E = Error`)                  | rejected (via the `T` guard)                  |
 | `success(game: Game)`, `success(xs: readonly Game[])`, `success(dto: { id: string })` into `Result<…, Invalid>`                                                                                        | error                                       | ok                                            |
-| `success(hidden: { code: string })` holding an `Other`, into `Result<{ code: string }, Invalid>`                                                                                                       | error                                       | compiles (known sharp edge)                   |
+| `success(hidden: { code: string })` holding an `Other`, and `success(g: Game)` holding a `Sneaky extends Error` with Game's members, into `Result<…, Invalid>`                                         | error                                       | compiles (known sharp edge)                   |
+| `function w<T>(x: T): Result<T> { return success(x) }`, `success<T, Invalid>(x)` with `T extends { id: string }`, `success<unknown>(caught)`                                                           | ok                                          | rejected (Breaking; cast or `result()`)       |
+| `success(loose: any)`                                                                                                                                                                                  | ok                                          | ok (`any` passes every constraint)            |
 | `result(u)` with `u: number \| Invalid \| Other`                                                                                                                                                       | `Result<number \| Invalid \| Other, Error>` | `Result<number, Invalid \| Other>`            |
 | `failure(new Error())` or `result(err)` into `Result<unknown \| object \| {} \| { id?: string }, Invalid>`                                                                                             | rejected                                    | rejected (via `Success`'s `[_error]?: never`) |
 | `Success<number, Invalid>` widens to `Success<number, Error>`; the reverse is rejected                                                                                                                 | yes                                         | yes                                           |
 | `Result<Result<number>>` not assignable to `Result<number>`                                                                                                                                            | holds                                       | holds                                         |
 | `if (isFailure(r)) return r` into a `Result<string, …>` (Arm B's goal)                                                                                                                                 | error                                       | error                                         |
 
-Full suite under Arm A: 459 passed, 4 failed, identically on TypeScript
+Full suite under Arm A: 477 passed, 4 failed, identically on TypeScript
 5.9.3, 6.0.3 and 7.0.2. The four:
 
 - `index.test-d.ts` "binds failure's single explicit type argument": now
@@ -90,14 +97,18 @@ Full suite under Arm A: 459 passed, 4 failed, identically on TypeScript
 - `box.test-d.ts` "from is the boundary lift, and its inference is its
   counterpart's exactly": `Result.from(numberOrError)` no longer matches
   `result(numberOrError)`. Only the `result` overload causes this. Giving
-  `Result.from` the same overload restores parity but changes two more
-  Box expectations (the "soft trap" at `box.test-d.ts:108` and the raw
-  non-Result case at `:126`): `from` handed a whole `Result` then yields
+  `Result.from` the same overload (with `ErrorArmOf` moved to
+  `./internal.ts`) restores parity and moves two Box expectations
+  instead: `Result.from(0)` at `box.test-d.ts:62` (now `E = never`) and
+  the "soft trap" at `:108`, where `from` handed a whole `Result` yields
   `Result<Success<…>, Failure<…>>`, still nested, so `box` keeps its job.
-  It also breaks `box`'s promise that a raw value "degrades to exactly
-  `from`'s behaviour": `Result.from(raw)` becomes `Result<T, never>` while
-  `Result.box(raw)` stays `Result<T, Error>`. Which promise `box` keeps is
-  for the implementation task and #66.
+  The raw object case at `:126` does not move (an object keeps `Error`
+  under the conservative arm). Four expectations move in all. The
+  overload breaks `box`'s promise that a raw value "degrades to exactly
+  `from`'s behaviour" for primitive, `null` and `undefined` raw values
+  only: `Result.from(5)` is `Result<number, never>` while `Result.box(5)`
+  is `Result<number, Error>`. Which promise `box` keeps is for the
+  implementation task and #66.
 - Note for the implementation task's tests: `failure(narrowed)` with
   `narrowed: Failure<number, Invalid>` is `Failure<never, Failure<number,
 Invalid>>`, which flows into a different `Result<X, Invalid | …>` only
@@ -110,7 +121,11 @@ TypeScript never infers the type parameters left out of a partial list;
 they take their defaults. With no type arguments at all
 (`definePrimitiveValueObject((value: string) => value as Email, () => new
 InvalidEmail())`) `T`, `P` and `E` all infer, on main as well as under
-Arm A. The docblock's diagnosis (the invariant phantom) is wrong.
+Arm A, for a handler returning a bare Error. A handler written with
+`failure()` or `result()` infers wrong or fails on main and infers under
+Arm A (probed). The docblock's diagnosis (the invariant phantom) is
+wrong, and 0.4.0's instruction to name `T, P, E` for handwritten
+handlers goes with the implementation.
 
 ## Arm B — return a narrowed failure as-is
 

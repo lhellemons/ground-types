@@ -29,7 +29,7 @@ index 1153c55..a17ce7d 100644
  
  /** A live view of a promise's {@link State}, as produced by {@link stateOf}. */
 diff --git a/src/result/index.ts b/src/result/index.ts
-index 52c7a38..6956ffc 100644
+index d14ce89..d551845 100644
 --- a/src/result/index.ts
 +++ b/src/result/index.ts
 @@ -15,7 +15,11 @@ declare const _phantom: unique symbol
@@ -53,7 +53,7 @@ index 52c7a38..6956ffc 100644
    readonly [_error]?: E
  }
  
-@@ -36,10 +39,26 @@ export type Failure<T, E extends Error = Error> = E & {
+@@ -36,20 +39,60 @@ export type Failure<T, E extends Error = Error> = E & {
   */
  export type Result<T, E extends Error = Error> = Success<T, E> | Failure<T, E>
  
@@ -80,18 +80,16 @@ index 52c7a38..6956ffc 100644
  export function result<T, E extends Error = Error>(value: T | E): Result<T, E> {
    return value as unknown as Result<T, E>
  }
-@@ -49,7 +68,29 @@ export function result<T, E extends Error = Error>(value: T | E): Result<T, E> {
-  * value-first: `success<Widget>(w)` names the value being wrapped.
-  * {@link failure} orders its parameters the other way round.
-  */
--export function success<T, E extends Error = Error>(value: T): Success<T, E> {
+ 
 +/**
 + * Rejects a `success` value whose type can hold an `Error` at runtime, as
-+ * far as the type says so: `unknown`/`any`, `object`, `{}` or an
-+ * all-optional object, a union with an `Error` member, a `Result` or a
-+ * `Failure`. A plain interface some `Error` subclass fits structurally
-+ * cannot be told apart and passes; see
-+ * docs/adr/0001-unboxed-maybe-and-result.md.
++ * far as the type says so: `unknown`, `object`, `{}` or an all-optional
++ * object, a union with an `Error` member, a `Result` or a `Failure`. It
++ * cannot see past three things: `any` passes, as it passes every
++ * constraint; so does any object type some `Error` subclass fits
++ * structurally (a plain interface, a DTO, a class instance without
++ * private members); and an unresolved type parameter is refused, so
++ * generic code casts instead. See docs/adr/0001-unboxed-maybe-and-result.md.
 + */
 +export type NotPossiblyAnError<T> = unknown extends T
 +  ? 'This value may be an Error — wrap it with result(), not success()'
@@ -104,6 +102,12 @@ index 52c7a38..6956ffc 100644
 +      : unknown
 +    : 'This value may be an Error — wrap it with result(), not success()'
 +
+ /**
+  * Wraps a known-good value as a {@link Success}. Type parameters are
+  * value-first: `success<Widget>(w)` names the value being wrapped.
+  * {@link failure} orders its parameters the other way round.
+  */
+-export function success<T, E extends Error = Error>(value: T): Success<T, E> {
 +export function success<
 +  T extends NotPossiblyAnError<T>,
 +  E extends Error = never,
@@ -111,7 +115,7 @@ index 52c7a38..6956ffc 100644
    return value as Success<T, E>
  }
  
-@@ -59,9 +100,9 @@ export function success<T, E extends Error = Error>(value: T): Success<T, E> {
+@@ -59,9 +102,9 @@ export function success<T, E extends Error = Error>(value: T): Success<T, E> {
   * types themselves: `failure<MyError>(e)` names the error being wrapped,
   * leaving the phantom channel defaulted.
   */
@@ -123,7 +127,7 @@ index 52c7a38..6956ffc 100644
    return error
  }
  
-@@ -360,7 +401,9 @@ export function orElse<T, E extends Error>(
+@@ -387,7 +430,9 @@ export function orElse<T, E extends Error>(
  ): CurryableMapper<Result<T, E>, Success<T, E>> {
    return curry(
      (value: Result<T, E>): Success<T, E> =>
@@ -134,7 +138,7 @@ index 52c7a38..6956ffc 100644
      ...value,
    )
  }
-@@ -458,8 +501,10 @@ export function fromMaybe<T, E extends Error>(
+@@ -485,8 +530,10 @@ export function fromMaybe<T, E extends Error>(
    // (see docs/adr/0001-unboxed-maybe-and-result.md).
    return curry(
      (value: Maybe<T>) =>
