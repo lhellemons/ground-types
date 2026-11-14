@@ -145,6 +145,7 @@ import type { DomainObjectFactory } from '@lhellemons/ground-types/domain'
 import { tryCatch } from '@lhellemons/ground-types/result'
 import type { Result } from '@lhellemons/ground-types/result'
 
+class InvalidDoor extends Error {}
 type DoorDTO = { open: boolean }
 class Door {
   private constructor(readonly open: boolean) {}
@@ -155,9 +156,9 @@ class Door {
 
   static from(dto: DoorDTO): Result<Door> {
     return tryCatch(() => {
-      if (typeof dto.open !== 'boolean') throw new Error('Invalid door')
+      if (typeof dto.open !== 'boolean') throw new InvalidDoor('Invalid door')
       return new Door(dto.open)
-    })()
+    }, [InvalidDoor])()
   }
 }
 ```

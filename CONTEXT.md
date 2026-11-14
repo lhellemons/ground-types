@@ -170,8 +170,7 @@ The construction seam of a domain object: it takes a DTO, validates it,
 and returns either the domain object or a Failure explaining why the DTO
 was not admissible. A Factory is the only sanctioned way to turn
 untrusted data into a domain object. `DomainObjectFactory` describes the
-static `from(dto)` seam; a class checks its static side with
-`static { void (Door satisfies DomainObjectFactory<Door, DoorDTO>) }`.
+static `from(dto)` seam.
 A Primitive Value Object Factory also has a callable throwing form, used
 when invalid input is a bug; `.from` reports expected invalid input as a
 Failure. JSON carries no Brand or validation proof: parsed data must pass
