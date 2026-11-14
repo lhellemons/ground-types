@@ -20,6 +20,7 @@ describe('/result runtime exports', () => {
     expect(Object.keys(result).sort((a, b) => a.localeCompare(b))).toEqual([
       'andThen',
       'assertSuccess',
+      'catchOnly',
       'failure',
       'fallback',
       'fromMaybe',

@@ -25,19 +25,19 @@ Not published to npm yet.
 
 Each module is a separate subpath export.
 
-| Subpath            | Exports                                                                                                                                                                                                                            |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/maybe`           | `Maybe`, `Just`, `Nothing`, `maybe`, `just`, `nothing`, `fromNullable`, `isJust`, `isNothing`, `orElse`, `fallback`, `map`, `andThen`, `assertJust`, `fromResult`                                                                  |
-| `/result`          | `Result`, `Success`, `Failure`, `ThrownError`, `NotAResult`, `NotAPromise`, `result`, `success`, `failure`, `isSuccess`, `isFailure`, `tryCatch`, `assertSuccess`, `map`, `mapError`, `fallback`, `orElse`, `andThen`, `fromMaybe` |
-| `/brand`           | `Brand`, `Branded`                                                                                                                                                                                                                 |
-| `/value-object`    | `Primitive`, `PrimitiveValueObject`, `definePrimitiveValueObject`                                                                                                                                                                  |
-| `/domain`          | `Entity`, `CompoundValueObject`, `DTOSource`, `DomainObjectFactory`                                                                                                                                                                |
-| `/intern-registry` | `InternRegistry`, `internByKey`                                                                                                                                                                                                    |
-| `/fn`              | `Fn`, `Mapper`, `CurryableMapper`, `compose`, `pipe`, `curry`, `identity`, `constant`                                                                                                                                              |
-| `/promise`         | `AbortablePromise`, `AbortContext`, `RejectionError`, `resultify`, `fail`, `recoverWith`, `State` with its constructors and guards, `settledResult`, `stateOf`, `TrackedState`                                                     |
-| `/promise/fake`    | `fakePromise`, `fakeAbortablePromise`                                                                                                                                                                                              |
-| `/call`            | `Call`, `AsyncCall`, `AbortableCall`, `abortable`, `resultify`                                                                                                                                                                     |
-| `/abort`           | `AbortError`, `isAbortError`, `ABORT_ERROR_NAME`                                                                                                                                                                                   |
+| Subpath            | Exports                                                                                                                                                                                                                                         |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/maybe`           | `Maybe`, `Just`, `Nothing`, `maybe`, `just`, `nothing`, `fromNullable`, `isJust`, `isNothing`, `orElse`, `fallback`, `map`, `andThen`, `assertJust`, `fromResult`                                                                               |
+| `/result`          | `Result`, `Success`, `Failure`, `ThrownError`, `NotAResult`, `NotAPromise`, `result`, `success`, `failure`, `isSuccess`, `isFailure`, `catchOnly`, `tryCatch`, `assertSuccess`, `map`, `mapError`, `fallback`, `orElse`, `andThen`, `fromMaybe` |
+| `/brand`           | `Brand`, `Branded`                                                                                                                                                                                                                              |
+| `/value-object`    | `Primitive`, `PrimitiveValueObject`, `definePrimitiveValueObject`                                                                                                                                                                               |
+| `/domain`          | `Entity`, `CompoundValueObject`, `DTOSource`, `DomainObjectFactory`                                                                                                                                                                             |
+| `/intern-registry` | `InternRegistry`, `internByKey`                                                                                                                                                                                                                 |
+| `/fn`              | `Fn`, `Mapper`, `CurryableMapper`, `compose`, `pipe`, `curry`, `identity`, `constant`                                                                                                                                                           |
+| `/promise`         | `AbortablePromise`, `AbortContext`, `RejectionError`, `resultify`, `fail`, `recoverWith`, `State` with its constructors and guards, `settledResult`, `stateOf`, `TrackedState`                                                                  |
+| `/promise/fake`    | `fakePromise`, `fakeAbortablePromise`                                                                                                                                                                                                           |
+| `/call`            | `Call`, `AsyncCall`, `AbortableCall`, `abortable`, `resultify`                                                                                                                                                                                  |
+| `/abort`           | `AbortError`, `isAbortError`, `ABORT_ERROR_NAME`                                                                                                                                                                                                |
 
 ```ts
 import { andThen, isFailure } from '@lhellemons/ground-types/result'
@@ -68,6 +68,16 @@ import { maybe, result } from '@lhellemons/ground-types'
 result.map(...)
 maybe.map(...)
 ```
+
+## Selective domain failures
+
+For domain code, use `tryCatch(construct, catchOnly(InvalidValue))` or
+`definePrimitiveValueObject(construct, catchOnly(InvalidValue))`, importing
+`catchOnly` from `@lhellemons/ground-types/result`. Listed errors (including
+subclasses) from the current realm become failures unchanged; all other throws,
+including foreign-realm errors, propagate unchanged.
+`tryCatch(construct, [InvalidValue, OtherError])` is shorthand.
+Handlers such as `() => new InvalidValue()` turn bugs into domain failures.
 
 ## Composing a chain of steps
 
