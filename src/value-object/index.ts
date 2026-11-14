@@ -43,6 +43,7 @@ export type PrimitiveValueObject<
  * alone. Without a handler, `E` cannot be named at all — `.from`'s Failure
  * type is `Error`, mirroring `tryCatch`'s own overload split.
  */
+/** Use `definePrimitiveValueObject(construct, catchOnly(InvalidValue))` for domain errors. */
 export function definePrimitiveValueObject<
   T extends Branded<P, unknown>,
   P extends Primitive = string,

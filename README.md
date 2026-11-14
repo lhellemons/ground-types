@@ -207,3 +207,10 @@ Not yet published to npm; expect breaking changes within 0.x.
 ## Licence
 
 MIT — see [LICENSE](./LICENSE).
+
+For domain code, use `tryCatch(construct, catchOnly(InvalidValue))` or
+`definePrimitiveValueObject(construct, catchOnly(InvalidValue))`, importing
+`catchOnly` from `@lhellemons/ground-types/result`. Listed errors (including
+subclasses) become failures unchanged; all other throws propagate unchanged.
+`tryCatch(construct, [InvalidValue, OtherError])` is shorthand.
+Handlers such as `() => new InvalidValue()` turn bugs into domain failures.

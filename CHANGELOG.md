@@ -575,3 +575,6 @@ Initial extraction from Slider's `src/util`.
   `DomainObjectFactory`.
 - `intern-registry` — `InternRegistry` for canonicalising Value Objects.
 - `fn` — `compose` and the `Function` type.
+
+- Add `result/catchOnly(...ErrorClasses)` and class/list shorthand for
+  `tryCatch`, preserving selected errors and rethrowing unexpected values.
