@@ -38,18 +38,23 @@ describe('catchOnly', () => {
 })
 
 describe('tryCatch shorthand', () => {
+  it('catches bound constructors inside a list', () => {
+    const error = new A()
+    expect(tryCatch(() => throws(error), [A.bind(null)])()).toBe(error)
+    expect(tryCatch(() => throws(error), [Error.bind(null)])()).toBe(error)
+  })
   it('catches each unrelated class in a list', () => {
     for (const error of [new A(), new Other()]) {
       expect(tryCatch(() => throws(error), [A, Other])()).toBe(error)
     }
   })
-  it('catches a subclass with a single class', () => {
+  it('catches a subclass with a one-class list', () => {
     const error = new B()
-    expect(tryCatch(() => throws(error), A)()).toBe(error)
+    expect(tryCatch(() => throws(error), [A])()).toBe(error)
   })
-  it('rethrows unlisted values for class and list forms', () => {
+  it('rethrows unlisted values for one-class and multi-class lists', () => {
     for (const value of unexpected) {
-      expectThrow(() => tryCatch(() => throws(value), A)(), value)
+      expectThrow(() => tryCatch(() => throws(value), [A])(), value)
       expectThrow(() => tryCatch(() => throws(value), [A, Other])(), value)
     }
   })

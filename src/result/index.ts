@@ -146,14 +146,6 @@ export function tryCatch<
   fn: (...args: Args) => T,
   errors: C,
 ): (...args: Args) => Result<T, InstanceType<C[number]>>
-export function tryCatch<
-  T extends NotAPromise<T>,
-  Args extends unknown[],
-  C extends abstract new (...args: never[]) => Error,
->(
-  fn: (...args: Args) => T,
-  errors: C,
-): (...args: Args) => Result<T, InstanceType<C>>
 export function tryCatch<T extends NotAPromise<T>, Args extends unknown[]>(
   fn: (...args: Args) => T,
 ): (...args: Args) => Result<T, Error>
@@ -173,7 +165,6 @@ export function tryCatch<
   fn: (...args: Args) => T,
   errorHandler:
     | Mapper<unknown, Result<T, E>>
-    | (abstract new (...args: never[]) => E)
     | readonly [
         abstract new (...args: never[]) => E,
         ...(abstract new (...args: never[]) => E)[],
@@ -191,11 +182,7 @@ export function tryCatch<
           ...(abstract new (...args: never[]) => E)[],
         ]),
       )
-    : typeof errorHandler === 'function' &&
-        ((errorHandler as unknown) === Error ||
-          errorHandler.prototype instanceof Error)
-      ? catchOnly(errorHandler as abstract new (...args: never[]) => E)
-      : (errorHandler as Mapper<unknown, Result<T, E>>)
+    : (errorHandler as Mapper<unknown, Result<T, E>>)
   return function (...args: Args) {
     try {
       return fn(...args) as Result<T, E>
@@ -506,7 +493,8 @@ export function fromMaybe<T, E extends Error>(
 
 /**
  * Creates a handler that preserves instances of the supplied error classes
- * as Failures and rethrows every other value.
+ * as Failures only when they are also instances of this realm's Error.
+ * Rethrows every other value, including foreign-realm errors, unchanged.
  *
  * Use `tryCatch(construct, catchOnly(InvalidValue))` for domain code.
  */
@@ -517,7 +505,10 @@ export function catchOnly<
   ],
 >(...classes: C): (error: unknown) => Failure<never, InstanceType<C[number]>> {
   return (error: unknown): Failure<never, InstanceType<C[number]>> => {
-    if (classes.some((ErrorClass) => error instanceof ErrorClass)) {
+    if (
+      error instanceof Error &&
+      classes.some((ErrorClass) => error instanceof ErrorClass)
+    ) {
       return failure<InstanceType<C[number]>, never>(
         error as InstanceType<C[number]>,
       )
