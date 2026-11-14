@@ -26,7 +26,7 @@ export type PrimitiveValueObject<
 /**
  * Builds a {@link PrimitiveValueObject} factory from a validating
  * constructor. `construct` should throw to reject invalid input; the
- * returned factory is callable directly for the throwing form, and exposes
+ * returned factory is frozen and callable directly for the throwing form, and exposes
  * `.from` — built from `construct` via `tryCatch` — for the `Result` form.
  *
  * Type parameters are ordered `T, P, E`, matching {@link
@@ -68,5 +68,5 @@ export function definePrimitiveValueObject<
   const from = errorHandler
     ? tryCatch(construct, errorHandler)
     : (tryCatch(construct) as (value: P) => Result<T, E>)
-  return Object.assign(factory, { from })
+  return Object.freeze(Object.assign(factory, { from }))
 }

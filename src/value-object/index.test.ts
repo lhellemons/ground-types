@@ -17,6 +17,19 @@ const Email = definePrimitiveValueObject<Email>((value) => {
 })
 
 describe('definePrimitiveValueObject', () => {
+  it('freezes the factory and prevents replacing .from', () => {
+    const factory = definePrimitiveValueObject<Email>((value) => value as Email)
+    const from = factory.from
+
+    expect(Object.isFrozen(factory)).toBe(true)
+    expect(() => {
+      factory.from = () => new Error('replacement')
+    }).toThrow(TypeError)
+    expect(factory.from).toBe(from)
+    expect(factory('a@b.com')).toBe('a@b.com')
+    expect(factory.from('a@b.com')).toBe('a@b.com')
+  })
+
   it('is callable directly, returning the branded value for valid input', () => {
     expect(Email('a@b.com')).toBe('a@b.com')
   })
