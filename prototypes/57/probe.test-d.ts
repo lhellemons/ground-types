@@ -3,7 +3,7 @@
    removed again. Scenarios every arm must satisfy. */
 import { describe, expectTypeOf, it } from 'vitest'
 import { failure, isFailure, isSuccess, result, success } from './index.js'
-import type { Failure, Result, Success } from './index.js'
+import type { Failure, NotPossiblyAnError, Result, Success } from './index.js'
 import { definePrimitiveValueObject } from '../value-object/index.js'
 import type { Branded } from '../brand/index.js'
 
@@ -144,6 +144,54 @@ describe('ADR 0001 safety properties', () => {
     >()
     expectTypeOf(result(5 as number)).toEqualTypeOf<Result<number, never>>()
     expectTypeOf(result(null)).toEqualTypeOf<Result<null, never>>()
+  })
+
+  it('success() rejects a value whose type may hold an Error (review round 4, part 2)', () => {
+    // With `E = never`, each of these would otherwise flow into a Result
+    // typed to Invalid while holding an Error at runtime.
+    const caught = null as unknown
+    // @ts-expect-error - may be an Error: wrap it with result()
+    const a = (): Result<unknown, Invalid> => success(caught)
+    const o = null as unknown as object
+    // @ts-expect-error - may be an Error
+    const b = (): Result<object, Invalid> => success(o)
+    const x = null as unknown as number | Error
+    // @ts-expect-error - may be an Error
+    const c = (): Result<unknown, Invalid> => success(x)
+    const ro = null as unknown as Result<number, Other>
+    // @ts-expect-error - may be an Error (and would nest a Result)
+    const d = (): Result<number, Invalid> => success(ro)
+    // @ts-expect-error - may be an Error
+    const e = (): Result<number, Invalid> => success(result(x))
+    const opt = null as unknown as { id?: string }
+    // @ts-expect-error - may be an Error: an all-optional object admits one
+    const f = (): Result<{ id?: string }, Invalid> => success(opt)
+    void [a, b, c, d, e, f]
+    expectTypeOf<
+      NotPossiblyAnError<unknown>
+    >().toEqualTypeOf<'This value may be an Error — wrap it with result(), not success()'>()
+  })
+
+  it('success() stays annotation-free for domain objects, arrays, DTOs and primitives', () => {
+    class Game {
+      constructor(
+        readonly id: string,
+        readonly round: number,
+      ) {}
+    }
+    const g = (game: Game): Result<Game, Invalid> => success(game)
+    const h = (xs: readonly Game[]): Result<readonly Game[], Invalid> =>
+      success(xs)
+    const i = (dto: { id: string }): Result<{ id: string }, Invalid> =>
+      success(dto)
+    const j = (): Result<void, Invalid> => success(undefined)
+    expectTypeOf(g).returns.toEqualTypeOf<Result<Game, Invalid>>()
+    void [h, i, j]
+    // The residual: a plain interface some Error subclass fits structurally
+    // cannot be told from a safe object. Known sharp edge, on record.
+    const hidden: { code: string } = new Other('x')
+    const k = (): Result<{ code: string }, Invalid> => success(hidden)
+    void k
   })
 
   it('rejects a plain Failure<_, Error> where Failure<_, Invalid> is expected', () => {

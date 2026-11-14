@@ -190,9 +190,36 @@ position, the phantom stays, stays covariant, and stops costing anything
 in the cases consumers actually write:
 
 ```ts
-success<T, E extends Error = never>(value: T): Success<T, NoInfer<E>>
+success<T extends NotPossiblyAnError<T>, E extends Error = never>(value: T): Success<T, NoInfer<E>>
 failure<E extends Error, T = never>(error: E): Failure<NoInfer<T>, E>
 ```
+
+`NoInfer` is what keeps the default: without it TypeScript infers `E`
+from the return position, lands on `Error` at a site typed to a union or
+to a wider `Result`, and the annotation is back.
+
+`NotPossiblyAnError<T>` is `success`'s guard, decided in review round 4
+over a conservative `E = ErrorArmOf<T>` default. With `E = never`, a
+`success` of a value whose type can hold an `Error` would label it a
+`Success` at a site typed to a narrower error class: `success(caught)`
+with `caught: unknown`, `success(o)` with `o: object`, `success(x)` with
+`x: number | Error`, `success(ro)` with `ro: Result<number, Other>`, and
+`success(result(x))`, each of which the old `E = Error` default happened
+to reject. The guard rejects, with a message naming `result()` as the
+fix, every `T` that detectably admits an `Error`: `unknown` and `any`,
+`object`, `{}` and an all-optional object, a union with an `Error`
+member, a `Result` or a `Failure`. It lets a class instance, an array, a
+DTO with a required member and a primitive through with no type
+arguments, which is where the consumer cost sat (every sampled `success`
+site wraps a domain object; the conservative default would have kept all
+of them annotated). Its two costs are on record. A plain interface that
+some `Error` subclass fits structurally (`{ code: string }` holding an
+`Other`) cannot be told from a safe object and passes: a known sharp
+edge, the one place where `success` still trusts its caller. And an
+unresolved type parameter cannot be judged, so generic code wrapping a
+`T` casts instead of calling `success` (three library-internal sites:
+`orElse`, `fromMaybe` and `promise/state`); consumer generic helpers of
+that shape did not compile under the old signature either.
 
 `Success` gains a third marker, `readonly [_error]?: never`, next to its
 `[_phantom]` and `[_value]`. Without it the `never` default opens a hole
@@ -249,7 +276,14 @@ to exactly `from`'s behaviour", and with the overload `Result.from(raw)`
 is `Result<T, never>` where `Result.box(raw)` is `Result<T, Error>`.
 Which of the two promises `box` keeps is not decided here; it goes to the
 implementation task and to the Box implementation (#66), under
-docs/adr/0005-box-classes.md.
+docs/adr/0005-box-classes.md. Three statements there are superseded by
+this amendment and are corrected with the implementation: ADR 0005's
+"`Result.success` seeds `E = never`, the one deliberately divergent
+default" and its margin note 5 (a plain `success(0)` seed no longer rides
+an `Error` arm), and `src/result/box.ts`'s `Result.success` docblock
+("unlike `result/success`, whose default is `Error`"). `Result.failure`
+keeps `T = unknown` where `failure` moves to `T = never`; whether it
+follows is for the implementation task and #66.
 
 Under these signatures, with no type arguments, all of the following
 compile (each is a probe in `prototypes/57/probe.test-d.ts`): `(n): Result<number, Invalid> => success(n)`, `(): Result<number,
@@ -259,9 +293,10 @@ failure(r)` into a `Result` with a different `T`. Both guarantees hold,
 checked rather than assumed: a plain `Error` is still rejected where
 `Invalid` is expected, through `failure`, through `result` of a union, of
 an `unknown` value, of an `object` or narrowed `catch` binding and of an
-object type an `Error` subclass could hide in, through a bare `Failure<_,
-Error>`, and at a target whose `T` is `unknown`, `object`, `{}` or an
-all-optional object; and
+object type an `Error` subclass could hide in, through `success` of an
+`unknown`, `object`, all-optional, `Error`-union or `Result` value, through
+a bare `Failure<_, Error>`, and at a target whose `T` is `unknown`,
+`object`, `{}` or an all-optional object; and
 `Result<Result<T>>` is still not assignable to `Result<T>`. Every existing type-level test stays green but two, whose
 expectations change from `Success<number, Error>` to `Success<number,
 never>` and from `Failure<unknown, Invalid>` to `Failure<never, Invalid>`,
