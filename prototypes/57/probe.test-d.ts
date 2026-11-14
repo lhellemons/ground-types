@@ -166,7 +166,40 @@ describe('ADR 0001 safety properties', () => {
     const opt = null as unknown as { id?: string }
     // @ts-expect-error - may be an Error: an all-optional object admits one
     const f = (): Result<{ id?: string }, Invalid> => success(opt)
-    void [a, b, c, d, e, f]
+    // Review round 6: a union of such a type with a primitive, null or
+    // undefined is still such a type, and a plain Error fits { message }.
+    const g = (x: object | undefined): Result<object | undefined, Invalid> =>
+      // @ts-expect-error - may be an Error
+      success(x)
+    const h = (
+      x: { id?: string } | undefined,
+    ): Result<{ id?: string } | undefined, Invalid> =>
+      // @ts-expect-error - may be an Error
+      success(x)
+    const i = (x: string | object): Result<string | object, Invalid> =>
+      // @ts-expect-error - may be an Error
+      success(x)
+    const j = (x: {} | null): Result<{} | null, Invalid> =>
+      // @ts-expect-error - may be an Error
+      success(x)
+    const k = (
+      x: Record<string, unknown> | undefined,
+    ): Result<Record<string, unknown> | undefined, Invalid> =>
+      // @ts-expect-error - may be an Error
+      success(x)
+    const l = (
+      x: { stack?: string } | number,
+    ): Result<{ stack?: string } | number, Invalid> =>
+      // @ts-expect-error - may be an Error
+      success(x)
+    const m = (x: { message: string }): Result<{ message: string }, Invalid> =>
+      // @ts-expect-error - a plain Error fits { message: string }
+      success(x)
+    // …while a union whose object member a plain Error does not fit passes.
+    const n = (
+      x: { id: string } | undefined,
+    ): Result<{ id: string } | undefined, Invalid> => success(x)
+    void [a, b, c, d, e, f, g, h, i, j, k, l, m, n]
     expectTypeOf<
       NotPossiblyAnError<unknown>
     >().toEqualTypeOf<'This value may be an Error — wrap it with result(), not success()'>()
@@ -189,7 +222,44 @@ describe('ADR 0001 safety properties', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const loose = null as any
     success(loose)
-    void [w, w2]
+    // Review round 6: the guard judges the value's type at any site, not
+    // only at a site typed to a narrower error class.
+    interface Config {
+      a: string
+      b: number
+    }
+    // @ts-expect-error - Breaking: an all-optional object, whatever the target
+    const w3 = (p: Partial<Config>): Result<Partial<Config>> => success(p)
+    // @ts-expect-error - Breaking: no target at all
+    const w4 = (p: Partial<Config>) => success(p)
+    // @ts-expect-error - Breaking: explicit type arguments do not bypass the guard
+    const w5 = (p: Partial<Config>) => success<Partial<Config>, Error>(p)
+    void [w, w2, w3, w4, w5]
+    // Breaking too: failure's one-argument form and result's one-argument
+    // form change their inferred phantom and error arm.
+    expectTypeOf(failure<Invalid>(new Invalid('x'))).toEqualTypeOf<
+      Failure<never, Invalid>
+    >()
+    expectTypeOf(result<number>(5)).toEqualTypeOf<Result<number, never>>()
+    const nx = null as unknown as number | Invalid
+    expectTypeOf(result<number | Invalid>(nx)).toEqualTypeOf<
+      Result<number, Invalid>
+    >()
+  })
+
+  it('result() of a nested Result flattens for primitive values and stays nested for objects (review round 6)', () => {
+    class Game {
+      constructor(readonly id: string) {}
+    }
+    const nested = null as unknown as Result<Result<number, Invalid>, Invalid>
+    // The conservative arm drops Error for a primitive Success value, so
+    // the overload's output fits the flat Result; main rejects this.
+    const flat: Result<number, Invalid> = result(nested)
+    void flat
+    const nestedObj = null as unknown as Result<Result<Game, Invalid>, Invalid>
+    // @ts-expect-error - an object value keeps Error in the arm
+    const flatObj: Result<Game, Invalid> = result(nestedObj)
+    void flatObj
   })
 
   it('success() stays annotation-free for domain objects, arrays, DTOs and primitives', () => {

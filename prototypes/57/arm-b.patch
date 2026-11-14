@@ -29,7 +29,7 @@ index 1153c55..a17ce7d 100644
  
  /** A live view of a promise's {@link State}, as produced by {@link stateOf}. */
 diff --git a/src/result/index.ts b/src/result/index.ts
-index d14ce89..d551845 100644
+index d14ce89..51c0f2f 100644
 --- a/src/result/index.ts
 +++ b/src/result/index.ts
 @@ -15,7 +15,11 @@ declare const _phantom: unique symbol
@@ -83,24 +83,24 @@ index d14ce89..d551845 100644
  
 +/**
 + * Rejects a `success` value whose type can hold an `Error` at runtime, as
-+ * far as the type says so: `unknown`, `object`, `{}` or an all-optional
-+ * object, a union with an `Error` member, a `Result` or a `Failure`. It
-+ * cannot see past three things: `any` passes, as it passes every
-+ * constraint; so does any object type some `Error` subclass fits
-+ * structurally (a plain interface, a DTO, a class instance without
-+ * private members); and an unresolved type parameter is refused, so
-+ * generic code casts instead. See docs/adr/0001-unboxed-maybe-and-result.md.
++ * far as the type says so: a union with an `Error` member, a `Result` or
++ * a `Failure`, a type the empty object fits (`unknown`, `object`, `{}`,
++ * an all-optional object, and any union of one with a primitive, `null`
++ * or `undefined`), and a type a plain `Error` fits (`{ message: string
++ * }`). It cannot see past three things: `any` passes, as it passes every
++ * constraint; so does an object type that only an `Error` subclass fits
++ * (a plain interface, a DTO, a class instance without private members);
++ * and an unresolved type parameter is refused, so generic code casts
++ * instead. See docs/adr/0001-unboxed-maybe-and-result.md.
 + */
-+export type NotPossiblyAnError<T> = unknown extends T
-+  ? 'This value may be an Error — wrap it with result(), not success()'
-+  : [Extract<T, Error>] extends [never]
-+    ? [T] extends [object]
-+      ? // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` is the point: an all-optional object admits any non-nullish value, an Error included
-+        {} extends T
-+        ? 'This value may be an Error — wrap it with result(), not success()'
-+        : unknown
++export type NotPossiblyAnError<T> = [Extract<T, Error>] extends [never]
++  ? // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` is the point: a type the empty object fits admits any non-nullish value, an Error included
++    {} extends T
++    ? 'This value may be an Error — wrap it with result(), not success()'
++    : Error extends T
++      ? 'This value may be an Error — wrap it with result(), not success()'
 +      : unknown
-+    : 'This value may be an Error — wrap it with result(), not success()'
++  : 'This value may be an Error — wrap it with result(), not success()'
 +
  /**
   * Wraps a known-good value as a {@link Success}. Type parameters are

@@ -44,48 +44,57 @@ non-primitive member and drops it only for primitives (branded too),
 `null` and `undefined`, the one sound rule from the input type alone
 (review round 4).
 
-`NotPossiblyAnError<T>` (review round 4, part 2) rejects a `success` of a
-value whose type detectably admits an Error (`unknown`, `object`, `{}`,
-an all-optional object, a union with an Error member, a `Result` or
-`Failure`), naming `result()` as the fix; class instances, arrays, DTOs
-with a required member and primitives pass with no type arguments. The
-residual, on record: any object type some Error subclass fits
-structurally passes, a plain interface (`{ code: string }` holding an
-`Other`), a DTO, a class instance without private members (`Game`
-holding a `Sneaky extends Error` with the same members); `any` passes
-too. Breaking: `success` of an unresolved `T` and an explicit
-`success<unknown>` no longer compile (they did on main); generic code
-casts instead (three library-internal sites in the patch). The
+`NotPossiblyAnError<T>` (review rounds 4 and 6) rejects a `success` of a
+value whose type the type system can see may hold an Error: a union with
+an Error member, a `Result` or `Failure`; a type the empty object fits
+(`unknown`, `object`, `{}`, an all-optional object, and any union of one
+with a primitive, `null` or `undefined`); a type a plain Error fits (`{
+message: string }`). It names `result()` as the fix. Class instances,
+arrays, DTOs with a required member, primitives, `undefined` and `void`
+pass with no type arguments. The residual, on record: an object type
+that only an Error _subclass_ fits structurally passes, a plain interface
+(`{ code: string }` holding an `Other`), a DTO, a class instance without
+private members (`Game` holding a `Sneaky extends Error` with the same
+members); `any` passes too. Breaking: `success` of any such value at any
+site (`(p: Partial<Config>): Result<Partial<Config>> => success(p)`),
+`success` of an unresolved `T`, `failure<E>(e)`'s phantom (`never`, was
+`unknown`) and the one-type-argument `result<X>(v)` (`result<number>(5)`
+is now `Result<number, never>`); generic code casts instead (three
+library-internal sites in the patch). The
 `[_error]?: never` marker on `Success` closes the hole review round 3
 found: with `failure`'s `T` defaulting to `never`, `Failure<never, Error>`
 fitted `Success<unknown, Invalid>` structurally (phantom `never` passes,
 an Error object satisfies `unknown`), so `(): Result<unknown, Invalid> =>
 failure(new Error())` compiled. No Failure can satisfy `[_error]?: never`.
 
-| Scenario (no type arguments)                                                                                                                                                                           | main                                        | Arm A                                         |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------- | --------------------------------------------- |
-| `(n): Result<number, Invalid> => success(n)`                                                                                                                                                           | error                                       | ok                                            |
-| `(): Result<number, Invalid \| Other> => failure(new Invalid())`                                                                                                                                       | error                                       | ok                                            |
-| `(x: number \| Invalid): Result<number, Invalid> => result(x)`                                                                                                                                         | error                                       | ok (needs the `result` overload)              |
-| `if (isFailure(r)) return failure(r)` into a `Result<string, …>`                                                                                                                                       | error                                       | ok                                            |
-| plain `Error` rejected where `Invalid` is expected (`failure`, `result` of a union, `Failure<_, Error>`)                                                                                               | rejected                                    | rejected                                      |
-| `result(caught)` with `caught: unknown` keeps its `Error` arm                                                                                                                                          | `Result<unknown, Error>`                    | `Result<unknown, Error>`                      |
-| `result(o)` with `o: object`, `{}`, `{ message: string }`, or a narrowed `catch` binding                                                                                                               | `Result<object, Error>`                     | `Result<object, Error>`                       |
-| `result(new Error())`                                                                                                                                                                                  | `Result<Error, Error>`                      | `Failure<never, Error>`                       |
-| `result(hidden)` with `hidden: { code: string }` holding an `Other` error, into `Result<{ code: string }, Invalid>`                                                                                    | rejected                                    | rejected (arm stays `Error`)                  |
-| `result(email)` with a branded string, `result(n: number)`, `result(null)`                                                                                                                             | `E = Error`                                 | `E = never`                                   |
-| `success(caught: unknown)`, `success(o: object)`, `success(x: number \| Error)`, `success(ro: Result<number, Other>)`, `success(result(x))`, `success(opt: { id?: string })` into `Result<…, Invalid>` | rejected (via `E = Error`)                  | rejected (via the `T` guard)                  |
-| `success(game: Game)`, `success(xs: readonly Game[])`, `success(dto: { id: string })` into `Result<…, Invalid>`                                                                                        | error                                       | ok                                            |
-| `success(hidden: { code: string })` holding an `Other`, and `success(g: Game)` holding a `Sneaky extends Error` with Game's members, into `Result<…, Invalid>`                                         | error                                       | compiles (known sharp edge)                   |
-| `function w<T>(x: T): Result<T> { return success(x) }`, `success<T, Invalid>(x)` with `T extends { id: string }`, `success<unknown>(caught)`                                                           | ok                                          | rejected (Breaking; cast or `result()`)       |
-| `success(loose: any)`                                                                                                                                                                                  | ok                                          | ok (`any` passes every constraint)            |
-| `result(u)` with `u: number \| Invalid \| Other`                                                                                                                                                       | `Result<number \| Invalid \| Other, Error>` | `Result<number, Invalid \| Other>`            |
-| `failure(new Error())` or `result(err)` into `Result<unknown \| object \| {} \| { id?: string }, Invalid>`                                                                                             | rejected                                    | rejected (via `Success`'s `[_error]?: never`) |
-| `Success<number, Invalid>` widens to `Success<number, Error>`; the reverse is rejected                                                                                                                 | yes                                         | yes                                           |
-| `Result<Result<number>>` not assignable to `Result<number>`                                                                                                                                            | holds                                       | holds                                         |
-| `if (isFailure(r)) return r` into a `Result<string, …>` (Arm B's goal)                                                                                                                                 | error                                       | error                                         |
+| Scenario (no type arguments)                                                                                                                                                                                | main                                        | Arm A                                                         |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------- |
+| `(n): Result<number, Invalid> => success(n)`                                                                                                                                                                | error                                       | ok                                                            |
+| `(): Result<number, Invalid \| Other> => failure(new Invalid())`                                                                                                                                            | error                                       | ok                                                            |
+| `(x: number \| Invalid): Result<number, Invalid> => result(x)`                                                                                                                                              | error                                       | ok (needs the `result` overload)                              |
+| `if (isFailure(r)) return failure(r)` into a `Result<string, …>`                                                                                                                                            | error                                       | ok                                                            |
+| plain `Error` rejected where `Invalid` is expected (`failure`, `result` of a union, `Failure<_, Error>`)                                                                                                    | rejected                                    | rejected                                                      |
+| `result(caught)` with `caught: unknown` keeps its `Error` arm                                                                                                                                               | `Result<unknown, Error>`                    | `Result<unknown, Error>`                                      |
+| `result(o)` with `o: object`, `{}`, `{ message: string }`, or a narrowed `catch` binding                                                                                                                    | `Result<object, Error>`                     | `Result<object, Error>`                                       |
+| `result(new Error())`                                                                                                                                                                                       | `Result<Error, Error>`                      | `Failure<never, Error>`                                       |
+| `result(hidden)` with `hidden: { code: string }` holding an `Other` error, into `Result<{ code: string }, Invalid>`                                                                                         | rejected                                    | rejected (arm stays `Error`)                                  |
+| `result(email)` with a branded string, `result(n: number)`, `result(null)`                                                                                                                                  | `E = Error`                                 | `E = never`                                                   |
+| `success(caught: unknown)`, `success(o: object)`, `success(x: number \| Error)`, `success(ro: Result<number, Other>)`, `success(result(x))`, `success(opt: { id?: string })` into `Result<…, Invalid>`      | rejected (via `E = Error`)                  | rejected (via the `T` guard)                                  |
+| `success(game: Game)`, `success(xs: readonly Game[])`, `success(dto: { id: string })` into `Result<…, Invalid>`                                                                                             | error                                       | ok                                                            |
+| `success(hidden: { code: string })` holding an `Other`, and `success(g: Game)` holding a `Sneaky extends Error` with Game's members, into `Result<…, Invalid>`                                              | error                                       | compiles (known sharp edge)                                   |
+| `function w<T>(x: T): Result<T> { return success(x) }`, `success<T, Invalid>(x)` with `T extends { id: string }`, `success<unknown>(caught)`                                                                | ok                                          | rejected (Breaking; cast or `result()`)                       |
+| `success(loose: any)`                                                                                                                                                                                       | ok                                          | ok (`any` passes every constraint)                            |
+| `success(x)` with `x: object \| undefined`, `{ id?: string } \| undefined`, `string \| object`, `{} \| null`, `Record<string, unknown> \| undefined`, `{ stack?: string } \| number`, `{ message: string }` | error                                       | rejected (round 6 guard)                                      |
+| `success(x)` with `x: { id: string } \| undefined`, `undefined`, `void`, `Game[]`                                                                                                                           | error / ok                                  | ok                                                            |
+| `(p: Partial<Config>): Result<Partial<Config>> => success(p)`, `success(p)` with no target, `success<Partial<Config>, Error>(p)`                                                                            | ok                                          | rejected (Breaking)                                           |
+| `result(nested)` with `nested: Result<Result<number, Invalid>, Invalid>` into `Result<number, Invalid>`                                                                                                     | error                                       | compiles (primitive value; an object value is still rejected) |
+| `result(u)` with `u: number \| Invalid \| Other`                                                                                                                                                            | `Result<number \| Invalid \| Other, Error>` | `Result<number, Invalid \| Other>`                            |
+| `failure(new Error())` or `result(err)` into `Result<unknown \| object \| {} \| { id?: string }, Invalid>`                                                                                                  | rejected                                    | rejected (via `Success`'s `[_error]?: never`)                 |
+| `Success<number, Invalid>` widens to `Success<number, Error>`; the reverse is rejected                                                                                                                      | yes                                         | yes                                                           |
+| `Result<Result<number>>` not assignable to `Result<number>`                                                                                                                                                 | holds                                       | holds                                                         |
+| `if (isFailure(r)) return r` into a `Result<string, …>` (Arm B's goal)                                                                                                                                      | error                                       | error                                                         |
 
-Full suite under Arm A: 477 passed, 4 failed, identically on TypeScript
+Full suite under Arm A: 478 passed, 4 failed, identically on TypeScript
 5.9.3, 6.0.3 and 7.0.2. The four:
 
 - `index.test-d.ts` "binds failure's single explicit type argument": now
@@ -100,8 +109,14 @@ Full suite under Arm A: 477 passed, 4 failed, identically on TypeScript
   `Result.from` the same overload (with `ErrorArmOf` moved to
   `./internal.ts`) restores parity and moves two Box expectations
   instead: `Result.from(0)` at `box.test-d.ts:62` (now `E = never`) and
-  the "soft trap" at `:108`, where `from` handed a whole `Result` yields
-  `Result<Success<…>, Failure<…>>`, still nested, so `box` keeps its job.
+  the "soft trap" at `:108`, where `from` handed a whole `Result<BoxUser,
+InvalidUser>` yields `Result<Success<BoxUser, InvalidUser>, Error |
+Failure<BoxUser, InvalidUser>>`, not assignable to the flat type, so
+  `box` keeps its job for object values. For a primitive-valued Result the
+  overload's output flattens: `result(nested)` with `nested:
+Result<Result<number, Invalid>, Invalid>` is `Result<number, Invalid>`,
+  where main rejects it (the nesting invariant on the types is untouched).
+  `Result.success` has no guard; handed to the implementation task and #66.
   The raw object case at `:126` does not move (an object keeps `Error`
   under the conservative arm). Four expectations move in all. The
   overload breaks `box`'s promise that a raw value "degrades to exactly

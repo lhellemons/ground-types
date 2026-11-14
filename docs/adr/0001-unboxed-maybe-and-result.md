@@ -208,27 +208,39 @@ over a conservative `E = ErrorArmOf<T>` default. With `E = never`, a
 `Success` at a site typed to a narrower error class: `success(caught)`
 with `caught: unknown`, `success(o)` with `o: object`, `success(x)` with
 `x: number | Error`, `success(ro)` with `ro: Result<number, Other>`, and
-`success(result(x))`, each of which the old `E = Error` default happened
-to reject. The guard rejects, with a message naming `result()` as the
-fix, every `T` that detectably admits an `Error`: `unknown`, `object`,
-`{}` and an all-optional object, a union with an `Error` member, a
-`Result` or a `Failure`. It lets a class instance, an array, a DTO with a
-required member and a primitive through with no type arguments, which is
-where the consumer cost sat (every sampled `success` site wraps a domain
-object; the conservative default would have kept all of them annotated).
-Its costs are on record. **Known sharp edge:** any object type some
-`Error` subclass fits structurally cannot be told from a safe object and
-passes: a plain interface (`{ code: string }` holding an `Other`), a DTO
-with required members, a class instance without private members (a
-`Game { id; round }` holding a `Sneaky extends Error { id; round }`).
-That is exactly the set the guard lets through, so `success` still
-trusts its caller there. `any` passes too, as it passes every
-constraint. **Breaking:** an unresolved type parameter cannot be judged,
-so `success` of a `T` (constrained or not, with or without type
-arguments) and an explicit `success<unknown>`, `success<object>` or
-`success<{}>` no longer compile, where the old signature accepted them;
-such code casts, or wraps with `result()`. Three library-internal sites
-do (`orElse`, `fromMaybe` and `promise/state`). The guard's type,
+`success(result(x))`, each of which the old `E = Error` default rejected
+only because it forced every unannotated `Success` to carry `Error`. The
+guard rejects, with a message naming `result()` as the fix, every `T`
+the type system can see may hold an `Error`: a union with an `Error`
+member, a `Result` or a `Failure`; a type the empty object fits
+(`unknown`, `object`, `{}`, an all-optional object such as
+`Partial<Config>`, and any union of one of those with a primitive, `null`
+or `undefined`, since `{} extends T` distributes over nothing and reads
+the union whole); and a type a plain `Error` fits (`{ message: string
+}`). It lets a class instance, an array, a DTO with a required member, a
+primitive, `undefined` and `void` through with no type arguments, which
+is where the consumer cost sat (every sampled `success` site wraps a
+domain object; the conservative default would have kept all of them
+annotated). Its costs are on record. **Known sharp edge:** an object type
+that only an `Error` _subclass_ fits structurally cannot be told from a
+safe object and passes: a plain interface (`{ code: string }` holding an
+`Other`), a DTO with required members, a class instance without private
+members (a `Game { id; round }` holding a `Sneaky extends Error { id;
+round }`). `success` still trusts its caller there. `any` passes too, as
+it passes every constraint. **Breaking:** the guard judges the value's
+type at every call, not only at a site typed to a narrower error class,
+so `success` of any value whose type it judges may hold an `Error`
+(`unknown`, `object`, `{}`, an all-optional object, an `Error` union, a
+`Result`) no longer compiles anywhere it did, with or without a target
+type and with or without explicit type arguments: `(p: Partial<Config>):
+Result<Partial<Config>> => success(p)` is now an error. So is `success`
+of an unresolved type parameter (constrained or not), which cannot be
+judged. Such code casts, or wraps with `result()`; three library-internal
+sites cast (`orElse`, `fromMaybe` and `promise/state`). Two further
+changes to explicit calls: `failure<E>(e)` now has phantom `T = never`
+where it had `unknown`, and the one-type-argument `result<X>(v)` binds
+the new overload, so `result<number>(5)` is `Result<number, never>` and
+`result<number | Invalid>(x)` is `Result<number, Invalid>`. The guard's type,
 `NotPossiblyAnError`, is exported so its message can be pinned, as
 `NotAResult`'s is: it joins the README's module table, the `/result`
 surface test and the CHANGELOG.
@@ -286,9 +298,18 @@ The Result Box's `from` takes the same overload, so the parity between
 `from` and `result()` that the Box tests pin survives: measured with the
 overload on `Result.from`, the parity test is green and two Box
 expectations move, `Result.from(0)` (now `E = never`) and `from` handed a
-whole `Result` (now `Result<Success<…>, Failure<…>>`, still nested, so
-`box` keeps its job); `from` of an object raw value keeps `Error` under
-the conservative arm and does not move. With the two in
+whole `Result<BoxUser, InvalidUser>` (now `Result<Success<BoxUser,
+InvalidUser>, Error | Failure<BoxUser, InvalidUser>>`: the object-valued
+`Success` arm keeps `Error` under the conservative arm, and the result is
+not assignable to the flat `Result`, so `box` keeps its job for object
+values); `from` of an object raw value keeps `Error` and does not move.
+For a primitive-valued `Result` the picture differs: `result(nested)`
+with `nested: Result<Result<number, Invalid>, Invalid>` is `Result<number,
+Invalid>`, assignable to the flat type, where the old signature rejected
+it; the nesting invariant itself is untouched (`Result<Result<T>>` is
+still not assignable to `Result<T>`), only the overload's output for a
+primitive flattens. That primitive/object split is the premise #66
+starts from. With the two in
 `index.test-d.ts`, four expectations move. `ErrorArmOf` is module-private
 to `/result`, so it goes to `./internal.ts` for `box.ts` to share. The
 overload breaks a different promise for primitive, `null` and
@@ -309,16 +330,24 @@ a nested `Result<Success<…>, Failure<…>>`, not to a phantom `Error`);
 `src/result/box.test-d.ts` on the parity test and the soft trap;
 `docs/migration/0.1.0-to-0.3.0.md`'s "invariant `E` phantom"; and the
 0.4.0 `definePrimitiveValueObject` docblock, which points at the reversed
-amendment. `Result.failure` keeps `T = unknown` where `failure` moves to
-`T = never`; whether it follows is for the implementation task and #66.
+amendment; so are the test comments at `src/domain/index.test.ts:53-56`
+("Success's E phantom is invariant") and `src/value-object/index.test-d.ts:24-25`.
+`Result.failure` keeps `T = unknown` where `failure` moves to `T =
+never`, and `Result.success` has no guard (`Result.success(caught)` with
+`caught: unknown` unboxes into `Result<unknown, Invalid>` on the old and
+the new signatures alike); both are for the implementation task and #66.
 
 Under these signatures, with no type arguments, all of the following
 compile (each is a probe in `prototypes/57/probe.test-d.ts`): `(n): Result<number, Invalid> => success(n)`, `(): Result<number,
 Invalid | Other> => failure(new Invalid())`, `(x: number | Invalid):
 Result<number, Invalid> => result(x)`, and `if (isFailure(r)) return
-failure(r)` into a `Result` with a different `T`. Both guarantees hold,
-except through `success()` of a value whose object type an `Error`
-subclass fits (the sharp edge above), checked rather than assumed: a plain `Error` is still rejected where
+failure(r)` into a `Result` with a different `T`. Both guarantees hold
+for the three constructors, except through `success()` of a value whose
+object type only an `Error` subclass fits (the sharp edge above), checked
+rather than assumed. (The combinators are out of this amendment's scope:
+`orElse(caught, r)`, `map(() => caught, r)` and `fromMaybe(new Invalid(),
+caught)` with `caught: unknown` type-check into `Result<unknown,
+Invalid>` on the old signatures as well as the new ones.) a plain `Error` is still rejected where
 `Invalid` is expected, through `failure`, through `result` of a union, of
 an `unknown` value, of an `object` or narrowed `catch` binding and of an
 object type an `Error` subclass could hide in, through `success` of an
@@ -335,9 +364,10 @@ the annotation is no longer accepted as a sharp edge: the constructors
 will take the signatures above, in the implementation task that follows
 this amendment. Explicit type arguments remain allowed and, at a concrete
 `T` the guard passes, keep compiling; the breaking cases are the ones
-named above (`success` of an unresolved type parameter, and an explicit
-`success<unknown | object | {}>`), and the CHANGELOG marks them
-**Breaking:**, as 0.4.0's does.
+named above (`success` of any value the guard judges may hold an
+`Error`, at any site; `success` of an unresolved type parameter;
+`failure<E>(e)`'s phantom; the one-type-argument `result<X>(v)`), and the
+CHANGELOG marks each **Breaking:**, as 0.4.0's does.
 
 Two things were ruled out on the way:
 
