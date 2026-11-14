@@ -128,7 +128,8 @@ export class ThrownError<T = unknown> extends Error {
  * `fn` must resolve synchronously — see {@link NotAPromise}. Lift an async
  * operation with `promise/resultify` or `call/resultify` instead.
  *
- * Domain code can use `tryCatch(construct, catchOnly(InvalidValue))`.
+ * Domain code can use `tryCatch(construct, catchOnly(InvalidValue))`
+ * or the shorthand `tryCatch(construct, [InvalidValue, OtherError])`.
  *
  * Naming `E` explicitly requires supplying the handler that produces it:
  * `tryCatch(fn)` fixes `E = Error`, and no overload takes three type
@@ -137,13 +138,22 @@ export class ThrownError<T = unknown> extends Error {
 export function tryCatch<
   T extends NotAPromise<T>,
   Args extends unknown[],
-  E extends Error,
+  C extends readonly [
+    abstract new (...args: never[]) => Error,
+    ...(abstract new (...args: never[]) => Error)[],
+  ],
 >(
   fn: (...args: Args) => T,
-  errors:
-    | (abstract new (...args: never[]) => E)
-    | readonly (abstract new (...args: never[]) => E)[],
-): (...args: Args) => Result<T, E>
+  errors: C,
+): (...args: Args) => Result<T, InstanceType<C[number]>>
+export function tryCatch<
+  T extends NotAPromise<T>,
+  Args extends unknown[],
+  C extends abstract new (...args: never[]) => Error,
+>(
+  fn: (...args: Args) => T,
+  errors: C,
+): (...args: Args) => Result<T, InstanceType<C>>
 export function tryCatch<T extends NotAPromise<T>, Args extends unknown[]>(
   fn: (...args: Args) => T,
 ): (...args: Args) => Result<T, Error>
@@ -164,7 +174,10 @@ export function tryCatch<
   errorHandler:
     | Mapper<unknown, Result<T, E>>
     | (abstract new (...args: never[]) => E)
-    | readonly (abstract new (...args: never[]) => E)[] = (error) =>
+    | readonly [
+        abstract new (...args: never[]) => E,
+        ...(abstract new (...args: never[]) => E)[],
+      ] = (error) =>
     // The implementation signature is still generic in `E`, so the default
     // still needs the cast — but the handler-less overload above pins
     // `E = Error` at every call site that can reach it, which is what the
@@ -173,7 +186,10 @@ export function tryCatch<
 ): (...args: Args) => Result<T, E> {
   const handler = Array.isArray(errorHandler)
     ? catchOnly(
-        ...(errorHandler as readonly (abstract new (...args: never[]) => E)[]),
+        ...(errorHandler as readonly [
+          abstract new (...args: never[]) => E,
+          ...(abstract new (...args: never[]) => E)[],
+        ]),
       )
     : typeof errorHandler === 'function' &&
         ((errorHandler as unknown) === Error ||
@@ -495,7 +511,10 @@ export function fromMaybe<T, E extends Error>(
  * Use `tryCatch(construct, catchOnly(InvalidValue))` for domain code.
  */
 export function catchOnly<
-  C extends readonly (abstract new (...args: never[]) => Error)[],
+  C extends readonly [
+    abstract new (...args: never[]) => Error,
+    ...(abstract new (...args: never[]) => Error)[],
+  ],
 >(...classes: C): (error: unknown) => Failure<never, InstanceType<C[number]>> {
   return (error: unknown): Failure<never, InstanceType<C[number]>> => {
     if (classes.some((ErrorClass) => error instanceof ErrorClass)) {
