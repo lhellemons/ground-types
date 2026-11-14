@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `definePrimitiveValueObject` now returns a frozen factory.
   Its properties, including `.from`, can no longer be replaced or extended.
 
+- Document static Factory checks, callable Primitive Value Object factories,
+  validation after JSON parsing, and weak Intern Registry retention.
+
 - **Breaking:** `InternRegistry<K, V>` now requires `V extends object` and holds
   canonical instances weakly, allowing unused instances to be collected.
 - Version tags now run CI checks and attach a built tarball to their GitHub
