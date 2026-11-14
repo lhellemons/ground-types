@@ -5,33 +5,42 @@ import type { CompoundValueObject } from '../domain/index.js'
 /**
  * Canonicalises values by key so that equal values are represented by one
  * shared instance, making reference equality agree with value equality.
- * Not a cache: entries are never evicted, and the point is identity of
- * equals, not avoiding recomputation.
+ * Instances are held weakly: a live instance is reused, while an instance
+ * no longer held by callers may be collected and recreated on later access.
+ * Keys are held strongly: a key that references its canonical instance
+ * keeps that instance alive. Prefer identifier keys that do not reference
+ * their canonical instances.
  */
-export class InternRegistry<K, V> {
-  readonly #map = new Map<K, V>()
+export class InternRegistry<K, V extends object> {
+  readonly #map = new Map<K, WeakRef<V>>()
+  readonly #finalizer = new FinalizationRegistry<{ key: K; ref: WeakRef<V> }>(
+    ({ key, ref }) => {
+      if (this.#map.get(key) === ref) this.#map.delete(key)
+    },
+  )
 
   /**
    * Returns the canonical instance for `key`, creating and interning one
-   * via `create` on first access. A second call with the same `key` returns
-   * the exact same reference without invoking `create` again.
+   * via `create` when no live instance exists. While the instance is live,
+   * another call with the same `key` returns the exact same reference
+   * without invoking `create` again.
    */
   getOrCreate(key: K, create: () => V): V {
-    if (this.#map.has(key)) return this.#map.get(key) as V
+    const existing = this.#map.get(key)?.deref()
+    if (existing !== undefined) return existing
     const value = create()
-    this.#map.set(key, value)
+    const ref = new WeakRef(value)
+    this.#map.set(key, ref)
+    this.#finalizer.register(value, { key, ref })
     return value
   }
 
   /**
-   * Looks up the canonical instance for `key` without creating one. If `V`
-   * itself includes `undefined`, a key interned as `undefined` is
-   * indistinguishable from a key that was never interned — inherent to
-   * `Maybe`'s unboxed encoding, not a defect of this method. Use
-   * `getOrCreate` when that distinction matters.
+   * Looks up the live canonical instance for `key` without creating one,
+   * returning Nothing if it is absent or has been collected.
    */
   get(key: K): Maybe<V> {
-    return maybe(this.#map.get(key))
+    return maybe(this.#map.get(key)?.deref())
   }
 }
 
