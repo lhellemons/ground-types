@@ -7,24 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **Breaking:** `definePrimitiveValueObject` now returns a frozen factory.
-  Its properties, including `.from`, can no longer be replaced or extended.
+## [0.4.0] - 2026-11-14
 
-- Document static Factory checks, callable Primitive Value Object factories,
-  validation after JSON parsing, and weak Intern Registry retention.
+Upgrading from 0.3.x: there are two breaking changes, both small.
+`InternRegistry` now holds only object values, and `definePrimitiveValueObject`
+returns a frozen factory.
 
 - **Breaking:** `InternRegistry<K, V>` now requires `V extends object` and holds
-  canonical instances weakly, allowing unused instances to be collected.
-- Version tags now run CI checks and attach a built tarball to their GitHub
-  Release, validating the package version and replacing an existing asset on rerun.
-- Use pnpm 12.18.0 and document tarball installs, Git installs and Renovate.
-
-- Add `result/catchOnly(...ErrorClasses)` and nonempty class-list shorthand for
-  `tryCatch`, preserving selected local-realm errors and rethrowing unexpected
-  values, including foreign-realm errors.
-
+  canonical instances weakly, so instances nothing else holds can be collected.
+- **Breaking:** `definePrimitiveValueObject` now returns a frozen factory.
+  Its properties, including `.from`, can no longer be replaced or extended.
+- Add `result/catchOnly(...ErrorClasses)` and a non-empty class-list shorthand
+  for `tryCatch`. Listed errors from this realm become failures; every other
+  value is rethrown unchanged, including errors from another realm.
+- Version tags now run the CI checks and attach a built tarball to their GitHub
+  Release. The workflow checks the tag against the package version, and a rerun
+  replaces the existing asset.
+- The repository now uses pnpm 12.18.0. The README documents tarball installs,
+  Git installs and Renovate.
+- Document static Factory checks, callable Primitive Value Object factories,
+  validation after JSON parsing, and weak Intern Registry retention.
 - The README's install line now points at the built tarball attached to the
-  v0.3.0 GitHub Release, which installs with no build step. The `github:` form
+  GitHub Release, which installs with no build step. The `github:` form
   still builds through `prepare`, and pnpm 11 refuses that without an allow-list.
 
 ## [0.3.0] - 2026-08-04
