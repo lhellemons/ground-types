@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Version tags now run CI checks and attach a built tarball to their GitHub
+  Release, validating the package version and replacing an existing asset on rerun.
+- Use pnpm 12.18.0 and document tarball installs, Git installs and Renovate.
+
 - The README's install line now points at the built tarball attached to the
   v0.3.0 GitHub Release, which installs with no build step. The `github:` form
   still builds through `prepare`, and pnpm 11 refuses that without an allow-list.

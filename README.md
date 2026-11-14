@@ -9,17 +9,48 @@ groundwork you lay before modelling a domain.
 
 Every term used here is defined in [CONTEXT.md](./CONTEXT.md).
 
-## Install
+## Installing
 
 ```sh
 pnpm add https://github.com/lhellemons/ground-types/releases/download/v0.3.0/lhellemons-ground-types-0.3.0.tgz
 ```
 
 This is a built tarball attached to the GitHub Release, so nothing builds on
-install. Add it with pnpm 10.34.9 or pnpm 11, which record its integrity hash in
-the lockfile: pnpm 10.8.1 records no hash and a download URL that expires.
+install. Consumer installs can use pnpm 10.34.9, 11 or 12, which record its
+integrity hash in the lockfile: pnpm 10.8.1 records no hash and a download URL that expires.
 
-Not published to npm yet.
+The repository itself uses pnpm 12.18.0 for development and CI.
+
+Alternatively, `pnpm add github:lhellemons/ground-types#semver:^0.3.0`
+tracks compatible tags, but runs `prepare` to build during installation. On pnpm
+11 and later, explicitly allow this dependency's build in your pnpm configuration
+before installing; review the resolved source before approving it.
+
+Renovate updates the `github:` semver form automatically. A pinned release URL
+needs a custom manager, for example in `renovate.json`:
+
+```json
+{
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/package\\.json$/"],
+      "matchStrings": [
+        "https://github\\.com/lhellemons/ground-types/releases/download/v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)/lhellemons-ground-types-[0-9.]+\\.tgz"
+      ],
+      "datasourceTemplate": "github-tags",
+      "depNameTemplate": "lhellemons/ground-types",
+      "extractVersionTemplate": "^v(?<version>.*)$",
+      "autoReplaceStringTemplate": "https://github.com/lhellemons/ground-types/releases/download/v{{{newValue}}}/lhellemons-ground-types-{{{newValue}}}.tgz"
+    }
+  ]
+}
+```
+
+Maintainers: update `package.json`'s version and the changelog, merge to `main`,
+then push the matching `v<version>` tag. CI runs the checks, packs the build and
+creates or updates the release asset. Rerunning the workflow replaces that asset.
+Registry publishing remains out of scope.
 
 ## Modules
 
