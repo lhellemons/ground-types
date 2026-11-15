@@ -47,7 +47,9 @@ export type PrimitiveValueObject<
  * are omitted (all or none; see above). A handwritten handler written with
  * `failure()` or `result()` infers its error type the same way, with no type
  * arguments; name `T, P, E` only to override what is inferred.
- * Without a handler, the Failure type is `Error`.
+ * Without a handler, the Failure type is `Error`. Only an absent argument
+ * selects that default: an explicit `null` or `undefined` throws a `TypeError`,
+ * as `tryCatch` does.
  */
 export function definePrimitiveValueObject<
   T extends Branded<P, unknown>,
@@ -67,11 +69,14 @@ export function definePrimitiveValueObject<
   E extends Error = Error,
 >(
   construct: (value: P) => T,
-  errorHandler?: Mapper<unknown, Result<T, E>>,
+  ...errorHandler: [] | [Mapper<unknown, Result<T, E>>]
 ): PrimitiveValueObject<T, P, E> {
   const factory = (value: P) => construct(value)
-  const from = errorHandler
-    ? tryCatch(construct, errorHandler)
-    : (tryCatch(construct) as (value: P) => Result<T, E>)
+  // An absent handler selects the default; an explicit `undefined` or `null`
+  // is forwarded, so `tryCatch` refuses it rather than catching everything.
+  const from =
+    errorHandler.length === 0
+      ? (tryCatch(construct) as (value: P) => Result<T, E>)
+      : tryCatch(construct, errorHandler[0])
   return Object.freeze(Object.assign(factory, { from }))
 }

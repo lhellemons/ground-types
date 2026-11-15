@@ -1,6 +1,7 @@
 import { failure, success } from '../result/index.js'
 import type { Result } from '../result/index.js'
 import { constant, curry } from '../fn/index.js'
+import { isError } from '../internal/is-error.js'
 import type { CurryableMapper, Mapper } from '../fn/index.js'
 import { RejectionError } from './types.js'
 
@@ -56,14 +57,16 @@ export function resultify<O, E extends Error>(
  * Maps any rejection reason to a {@link Failure}. An `Error` becomes the
  * Failure directly, keeping its concrete subclass — which is what lets an
  * abort survive as an `AbortError` rather than being flattened. Anything else
- * is wrapped in a {@link RejectionError}, since a Failure must carry an Error.
+ * is wrapped in a {@link RejectionError}, since a Failure must carry an Error,
+ * and so is a reason whose `instanceof Error` check throws (a Proxy whose
+ * `getPrototypeOf` trap throws): the guard's own error never replaces it.
  *
  * Generic in the success type it never produces, so that it can be handed to
  * `resultify` for a promise of any `O`.
  */
 export function fail<O = never>(reason: unknown): Result<O, Error> {
   return failure<Error, O>(
-    reason instanceof Error ? reason : new RejectionError(reason),
+    isError(reason) ? reason : new RejectionError(reason),
   )
 }
 

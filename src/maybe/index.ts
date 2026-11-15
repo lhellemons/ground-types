@@ -1,4 +1,5 @@
 import { curry } from '../fn/index.js'
+import { isError } from '../internal/is-error.js'
 import type { CurryableMapper } from '../fn/index.js'
 import type { NotAPromise, Result } from '../result/index.js'
 
@@ -187,7 +188,8 @@ export function assertJust<T>(value: Maybe<T>, message?: string): Just<T> {
  * Bridges from `Result` to `Maybe`, discarding the error: a `Success`
  * becomes `Just`, a `Failure` becomes `Nothing`. Reach for this when a
  * caller only cares whether a fallible operation produced a value, not why
- * it didn't.
+ * it didn't. A value whose `instanceof Error` check throws (a Proxy whose
+ * `getPrototypeOf` trap throws) counts as not an `Error`: it stays a `Just`.
  */
 export function fromResult<T, E extends Error = Error>(
   value: Result<T, E>,
@@ -196,5 +198,5 @@ export function fromResult<T, E extends Error = Error>(
   // runtime import, and this bridge must stay type-only across the
   // maybe/result boundary or the two modules form a real import cycle
   // (see docs/adr/0001-unboxed-maybe-and-result.md).
-  return (value instanceof Error ? undefined : value) as Maybe<T>
+  return (isError(value) ? undefined : value) as Maybe<T>
 }

@@ -73,4 +73,18 @@ describe('definePrimitiveValueObject', () => {
     expect(isFailure(outcome)).toBe(true)
     expect(outcome).toBeInstanceOf(InvalidEmail)
   })
+
+  it('refuses an explicit null or undefined handler instead of catching everything', () => {
+    const construct = (value: string): Email => {
+      if (!value.includes('@')) throw new Error('invalid')
+      return value as Email
+    }
+    const define = definePrimitiveValueObject as (...args: unknown[]) => unknown
+    expect(() => define(construct, null)).toThrow(TypeError)
+    expect(() => define(construct, undefined)).toThrow(TypeError)
+    // An absent handler still selects the default, which catches everything.
+    expect(isFailure(definePrimitiveValueObject(construct).from('x'))).toBe(
+      true,
+    )
+  })
 })

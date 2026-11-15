@@ -41,6 +41,26 @@ describe('resultify', () => {
     )
   })
 
+  it('wraps a rejection reason whose Error guard throws, not the guard error', async () => {
+    // `reason instanceof Error` throws for a Proxy whose `getPrototypeOf`
+    // trap throws; that RangeError must not replace the reason.
+    const hostile = new Proxy(
+      {},
+      {
+        getPrototypeOf(): never {
+          throw new RangeError('trap')
+        },
+      },
+    )
+    const result = await resultify(fail, Promise.reject(hostile))
+    expect(isFailure(result)).toBe(true)
+    expect(result).toBeInstanceOf(RejectionError)
+    expect((result as RejectionError).reason).toBe(hostile)
+    const direct = fail(hostile) as RejectionError
+    expect(direct).toBeInstanceOf(RejectionError)
+    expect(direct.reason).toBe(hostile)
+  })
+
   it('works in curried mode', async () => {
     const resultifyFail = resultify<string, Error>(fail) // as Mapper<Promise<string>, Promise<Result<string>>;
     const resultifyRecover = resultify(recoverWith('recovered'))

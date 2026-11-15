@@ -65,26 +65,62 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   their inferred error type.
 - **Breaking:** `catchOnly` (and so the `tryCatch` shorthand) now throws a
   `TypeError` when the handler is created, if the class list is empty or holds
-  an entry that is not a function, or a non-native function with neither an
-  object `prototype` nor a custom `Symbol.hasInstance`, own or inherited (such
-  as `undefined`, an arrow function or a method), or an entry whose inspection
-  throws, such as a revoked proxy or a throwing `Symbol.hasInstance` getter.
-  Before, a bad entry threw on the error path and replaced the original error,
+  an entry that is not a function, or whose inspection throws (a revoked
+  proxy, a throwing `Symbol.hasInstance` getter), or that has no custom
+  `Symbol.hasInstance`, own or inherited, and either an object `prototype`
+  without `Error.prototype` on its chain (`Object`, `Map`, `Symbol`, `Array`,
+  `Promise`, `Date`, a class that does not extend `Error`, a function
+  declaration, a bound subclass of `Map`), or no object `prototype` and source
+  text that does not say `[native code]` (`undefined`, an arrow function, a
+  method). Before, an entry with no object `prototype` (`undefined`, an arrow
+  function, a method) threw on the error path and replaced the original error,
   so a list holding one (an `undefined` from a circular CommonJS import)
-  loaded on 0.4.0 and now throws at creation. A function whose source text
-  says `[native code]`, such as `Math.max` or a bound function, is still
-  admitted. An entry that fails inside `instanceof` later, such as a proxy
-  revoked after the handler is created, counts as not matching: the original
-  error is rethrown unless a later entry matches.
+  loaded on 0.4.0 and now throws at creation. `Object` matched every `Error`,
+  so `catchOnly(Object)(new TypeError('bug'))` turned a programming bug into a
+  Failure; the other entries with a non-Error object `prototype` matched
+  nothing and rethrew every error. TypeScript already rejected all of them.
+  Still admitted: an `Error` class or an ES5-style error constructor
+  (`Legacy.prototype = Object.create(Error.prototype)`), a bound subclass of
+  `Error`, a class with a custom `Symbol.hasInstance`, a function from another
+  realm, and a function with no `prototype` of type object whose source says
+  `[native code]`, such as `Math.max`, `parseInt`, `Function`, or a bound
+  `Error`, `Object` or base class (one declared without `extends`): a bound
+  `Object` still matches every `Error`. An entry is checked once, at creation. An entry that
+  fails inside `instanceof` later, such as a proxy revoked after the handler is
+  created, counts as not matching: the original error is rethrown unless a
+  later entry matches.
 - **Breaking:** `tryCatch` (and so `definePrimitiveValueObject`'s
   `errorHandler`) now throws a `TypeError` when called with a handler that is
-  neither an array nor a function, or with an error class, including built-in
-  ones such as `TypeError`. Before, one was accepted and replaced the original
-  error on the error path.
+  neither an array nor a function, or is a function that is a class (its source
+  starts with `class`, an error class or not, so `class {}` and
+  `class Foo extends Map {}` too), or whose `prototype` is `Error.prototype` or
+  inherits from it (`Error`, `TypeError` and the other built-ins, an ES5-style
+  error constructor, a bound subclass of `Error`), or whose inspection throws.
+  Before, one was accepted and replaced the original error on the error path.
+  TypeScript already rejected all of these. Not detected, though TypeScript
+  rejects them: a bound `Error`, which returns a fresh `Error` as the Failure;
+  a bound class that is not an `Error` subclass, which throws "cannot be
+  invoked without 'new'" on the error path in place of the original error; and
+  a built-in or ES5-style error constructor from another realm, which returns
+  a foreign error, or `undefined`, as a Success (a foreign
+  `class ... extends Error` is refused). A handler bound with
+  `handler.bind(ctx)` is accepted.
 - When the `instanceof Error` check itself throws, such as for a Proxy whose
   `getPrototypeOf` trap throws, `catchOnly` rethrows the original value and
   the default `tryCatch` handler wraps it in a `ThrownError`. `ThrownError`
   no longer throws while rendering a Proxy whose `get` trap throws.
+- **Breaking:** `tryCatch(fn, undefined)` and
+  `definePrimitiveValueObject(construct, undefined)` now throw a `TypeError`,
+  and `definePrimitiveValueObject(construct, null)` does too. Only an absent
+  argument selects the default handler; before, a falsy one silently selected
+  the catch-everything default, and so an `undefined` from a circular
+  CommonJS import still became catch-everything. Omit the argument, or pass a
+  handler. TypeScript already rejected these.
+- `promise/fail` wraps a rejection reason in a `RejectionError` when its
+  `instanceof Error` check throws (a Proxy whose `getPrototypeOf` trap
+  throws), and `maybe/fromResult` keeps such a value as a `Just`. Before, the
+  trap's error replaced the reason: `resultify(fail)(Promise.reject(proxy))`
+  rejected with it.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`
