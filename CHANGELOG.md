@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `catchOnly` and the `tryCatch` class-list shorthand now accept error classes
   with a private constructor, such as a domain error with a static factory.
-  Any value with an `Error` prototype is accepted as a class; existing
-  inference is unchanged.
+  Arrow functions, methods and plain objects are still rejected at compile
+  time, and the inferred error type for existing calls is unchanged.
 - `catchOnly` (and so the `tryCatch` shorthand) now throws a `TypeError` when
   the handler is created, if the class list is empty or holds anything that
   is not a function. Before, a bad entry threw on the error path and

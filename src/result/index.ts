@@ -112,6 +112,30 @@ export class ThrownError<T = unknown> extends Error {
 }
 
 /**
+ * An error class as `catchOnly` and the `tryCatch` list take it: a function
+ * whose `prototype` is an `Error`. Classes with a private constructor
+ * qualify. Arrow functions, methods and plain objects do not.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- `Function` is what admits private-constructor classes; see CheckedClasses for the `any` guard
+type ErrorClass = Function & { readonly prototype: Error }
+
+/** The instance type of an error class, read from its construct signature when it has a public one and from its `prototype` otherwise. */
+type InstanceOfClass<K> = K extends abstract new (...args: never[]) => infer I
+  ? I
+  : K extends { readonly prototype: infer P }
+    ? P
+    : never
+
+/**
+ * Maps every class in `C` to itself, or to `never` when its instance type is
+ * `any`. Any function type has `prototype: any`, so this is what rejects
+ * arrow functions, methods and `Function`-typed values at compile time.
+ */
+type CheckedClasses<C extends readonly unknown[]> = {
+  [K in keyof C]: 0 extends 1 & InstanceOfClass<C[K]> ? never : C[K]
+}
+
+/**
  * Lifts a throwing function into one that returns a {@link Result}. The
  * default `errorHandler` keeps an `Error` as it was thrown, with its concrete
  * subclass intact, and wraps anything else in a {@link ThrownError}; supply
@@ -138,14 +162,11 @@ export class ThrownError<T = unknown> extends Error {
 export function tryCatch<
   T extends NotAPromise<T>,
   Args extends unknown[],
-  C extends readonly [
-    { readonly prototype: Error },
-    ...{ readonly prototype: Error }[],
-  ],
+  C extends readonly [ErrorClass, ...ErrorClass[]],
 >(
   fn: (...args: Args) => T,
-  errors: C,
-): (...args: Args) => Result<T, C[number]['prototype']>
+  errors: CheckedClasses<C>,
+): (...args: Args) => Result<T, InstanceOfClass<C[number]>>
 export function tryCatch<T extends NotAPromise<T>, Args extends unknown[]>(
   fn: (...args: Args) => T,
 ): (...args: Args) => Result<T, Error>
@@ -163,11 +184,7 @@ export function tryCatch<
   E extends Error = Error,
 >(
   fn: (...args: Args) => T,
-  errorHandler:
-    | Mapper<unknown, Result<T, E>>
-    | readonly [{ readonly prototype: E }, ...{ readonly prototype: E }[]] = (
-    error,
-  ) =>
+  errorHandler: Mapper<unknown, Result<T, E>> | readonly unknown[] = (error) =>
     // The implementation signature is still generic in `E`, so the default
     // still needs the cast — but the handler-less overload above pins
     // `E = Error` at every call site that can reach it, which is what the
@@ -175,11 +192,8 @@ export function tryCatch<
     (error instanceof Error ? error : new ThrownError(error)) as Failure<T, E>,
 ): (...args: Args) => Result<T, E> {
   const handler = Array.isArray(errorHandler)
-    ? catchOnly(
-        ...(errorHandler as readonly [
-          { readonly prototype: E },
-          ...{ readonly prototype: E }[],
-        ]),
+    ? (catchOnly as (...classes: unknown[]) => Mapper<unknown, Result<T, E>>)(
+        ...(errorHandler as readonly unknown[]),
       )
     : (errorHandler as Mapper<unknown, Result<T, E>>)
   return function (...args: Args) {
@@ -495,29 +509,19 @@ export function fromMaybe<T, E extends Error>(
  * as Failures only when they are also instances of this realm's Error.
  * Rethrows every other value, including foreign-realm errors, unchanged.
  *
- * A class is anything with an `Error` prototype, so error classes with a
- * private constructor and a static factory are accepted. The list is checked
- * once, here: an empty list, or an entry that is not a function, throws a
- * `TypeError` immediately instead of destroying the original error later,
- * on the error path.
+ * Each class must be an Error class (a private constructor is fine). An
+ * empty list, or an entry that cannot be used with `instanceof`, throws a
+ * `TypeError` when the handler is created.
  *
  * Use `tryCatch(construct, catchOnly(InvalidValue))` for domain code.
  */
-export function catchOnly<
-  C extends readonly [
-    { readonly prototype: Error },
-    ...{ readonly prototype: Error }[],
-  ],
->(...classes: C): (error: unknown) => Failure<never, C[number]['prototype']> {
-  if (
-    classes.length === 0 ||
-    classes.some((ErrorClass) => typeof ErrorClass !== 'function')
-  ) {
-    throw new TypeError(
-      'catchOnly requires a non-empty list of error classes (functions)',
-    )
+export function catchOnly<C extends readonly [ErrorClass, ...ErrorClass[]]>(
+  ...classes: CheckedClasses<C>
+): (error: unknown) => Failure<never, InstanceOfClass<C[number]>> {
+  if (classes.length === 0 || !classes.every(canBeUsedWithInstanceof)) {
+    throw new TypeError('catchOnly requires a non-empty list of error classes')
   }
-  return (error: unknown): Failure<never, C[number]['prototype']> => {
+  return (error: unknown): Failure<never, InstanceOfClass<C[number]>> => {
     if (
       error instanceof Error &&
       classes.some(
@@ -526,8 +530,19 @@ export function catchOnly<
           (ErrorClass as unknown as abstract new (...args: never[]) => Error),
       )
     ) {
-      return failure<C[number]['prototype'], never>(error)
+      return failure<InstanceOfClass<C[number]>, never>(
+        error as InstanceOfClass<C[number]>,
+      )
     }
     throw error
+  }
+}
+
+function canBeUsedWithInstanceof(candidate: unknown): boolean {
+  try {
+    void ({} instanceof (candidate as abstract new () => unknown))
+    return true
+  } catch {
+    return false
   }
 }

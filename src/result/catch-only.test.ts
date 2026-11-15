@@ -53,18 +53,30 @@ describe('catchOnly list validation', () => {
     )
     expect(() => tryCatch(() => 1, [] as never)).toThrow(TypeError)
   })
-  it('throws a TypeError at creation for entries that are not functions', () => {
-    for (const entry of [
+  it('throws a TypeError at creation for entries unusable with instanceof', () => {
+    const unusable = [
       undefined,
       null,
       {},
       'A',
       { prototype: new Error() },
-    ]) {
+      () => new A(),
+      async () => new A(),
+      { method(this: void) {} }.method,
+    ]
+    for (const entry of unusable) {
       expect(() =>
         (catchOnly as (...classes: unknown[]) => unknown)(A, entry),
       ).toThrow(TypeError)
       expect(() => tryCatch(() => 1, [entry] as never)).toThrow(TypeError)
+    }
+  })
+  it('accepts classes, bound classes and function declarations', () => {
+    function Legacy() {}
+    for (const entry of [A, A.bind(null), Legacy]) {
+      expect(() =>
+        (catchOnly as (...classes: unknown[]) => unknown)(entry),
+      ).not.toThrow()
     }
   })
 })

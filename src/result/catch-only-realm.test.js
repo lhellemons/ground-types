@@ -43,6 +43,7 @@ describe('foreign-realm errors with a listed class', () => {
       throw error
     }, catchOnly(ForeignError))
     expectThrown(() => factory.from('x'), error)
+    // The callable form calls `construct` directly; it only passes the error through.
     expectThrown(() => factory('x'), error)
   })
 

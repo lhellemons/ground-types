@@ -26,8 +26,8 @@ export type PrimitiveValueObject<
 /**
  * Builds a {@link PrimitiveValueObject} factory from a validating
  * constructor. `construct` should throw to reject invalid input; the
- * returned factory is frozen and callable directly for the throwing form, and exposes
- * `.from` — built from `construct` via `tryCatch` — for the `Result` form.
+ * returned factory is frozen and callable directly for the throwing form,
+ * and exposes `.from` — built from `construct` via `tryCatch` — for the `Result` form.
  *
  * Type parameters are ordered `T, P, E`, matching {@link
  * PrimitiveValueObject} exactly. `P` defaults to `string` and `E` to
@@ -44,8 +44,8 @@ export type PrimitiveValueObject<
  * instead. For domain errors, use
  * `definePrimitiveValueObject(construct, catchOnly(InvalidValue))`;
  * the error type is inferred from the listed classes when type arguments
- * are omitted (all or none; see above). For handwritten handlers returning `Result<T, E>`, name
- * `T, P, E` explicitly (see docs/adr/0001, 2026-08-04 amendment).
+ * are omitted (all or none; see above). For handwritten handlers returning
+ * `Result<T, E>`, name `T, P, E` explicitly (see docs/adr/0001, 2026-08-04 amendment).
  * Without a handler, the Failure type is `Error`.
  */
 export function definePrimitiveValueObject<
