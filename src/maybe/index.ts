@@ -198,7 +198,5 @@ export function fromResult<T, E extends Error = Error>(
   // runtime import, and this bridge must stay type-only across the
   // maybe/result boundary or the two modules form a real import cycle
   // (see docs/adr/0001-unboxed-maybe-and-result.md).
-  // A value whose `instanceof Error` check throws is not classified as an
-  // `Error`, so it stays a `Just` rather than the guard's error escaping.
   return (isError(value) ? undefined : value) as Maybe<T>
 }

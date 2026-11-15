@@ -70,14 +70,26 @@ describe('foreign-realm errors with a listed class', () => {
 })
 
 describe('foreign-realm error constructors as a tryCatch handler', () => {
-  // Not detected: a constructor from another realm is not this realm's
-  // `Error`, so the handler check admits it, and it builds a foreign error
-  // that is not a Failure here. TypeScript rejects it.
-  it('are admitted and return a foreign error as a Success', () => {
-    const result = tryCatch(() => {
-      throw new Error('boom')
-    }, ForeignTypeError)()
+  // Not detected: a built-in or ES5-style constructor from another realm has
+  // none of this realm's `Error.prototype` on its chain, so the handler check
+  // admits it, and what it builds is not a Failure here. TypeScript rejects
+  // it. A foreign `class ... extends Error` is refused by its source text.
+  const ForeignEs5 = runInNewContext(
+    'function Es5Error() {}; Es5Error.prototype = Object.create(Error.prototype); Es5Error',
+  )
+  const boom = () => {
+    throw new Error('boom')
+  }
+
+  it('admits a built-in one, which returns a foreign error as a Success', () => {
+    const result = tryCatch(boom, ForeignTypeError)()
     expect(result).toBeInstanceOf(ForeignTypeError)
     expect(isFailure(result)).toBe(false)
+  })
+  it('admits an ES5-style one, which returns undefined as a Success', () => {
+    expect(tryCatch(boom, ForeignEs5)()).toBeUndefined()
+  })
+  it('refuses a foreign class that extends Error', () => {
+    expect(() => tryCatch(boom, ForeignError)).toThrow(TypeError)
   })
 })

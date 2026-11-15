@@ -52,6 +52,13 @@ describe('catchOnly(Object) from plain JS', () => {
     expect(() => unchecked(Object)).toThrow(/catchOnly entry 0/)
     expect(() => tryCatch(() => 1, [Object] as never)).toThrow(TypeError)
   })
+  it('refuses a bound subclass of a built-in that is not an Error', () => {
+    class Mapish extends Map {}
+    expect(() => unchecked(Mapish.bind(null))).toThrow(TypeError)
+    for (const builtin of [Map, Array, Promise, Date, Symbol]) {
+      expect(() => unchecked(builtin)).toThrow(TypeError)
+    }
+  })
   it('is refused for a class that is not an Error subclass, alone or in a list', () => {
     class Plain {}
     expect(() => unchecked(Plain)).toThrow(TypeError)
@@ -132,6 +139,7 @@ describe('catchOnly list validation', () => {
     Legacy.prototype = Object.create(Error.prototype) as object
     function LegacyInstance() {}
     LegacyInstance.prototype = new RangeError()
+    class Plain {}
     for (const entry of [
       A,
       B,
@@ -140,6 +148,12 @@ describe('catchOnly list validation', () => {
       A.bind(null),
       Legacy,
       LegacyInstance,
+      // A bound function that reaches no `prototype` is admitted as native,
+      // whatever it is bound to, so `Object.bind(null)` matches every Error.
+      Error.bind(null),
+      Object.bind(null),
+      Plain.bind(null),
+      Function,
     ]) {
       expect(() =>
         (catchOnly as (...classes: unknown[]) => unknown)(entry),
@@ -426,12 +440,12 @@ describe('tryCatch handler dispatch', () => {
     revocable.revoke()
     expect(() => tryCatch(() => 1, revocable.proxy as never)).toThrow(TypeError)
   })
-  /* A bound function hides its target, so only what the bound function itself
-     reveals is checked: a bound Error subclass is refused, while a bound
-     `Error` or a bound class that is not an Error subclass passes creation
-     and runs as a handler. A bound handler is accepted. TypeScript rejects
-     all three bound classes. */
-  it('refuses a bound Error subclass but not a bound base class', () => {
+  /* A bound function has no own `prototype` and inherits its target's
+     parent's, and its source text is native. So a bound Error subclass is
+     refused (it inherits `Error.prototype`), while a bound `Error` and a bound
+     class with no Error ancestor pass creation and run as a handler. A bound
+     handler is accepted. TypeScript rejects all the bound classes. */
+  it('refuses a bound Error subclass but not a bound Error or a bound base class', () => {
     const boom = () => throws('bad')
     expect(() => tryCatch(boom, A.bind(null) as never)).toThrow(TypeError)
     expect(() => tryCatch(boom, TypeError.bind(null) as never)).toThrow(
@@ -440,6 +454,21 @@ describe('tryCatch handler dispatch', () => {
     class Plain {}
     expect(() => tryCatch(boom, Plain.bind(null) as never)).not.toThrow()
     expect(() => tryCatch(boom, Error.bind(null) as never)).not.toThrow()
+  })
+  it('throws on the error path for a bound class that is not an Error subclass', () => {
+    class Plain {}
+    const original = new A('original')
+    let caught: unknown
+    try {
+      tryCatch(() => throws(original), Plain.bind(null) as never)()
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(TypeError)
+    expect(caught).not.toBe(original)
+    expect((caught as TypeError).message).toMatch(
+      /cannot be invoked without 'new'/,
+    )
   })
   it('replaces the error with a fresh Error for a bound Error handler', () => {
     const original = new A('original')
