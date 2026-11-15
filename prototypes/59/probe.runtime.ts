@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   ThrownError,
+  catchOnly,
   failure,
   isFailure,
   isSuccess,
@@ -235,10 +236,14 @@ describe('B. attempt/take', () => {
   })
 
   it('a take inside a Maybe map callback leaves the attempt', () => {
-    const r = attempt<PieceId | undefined, InvalidPieceId>((take) =>
-      mapMaybe((s: string) => take(PieceId.from(s)), 'BAD'),
-    )
+    let reached = false
+    const r = attempt<PieceId | undefined, InvalidPieceId>((take) => {
+      const id = mapMaybe((s: string) => take(PieceId.from(s)), 'BAD')
+      reached = true
+      return id
+    })
     expect(r).toBeInstanceOf(InvalidPieceId)
+    expect(reached).toBe(false)
     const absent = attempt<PieceId | undefined, InvalidPieceId>((take) =>
       mapMaybe((s: string) => take(PieceId.from(s)), undefined),
     )
@@ -260,9 +265,11 @@ describe('B. attempt/take', () => {
   })
 
   it('cost: a return inside finally swallows the leave', () => {
+    let reached = false
     const r = attempt<number, InvalidPieceId>((take) => {
       try {
         take(PieceId.from('BAD'))
+        reached = true
         return 1
       } finally {
         // eslint-disable-next-line no-unsafe-finally -- the cost under probe
@@ -270,13 +277,36 @@ describe('B. attempt/take', () => {
       }
     })
     expect(r).toBe(3)
+    expect(reached).toBe(false)
   })
 
-  it('cost: a tryCatch inside the body turns the leave into a ThrownError Failure', () => {
+  it('cost: a tryCatch with the default handler inside the body turns the leave into a ThrownError Failure; catchOnly lets it through', () => {
     const r = attempt<Result<number, Error>, InvalidPieceId>((take) =>
       tryCatch(() => take(PieceId.from('BAD')).length)(),
     )
     expect(r).toBeInstanceOf(ThrownError)
+    const through = attempt<Result<number, InvalidPieceId>, InvalidPieceId>(
+      (take) =>
+        tryCatch(
+          () => take(PieceId.from('BAD')).length,
+          catchOnly(InvalidPieceId),
+        )(),
+    )
+    expect(through).toBeInstanceOf(InvalidPieceId)
+  })
+
+  it('a live outer take called inside an inner attempt leaves the outer one', () => {
+    let reached = false
+    const r = attempt<number, InvalidPieceId>((outer) => {
+      const inner = attempt<number, InvalidPieceId>(() => {
+        outer(PieceId.from('BAD'))
+        return 1
+      })
+      reached = true
+      return inner === 1 ? 2 : 3
+    })
+    expect(r).toBeInstanceOf(InvalidPieceId)
+    expect(reached).toBe(false)
   })
 
   it('cost: an async body compiles, and its promise rejects with the token', async () => {

@@ -14,12 +14,25 @@ echo "== typescript $(node_modules/.bin/tsc -v)"
 node_modules/.bin/tsc -p prototypes/59/tsconfig.json
 node_modules/.bin/vitest run --config prototypes/59/vitest.config.ts
 echo "== declaration emit (TS4050 per file)"
-EMIT=$(node_modules/.bin/tsc -p prototypes/59/tsconfig.json --declaration --emitDeclarationOnly --noEmit false --outDir "$OUT/dts" 2>&1 || true)
-TS4050=$(printf '%s\n' "$EMIT" | grep 'error TS4050' | grep -o 'prototypes/59/[a-z-]*\.ts' | sort | uniq -c || true)
-OTHER=$(printf '%s\n' "$EMIT" | grep 'error TS' | grep -v 'error TS4050' || true)
-if [ -n "$OTHER" ]; then
-  printf '%s\n' "$OTHER" >&2
-  echo "declaration emit failed with an error other than TS4050" >&2
+set +e
+EMIT=$(node_modules/.bin/tsc -p prototypes/59/tsconfig.json --declaration --emitDeclarationOnly --noEmit false --outDir "$OUT/dts" 2>&1)
+CODE=$?
+set -e
+TS_LINES=$(printf '%s\n' "$EMIT" | grep -c 'error TS' || true)
+TS4050_LINES=$(printf '%s\n' "$EMIT" | grep -c 'error TS4050' || true)
+COUNTED_LINES=$(printf '%s\n' "$EMIT" | grep 'error TS4050' | grep -c 'prototypes/59/[a-z-]*\.ts' || true)
+if [ "$CODE" -ne 0 ] && [ "$TS_LINES" -eq 0 ]; then
+  printf '%s\n' "$EMIT" >&2
+  echo "declaration emit: tsc exited $CODE with no diagnostics" >&2
   exit 1
 fi
-[ -n "$TS4050" ] && printf '%s\n' "$TS4050" || echo "   none"
+if [ "$TS_LINES" -ne "$TS4050_LINES" ] || [ "$COUNTED_LINES" -ne "$TS4050_LINES" ]; then
+  printf '%s\n' "$EMIT" | grep 'error TS' >&2
+  echo "declaration emit: an error other than a TS4050 under prototypes/59" >&2
+  exit 1
+fi
+if [ "$TS4050_LINES" -eq 0 ]; then
+  echo "   none"
+else
+  printf '%s\n' "$EMIT" | grep 'error TS4050' | grep -o 'prototypes/59/[a-z-]*\.ts' | sort | uniq -c
+fi

@@ -1,7 +1,13 @@
 /* PROTOTYPE #59 — throwaway type probes. What each candidate infers, and
    what it rejects, measured against src/ on main. */
 import { describe, expectTypeOf, it } from 'vitest'
-import { failure, isFailure } from '../../src/result/index.js'
+import {
+  andThen,
+  failure,
+  isFailure,
+  map,
+  success,
+} from '../../src/result/index.js'
 import type { Failure, Result } from '../../src/result/index.js'
 import type { ErrorOf, ValueOf } from '../../src/result/internal.js'
 import { attempt, collect, collectAll, gen, take } from './fan-in.js'
@@ -64,6 +70,45 @@ describe('A. collect', () => {
     >()
     const l = collect([{ x: 1, y: 2 }].map(B.Position.from))
     expectTypeOf(l).toEqualTypeOf<Result<B.Position[], InvalidCoordinate>>()
+  })
+
+  it('the construction step: map/andThen type E but not the value; the early-return form types the parts', () => {
+    class D {
+      constructor(
+        readonly n: Coordinate,
+        readonly id: PieceId,
+      ) {}
+    }
+    const parts = collect({ id: PieceId.from('a'), n: Coordinate.from(1) })
+    // `map` infers its callback's parameter from the callback alone...
+    const swapped = map(({ id, n }) => new D(id, n), parts)
+    expectTypeOf(swapped).toEqualTypeOf<
+      Result<D, InvalidPieceId | InvalidCoordinate>
+    >()
+    map(({ id }) => {
+      expectTypeOf(id).toBeAny()
+      return 0
+    }, parts)
+    map((p) => {
+      expectTypeOf(p).toBeUnknown()
+      return 0
+    }, parts)
+    // ...and `andThen` the same.
+    andThen(({ id, n }) => success(new D(id, n)), parts)
+    // The early-return form carries each member's type.
+    if (!isFailure(parts)) {
+      expectTypeOf(parts.id).toEqualTypeOf<PieceId>()
+      expectTypeOf(parts.n).toEqualTypeOf<Coordinate>()
+      // @ts-expect-error - PieceId is not a Coordinate
+      new D(parts.id, parts.n)
+    }
+    // B's take types its value.
+    attempt<D, InvalidPieceId | InvalidCoordinate>((take) => {
+      const id = take(PieceId.from('a'))
+      expectTypeOf(id).toEqualTypeOf<PieceId>()
+      // @ts-expect-error - PieceId is not a Coordinate
+      return new D(id, take(Coordinate.from(1)))
+    })
   })
 
   it('infers a tuple and a list', () => {

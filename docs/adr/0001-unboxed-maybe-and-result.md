@@ -665,11 +665,14 @@ TS4058.
 ### 2026-11-15 — Typed fan-in over the unboxed Result: `collect` and `attempt`/`take` (#59)
 
 The consumer feedback round (#56) found fan-in, not propagation, to be the
-pain: slider's 22 `tryCatch` factories and 2 parsers (at slider 55d9998)
-all use `tryCatch((dto) => { const x = assertSuccess(X.from(dto.x)); …
-})(dto)`, about 180 `assertSuccess` calls to 0 `andThen` callers, and that
-idiom widens every factory's `E` to `Error` and turns a bug inside a part
-into a Failure. The "No
+pain: slider's 22 `tryCatch` factories (at slider 55d9998) all use
+`tryCatch((dto) => { const x = assertSuccess(X.from(dto.x)); … })(dto)`,
+about 180 `assertSuccess` calls to 0 `andThen` callers, and that idiom
+widens every factory's `E` to `Error` and turns a bug inside a part into a
+Failure. Its two parsers differ: `parseBoard` is `tryCatch(() => …)()` with
+`assertSuccess` calls, widened the same way; `parseOpenWhen` is `tryCatch(()
+=> …, handler)()`, annotated `Result<OpenWhenExpr, OpenWhenSyntaxError>`,
+with no `assertSuccess` and its `E` not widened. The "No
 `all`/`sequence`" bullet's premise was that a fan-in needs a container; it
 does not, because the parts are already unboxed.
 
@@ -680,7 +683,7 @@ parts) with three candidates and scored them on error-union inference,
 bugs staying separate from Failures, dependent steps, use inside callbacks,
 readability and fit with the Result Box. The owner chose **A + B**:
 
-- **`collect(parts)`**: a struct, a tuple or a list whose members are
+- **`collect(parts)`**: an object of parts, a tuple or a list whose members are
   `Result`s (a plain member passes through). It returns the first
   `Failure` among the parts, or the parts themselves: on success no result
   object is built, and nothing is caught. Its value type is the parts with
@@ -692,19 +695,35 @@ readability and fit with the Result Box. The owner chose **A + B**:
   and `collect(dto.path.map(Position.from))` is `Result<Position[],
 InvalidCoordinate>`. The parts are evaluated by the caller, eagerly, so
   a part cannot depend on another part: the construction step follows,
-  through `map`, `andThen` or an early return. The pure `map`/`andThen`
-  form is the one that carries a typed union across a factory boundary
-  with nothing written by hand. The early-return form re-wraps the
-  Failure (`if (isFailure(parts)) return failure(parts)`), which leaks the
-  nested `Failure` into an un-annotated return type; an un-annotated
-  factory that mixes early returns with a combinator returns a union of
-  Results that `isFailure` cannot take; and a factory whose inferred type
-  uses such a leaked type cannot be emitted into a declaration file
-  (TS4050: it names the private markers), while the leaking factory
-  itself and `map`/`andThen` factories over annotated parts emit. A
-  return annotation resolves all three, and it must spell the union by
-  hand: slider's factories are annotated `Result<X, Error>` (at slider
-  55d9998), and under that annotation the union widens to `Error`.
+  through `map`, `andThen` or an early return. The `map`/`andThen` form
+  carries a typed `E` across a factory boundary with nothing written by
+  hand, but not the value: `/result`'s `map<A, U, T extends A, E>(fn:
+(value: A) => U, value: Result<T, E>)` infers `A` from `fn` alone, never
+  from `value`, and `andThen` and `pipe(value, map(…))` are the same, so
+  over a `collect` the callback's parameter is `unknown` when plain and
+  `any` when destructured: inside arm A, `new Door(at, id, …)` with the
+  constructor's arguments swapped compiles. The construction step is
+  typed only where its parameter is annotated by hand or in the
+  early-return form, whose narrowed `parts` carry each member's type;
+  B's `take` and C's `yield* take` type their values with nothing written.
+  Arm A's factories and line counts are measured without those
+  annotations; what to do about it (document the annotation, a
+  `collect(parts, build)` form, or a change to `map` and `andThen`) is
+  #115's. The early-return form re-wraps the Failure (`if
+(isFailure(parts)) return failure(parts)`), which leaks the nested
+  `Failure` into an un-annotated return type; an un-annotated factory
+  that mixes early returns with a combinator returns a union of Results
+  that `isFailure` cannot take; and declaration emit fails where that
+  leaked `Failure` is read through `ErrorOf`, in a `collect` or
+  `collectAll` over it or an `andThen` whose callback returns it (a
+  cannot-be-named error, TS4058 on a function, TS4023 on an exported
+  const, TS4050 on a static method), while returning it unchanged,
+  re-wrapping it in an early return, or passing it through `map` or
+  `andThen` as the value emits; arm A's Door and Slide fail because they
+  `collect` over `Position.from`. A return annotation resolves all three,
+  and it must spell the union by hand: slider's factories are annotated
+  `Result<X, Error>` (at slider 55d9998), and under that annotation the
+  union widens to `Error`.
 - **`attempt((take) => …)`**: the imperative form, slider's shape with
   `assertSuccess` renamed. `take(part)` unboxes the part or leaves the
   `attempt` with its Failure, by throwing a token private to that call,
@@ -722,12 +741,14 @@ E>>(part: R) => ValueOf<R>`). So a typed union at the boundary is the
   `attempt<T, E>` serves where there is no annotation. A factory's own
   failure is a `take(failure(…))` or an early return ahead of the
   `attempt`, never a throw. Its costs, measured: whatever in the body
-  catches, or runs after a throw, sees the token, so a `try`/`catch` or a
-  `return` inside `finally` swallows the leave and a `tryCatch` inside the
-  body turns it into a `ThrownError` Failure; an `async` body compiles, as
-  a Result of a Promise whose rejection is the token; and a plain `return
-failure(…)` in the body lands in `T`, with `E` still `Error`, unless the
-  factory is annotated. The guards and docblocks for these are #115's.
+  catches, or a `finally` that returns, sees the token, so a `try`/`catch`
+  or a `return` inside `finally` swallows the leave, and a `tryCatch`
+  inside the body with the default handler, or one that catches
+  everything, turns it into a `ThrownError` Failure (one with `catchOnly`
+  lets it through); an `async` body compiles, as a Result of a Promise
+  whose rejection is the token; and a plain `return failure(…)` in the
+  body lands in `T`, with `E` still `Error`, where under an annotation it
+  is a type error. The guards and docblocks for these are #115's.
 
 The third candidate, `gen`/`yield* take` (generator do-notation), infers
 the exact union with no annotation and catches nothing, but a `yield*`
@@ -745,7 +766,8 @@ Also decided:
   2026-11-15 no consumer has asked for it. #65 (partially valid
   aggregates) decides.
 - **The names are `collect`, `attempt` and `take`**, and `collect` keeps
-  all three input shapes (struct, tuple, list) through one signature.
+  all three input shapes (an object of parts, a tuple, a list) through one
+  signature.
 - **The Box statics are #89's.** `Result.collect({ … }).map(…)` and
   `Result.attempt((take) => …)` are candidate static entries on the Result
   Box; whether the Box carries them is decided with its other questions.
