@@ -329,6 +329,30 @@ describe('ADR 0001 safety properties', () => {
     void [fn, m]
   })
 
+  it('a raw Error returned without failure() still compiles into the residual types', () => {
+    // No type can close these; each compiled on 0.4.0 as well, bar `void`.
+    const raw = new Error('x')
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-wrapper-object-types, @typescript-eslint/no-unsafe-return -- `any` and `Object` are the cases under test */
+    const a = (): Result<{ name?: string }, Invalid> => raw
+    const b = (): Result<Record<string, any>, Invalid> => raw
+    const c = (): Result<{ [k: string]: any }, Invalid> => raw
+    const d = (): Result<Object, Invalid> => raw
+    const e = (): Result<{ id?: string } & object, Invalid> => raw
+    const f = (loose: any): Result<number, Invalid> => loose
+    const g = (fn: () => void): Result<void, Invalid> => fn()
+    /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-wrapper-object-types, @typescript-eslint/no-unsafe-return */
+    void [a, b, c, d, e, f, g]
+    // Where no key is shared, or the shared key's type is not one an Error
+    // fits, weak-type detection rejects it.
+    // @ts-expect-error - Record<string, unknown> rejects a raw Error
+    const h = (): Result<Record<string, unknown>, Invalid> => raw
+    // @ts-expect-error - no key in common with Error
+    const i = (): Result<{ id?: string }, Invalid> => raw
+    // @ts-expect-error - name is a number here, an Error's is a string
+    const j = (): Result<{ name?: number }, Invalid> => raw
+    void [h, i, j]
+  })
+
   it('rejects a plain Failure<_, Error> where Failure<_, Invalid> is expected', () => {
     const plain = null as unknown as Failure<number, Error>
     // @ts-expect-error - Error is not Invalid

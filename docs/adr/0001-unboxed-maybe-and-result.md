@@ -238,10 +238,9 @@ members, a class instance without private members (a `Game { id; round
 trusts its caller there. `any` passes too, as it passes every
 constraint, and so does `void`, which can hide an `Error` as well: a
 `() => Error` is assignable to a `() => void`, so `(f: () => void):
-Result<void, Invalid> => success(f())` compiles. The guard's design stands;
-`void` is listed beside `any` as a type that passes but may hold an `Error`.
-**Breaking:** the guard judges the value's type at every
-call, not only at a site typed to a narrower error class, so `success`
+Result<void, Invalid> => success(f())` compiles. A `void`-typed value needs
+no `success()` either; see the residual below. **Breaking:** the guard
+judges the value's type at every call, not only at a site typed to a narrower error class, so `success`
 of any value whose type it judges may hold an `Error` (`unknown`,
 `object`, `{}`, an all-optional object, an `Error` union, a `Result`, a
 class like `Tag` or the shape `{ name: string }`, an index-signature
@@ -264,8 +263,8 @@ assignment (`let last = failure(new Invalid())`, then `last = s` with
 `s: Failure<number, Invalid>`, and `let s = success(n)` with `n:
 number`, then `s = x` with `x: Success<number, Invalid>`, no longer
 compile; annotate the variable). The guard's type, `NotPossiblyAnError`, is
-exported so its message can be pinned, as `NotAResult`'s is: it joins the README's
-module table, the `/result` surface test and the CHANGELOG.
+exported so its message can be pinned, as `NotAResult`'s is: it joins the
+README's module table, the `/result` surface test and the CHANGELOG.
 
 `Success` gains a third marker, `readonly [_error]?: never`, next to its
 `[_phantom]` and `[_value]`. Without it the `never` default opens a hole
@@ -394,14 +393,22 @@ no type can close, as before: a raw `Error` returned without `failure()`
 compiles where `T` is `object`, a union with `object`, or an object type
 whose required members a plain `Error` has (`Result<object, Invalid>`,
 `Result<{ name: string }, Invalid>`, `Result<number | object,
-Invalid>`), or an all-optional object that shares a key with `Error`
-(`name`, `message`, `stack`, `cause`: `Result<{ name?: string }, Invalid>`,
-`Result<Partial<{ name: string; port: number }>, Invalid>`,
-`Result<{ message?: string; id?: number }, Invalid>`), which passes
-weak-type detection through the shared key. Where `T` is `unknown`, `{}` or
-an all-optional object with no key in common with `Error`
-(`Result<{ id?: string }, Invalid>`) the raw return is rejected, on 0.4.0 as
-now, by weak-type detection on `Success`'s optional markers. Every existing
+Invalid>`); where `T` is an all-optional object with a key `Error` has,
+typed so that `Error`'s member fits (`name`, `message`, `stack`, `cause`:
+`Result<{ name?: string }, Invalid>`, `Result<Partial<{ name: string; port:
+number }>, Invalid>`, `Result<{ message?: string; id?: number }, Invalid>`),
+which passes weak-type detection through that key; where `T` is `Object`, an
+`any`-indexed object (`Record<string, any>`, `{ [k: string]: any }`,
+`Readonly<Record<string, any>>`) or an intersection with `object`
+(`{ id?: string } & object`); and when the returned expression is
+`any`-typed. A `void`-typed expression compiles too where `T` admits `void`
+(`(f: () => void): Result<void, Invalid> => f()`,
+`Result<number | void, Invalid>`), since the 2026-11-15 amendment gave `void`
+an arm. All but the `void` case compile on 0.4.0 as well. Where `T` is
+`unknown`, `{}`, `Record<string, unknown>` or an all-optional object with no
+such key (`Result<{ id?: string }, Invalid>`, `Result<{ name?: number },
+Invalid>`) the raw return is rejected, on 0.4.0 as now, by weak-type
+detection on `Success`'s optional markers. Every existing
 type-level test stays green but two, whose expectations change from
 `Success<number, Error>` to `Success<number, never>` and from
 `Failure<unknown, Invalid>` to `Failure<never, Invalid>`, plus the Box
@@ -510,16 +517,16 @@ list below. One more consequence is a stub's: the curried `act` overload
 same type (TS2345: `T` and `E` infer as `number` and `Error` from the value
 and `Invalid` from the parameter at once). That compiled on 0.4.0. The other
 half of the change goes the other way: `act` with a callback over
-`Result<Maybe<number>, Invalid>`, applied to a `Maybe<number>`, failed on
-0.4.0 and on main and compiles now. `act` is an unexported, unimplemented
+`Result<Maybe<number>, Invalid>`, applied to a `Maybe<number>`, failed
+before this amendment and compiles now. `act` is an unexported, unimplemented
 stub, so both are pinned in `nullish-success.test-d.ts` and handed to the act
 and Box work (#89).
 
 Costs, on record. A nullish arm carries no phantom, so `Success<undefined,
 Invalid>` and `Success<undefined, Other>` are the same type, `undefined`;
 the error arm of a `Result<undefined, E>` is still its `Failure<_, E>`,
-which the phantom keeps distinct. Three consequences are observable, and the
-fourth bullet is a changed reason, not a consequence:
+which the phantom keeps distinct. Three consequences are observable; a fourth
+item records a changed reason:
 
 - `success(undefined)` and `success(null)` seed no `E = never` into a
   chain: `map(f, success(undefined))` is `Result<number, Error>`, so a
@@ -539,9 +546,10 @@ fourth bullet is a changed reason, not a consequence:
   `Result<T, E>` reads the alias's type argument, `number | undefined`.
   What regressed, because the `undefined` was lost from the Success arm
   before: `orElse(0, r)` and a user `unwrap<T, E>(x: Result<T, E>): T` no
-  longer give a `number` (on TypeScript 5.4 and 5.9; on 7.0 the narrowed-arm
-  `unwrap` already failed), and `mapError(…, r)` and `Result.box(r).unbox()`
-  widen back to `number | undefined`. Ruling the `undefined` out of the
+  longer give a `number`, and `mapError(…, r)` and `Result.box(r).unbox()`
+  widen back to `number | undefined`. On TypeScript 7.0 the narrowed-arm
+  `unwrap`, `mapError` and `Result.box(r).unbox()` already failed on 0.4.0,
+  so those are not regressions there. Ruling the `undefined` out of the
   whole `Result` first (`if (r === undefined) return`) does not help for
   `orElse` and `fallback` either: the `Failure` arm still names
   `number | undefined`, and both compiled before. Three cases already failed
@@ -557,14 +565,14 @@ fourth bullet is a changed reason, not a consequence:
   `NonNullable<T>` spellings) turns `plain(success(1))` into
   `[1 | undefined, never]`: `Failure` shares `[_phantom]` with the arm, and
   its optional `[_phantom]?: T` supplies the `undefined`. Renaming
-  `Failure`'s marker removes that `undefined` and breaks
-  `orElse(0, success(5))` instead (`T` infers `0`, which
-  `SuccessArm<5, never>` does not fit). With or without the rename,
+  `Failure`'s marker removes that `undefined`. With or without the rename,
+  `orElse(0, success(5))` breaks (`T` infers `0`, which
+  `SuccessArm<5, never>` does not fit) and
   `if (isSuccess(r)) return map(f, r)` becomes a hard error for
   `r: Result<number | undefined, E>`. Distributing
   `Success` over `T` (`T extends nullish ? NoInfer<T> : SuccessArm<T, E>`)
-  fixes seeding and most of this, but breaks `fallback`'s callback and
-  `mapError`'s recovery inference, and makes the same
+  fixes seeding and most of this, but breaks `mapError`'s recovery
+  inference, and makes the same
   `if (isSuccess(r)) return map(f, r)` a hard error.
 - `unknown` gets no nullish arm, since `Extract<unknown, null | undefined>`
   is `never`, so `success(undefined)` and `success(null)` no longer fit a

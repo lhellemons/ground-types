@@ -21,10 +21,15 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   `Result<Result<T>>` is still not assignable to `Result<T>`. A raw `Error`
   returned without `failure()` still compiles where `T` is `object`, a union
   with `object`, an object type whose required members a plain `Error` has
-  (`{ name: string }`), or an all-optional object that shares a key with
-  `Error` (`name`, `message`, `stack`, `cause`: `{ name?: string }`,
-  `Partial<{ name: string; port: number }>`), as before. `unknown`, `{}` and
-  an all-optional object with no key in common with `Error` reject it.
+  (`{ name: string }`), an all-optional object with a key `Error` has, typed
+  so that `Error`'s member fits (`name`, `message`, `stack`, `cause`:
+  `{ name?: string }`, `Partial<{ name: string; port: number }>`), `Object`,
+  an `any`-indexed object (`Record<string, any>`, `{ [k: string]: any }`), an
+  intersection with `object` (`{ id?: string } & object`), or an `any`-typed
+  expression, as before. `unknown`, `{}`, `Record<string, unknown>` and an
+  all-optional object with no such key (`{ id?: string }`, `{ name?: number }`)
+  reject it. A `void`-typed expression also compiles where `T` admits `void`,
+  since the `void` arm below: `(f: () => void): Result<void, Invalid> => f()`.
 - **Breaking:** `Success<undefined>`, `Success<null>` and `Success<void>` no
   longer reduce to `never`; each is the bare `undefined`, `null` or `void`,
   with no error phantom, and a nullish member of `T` is a Success arm of its
@@ -60,7 +65,7 @@ success(undefined))` narrows `E`. Pass type arguments to the combinator
   `fallback(() => 0, r)` on the narrowed arm (its callback was typed
   `never`), `unwrap` after ruling the `undefined` out of the whole `Result`,
   and `unwrap` on a narrowed `string | null`. On TypeScript 7.0 the
-  narrowed-arm `unwrap` was an error on 0.4.0 as well.
+  narrowed-arm `unwrap` and `mapError` were errors on 0.4.0 as well.
   `unknown` gets no nullish arm, so `(): Result<unknown, E> =>
 success(undefined)` and `success(null)` no longer compile. Checked on
   TypeScript 5.4, 5.9 and 7.0.

@@ -41,6 +41,16 @@ describe('/result type exports', () => {
     expectTypeOf<Success<string | undefined, RangeError>>().toEqualTypeOf<
       SuccessArm<string | undefined, RangeError> | undefined
     >()
+    // `toEqualTypeOf` cannot tell the alias argument `string | undefined`
+    // from `string`; a generic reads it.
+    const plain = <T, E extends Error = Error>(value: Result<T, E>): [T, E] => [
+      value as T,
+      undefined as unknown as E,
+    ]
+    const optional = null as unknown as Success<string | undefined, RangeError>
+    expectTypeOf(plain(optional)).toEqualTypeOf<
+      [string | undefined, RangeError]
+    >()
   })
 
   it('Failure is usable as an Error — the unboxed encoding', () => {
