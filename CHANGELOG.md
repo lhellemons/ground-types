@@ -307,7 +307,10 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   every `AbortablePromise` member whose `then` is a function, which are the
   members the combinator can subscribe to. A throw from one member's `abort()`
   no longer stops the loop: `abort()` is called on every member, then the first
-  error is thrown. Before, the throw (a subclass's override, an `abort`
+  error is thrown. The same holds for the links of one promise (a promise
+  derived by `then` whose handler returns an `AbortablePromise` has a link to
+  its source and one to that delegate): `abort()` fires each link, then throws
+  the first error. Before, the throw (a subclass's override, an `abort`
   assigned to the instance, a derived member whose upstream `abort()` throws)
   ended the loop and left the members after it running, and so did the trap of
   a Proxy whose `getPrototypeOf` throws, or a revoked Proxy, which are now
@@ -358,38 +361,61 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   instead of using `instanceof`, so `Promise[Symbol.hasInstance]` is no longer
   consulted. A value whose chain cannot be walked is not one, and goes where any
   other value goes.
-- The `resolve` and `reject` an executor receives ignore every call after the
-  first, as a native promise's do, also while the thenable passed to the first
-  is still being followed. `new AbortablePromise(r => { r(slow); r('fast') })`
-  and `r(slow); reject(e)` fulfilled with `'fast'` and rejected with `e`, where
-  `Promise` follows `slow`; both now follow `slow`. The promise stays abortable
-  until it settles, and aborting it aborts an `AbortablePromise` delegate, as
-  it does for a single `resolve(work)`.
-- An executor that throws after calling `resolve` or `reject` no longer changes
-  the outcome, as with `Promise`: one that calls `resolve(work)` and then throws
-  follows `work`, where it rejected with the throw. An executor that throws
-  before that settles the promise like any other rejection: aborting it no
-  longer aborts the controller passed to the constructor, and the listener on
-  that controller's signal is released when the promise rejects, where it
-  stayed until the signal aborted.
-- An executor's `resolve` called with the promise itself rejects it with a
-  `TypeError`, as `Promise` does. It stayed pending forever.
+- **Breaking:** the `resolve` and `reject` an executor receives ignore every
+  call after the first, as a native promise's do, also while the thenable
+  passed to the first is still being followed. A thenable passed to a later
+  call is no longer followed. `r(a); r(b)` followed `b` too, so aborting the
+  promise aborted both delegates, where it now aborts `a` and leaves `b`
+  running. `r(slow); r(Promise.reject(e))` and `r(slow); reject(e)` rejected
+  with `e`, and `r(slow); r('fast')` fulfilled with `'fast'`: each follows
+  `slow` now, as `Promise` does, and the rejection of the thenable that is no
+  longer followed is unhandled, which ends a Node process, where it was handled
+  before. The same holds after `reject`: `reject(e); resolve(Promise.reject(f))`
+  leaves `f` unhandled. The promise stays abortable until it settles.
+- An executor that throws after `resolve(thenable)` no longer rejects: it
+  follows the thenable, as with `Promise`, where it rejected with the throw
+  (after `reject` or `resolve(plain)`, a throw never changed the outcome). An
+  executor that throws settles the promise like any other rejection, so
+  aborting it afterwards does nothing: it no longer aborts the controller passed
+  to the constructor, whose signal listener is released when the promise
+  rejects, where it stayed until the signal aborted; a `peer` whose executor
+  throws no longer aborts the source it shares a controller with; and a
+  listener the executor put on its own `context.signal` is no longer called.
+- A promise resolved with itself rejects with a `TypeError`, as with `Promise`:
+  an executor's `resolve` called with the promise, a thenable it was resolved
+  with that calls its callback with the promise, a promise derived by `then`
+  whose handler returns it (`p2 = p.then(() => p2)`), and
+  `fakeAbortablePromise()`'s `resolve(fake)`. They stayed pending until
+  aborted, and an abort after the `TypeError` does nothing. A thenable that
+  resolves the promise with a further thenable that resolves with the promise
+  is not caught.
+- The `resolve` and `reject` of `fakeAbortablePromise()` are an executor's, so
+  the second call is ignored: `fake.resolve(pending); fake.reject(e)` follows
+  `pending`, where `reject(e)` rejected it. `fakePromise()` is as before.
 - `AbortablePromise.all`, `allSettled`, `race` and `any` return a rejected
   `AbortablePromise` when `values` is not iterable (`null`, `undefined`, a
   number, a plain object) or its iterator throws, as the `Promise` combinators
-  do: the rejection is a `TypeError`, or what the iterator throws. They threw
-  it synchronously.
-- A member's `then` is read once by a combinator, for the subscription and for
-  the abort alike, so the members aborted are the ones it subscribed to: a
-  getter that returns a function on one read and throws on the next is
-  subscribed to and aborted, and one that throws on its first read rejects the
-  combinator and is not aborted.
+  do, with a `TypeError` or what the iterator throws. They iterate `values`
+  lazily, as `Promise`'s do: a member taken before the iterator throws is
+  subscribed to, and the iterator is closed when a subclass's `resolve`
+  throws. They spread `values` first and threw from the spread, which left an
+  earlier member that rejects unhandled and the iterator open.
+- A member of a combinator that is an `AbortablePromise` whose `then` is a
+  function is handed to `resolve` as a thenable that calls that `then`, which
+  is read once, so a subclass's static `resolve` receives the thenable, where
+  it received the member. A member whose `then` is not a function on that read
+  is handed over as it is: a getter that returns a function on the
+  combinator's own read is subscribed to and not aborted, where it was aborted.
 - Aborting an `AbortablePromise` made with a controller whose `abort()` throws
   (an `AbortController` subclass) rejects it with the `AbortError`, aborts its
   delegate and releases its signal listeners, then throws the controller's
   error, which comes before an error from a later link. Before, the throw ended
   the abort at the controller, which left the promise pending forever, its
-  delegate running and its listeners on the signal. A second `abort()` does nothing, as before.
+  delegate running and its listeners on the signal. A second `abort()` does
+  nothing, as before. A controller that is already aborted when it is passed to
+  the constructor is the exception: the promise rejects with the `AbortError`,
+  where it rejected with the error its `abort()` threw, and that error is
+  dropped.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`

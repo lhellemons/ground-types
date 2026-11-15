@@ -1153,6 +1153,25 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     await expect(outer).rejects.toSatisfy(isAbortError)
   })
 
+  it('aborting a derived promise aborts the delegate its handler returned, after an upstream abort() that throws', async () => {
+    // The derived promise has two links: to its source, from `then`, and to the
+    // delegate, from the handler's return. The first throws.
+    const source = new AbortablePromise<number>((resolve) => resolve(1))
+    source.abort = () => {
+      throw new RangeError('refused')
+    }
+    const work = new AbortablePromise<string>(() => {})
+    const derived = source.then(() => work)
+    // Let the handler run.
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(() => derived.abort()).toThrow(RangeError)
+
+    await expect(derived).rejects.toSatisfy(isAbortError)
+    await expect(work).rejects.toSatisfy(isAbortError)
+  })
+
   it('an executor resolving with a Proxy with no traps over an AbortablePromise does not throw when aborted', async () => {
     const inner = new AbortablePromise<string>(() => {})
     const outer = new AbortablePromise<string>((resolve) =>
@@ -2387,6 +2406,146 @@ describe('AbortablePromise resolve functions, as a native promise has them', () 
     await expect(native).rejects.toBeInstanceOf(TypeError)
     await expect(ours).rejects.toBeInstanceOf(TypeError)
   })
+
+  it('is settled by rejecting for resolving with itself: a later abort leaves its controller alone', async () => {
+    const controller = new AbortController()
+    const removeEventListener = vi.spyOn(
+      controller.signal,
+      'removeEventListener',
+    )
+    let resolveOurs!: (value: unknown) => void
+    const ours = new AbortablePromise((resolve) => {
+      resolveOurs = resolve
+    }, controller)
+    resolveOurs(ours)
+
+    await expect(ours).rejects.toBeInstanceOf(TypeError)
+    expect(removeEventListener).toHaveBeenCalledWith(
+      'abort',
+      expect.any(Function),
+    )
+    ours.abort()
+    expect(controller.signal.aborted).toBe(false)
+  })
+
+  it('rejects with a TypeError when a thenable it was resolved with resolves it with itself, as Promise does', async () => {
+    const resolveWithItself = (
+      resolve: (value: unknown) => void,
+      self: () => unknown,
+    ) => {
+      resolve({
+        then(onFulfilled: (value: unknown) => void) {
+          onFulfilled(self())
+        },
+      })
+    }
+    const native: Promise<unknown> = new Promise((resolve) => {
+      resolveWithItself(resolve, () => native)
+    })
+    const ours: AbortablePromise<unknown> = new AbortablePromise((resolve) => {
+      resolveWithItself(resolve, () => ours)
+    })
+
+    await expect(native).rejects.toBeInstanceOf(TypeError)
+    await expect(ours).rejects.toBeInstanceOf(TypeError)
+  })
+
+  it('rejects with a TypeError when a derived promise is resolved with itself, as Promise does', async () => {
+    const native: Promise<unknown> = Promise.resolve(1).then(() => native)
+    const ours: AbortablePromise<unknown> = AbortablePromise.resolve(1).then(
+      () => ours,
+    )
+
+    await expect(native).rejects.toBeInstanceOf(TypeError)
+    await expect(ours).rejects.toBeInstanceOf(TypeError)
+  })
+
+  it('does not follow a thenable passed to a later resolve: aborting aborts the first delegate only', async () => {
+    const first = new AbortablePromise<string>(() => {})
+    let finishSecond!: (value: string) => void
+    const second = new AbortablePromise<string>((resolve) => {
+      finishSecond = resolve
+    })
+    const ap = new AbortablePromise<string>((resolve) => {
+      resolve(first)
+      resolve(second)
+    })
+
+    ap.abort()
+    finishSecond('second finished')
+
+    await expect(ap).rejects.toSatisfy(isAbortError)
+    await expect(first).rejects.toSatisfy(isAbortError)
+    await expect(second).resolves.toEqual('second finished')
+  })
+
+  it('leaves the rejection of a thenable passed to a later resolve unhandled, as Promise does', async () => {
+    const rejection = new RangeError('late')
+    const run = (construct: typeof Promise | typeof AbortablePromise) => {
+      let ap: Promise<unknown> | undefined
+      return unhandledDuring(() => {
+        ap = new construct<unknown>((resolve) => {
+          resolve(later('slow'))
+          resolve(Promise.reject(rejection))
+        })
+      }).then(async (unhandled) => ({ unhandled, outcome: await ap }))
+    }
+
+    const native = await run(Promise)
+    const ours = await run(AbortablePromise)
+
+    expect(native).toEqual({ unhandled: [rejection], outcome: 'slow' })
+    expect(ours).toEqual(native)
+  })
+
+  it('leaves the rejection of a thenable passed to resolve after reject unhandled, as Promise does', async () => {
+    const rejection = new RangeError('late')
+    const run = (construct: typeof Promise | typeof AbortablePromise) => {
+      let ap: Promise<unknown> | undefined
+      return unhandledDuring(() => {
+        ap = new construct<unknown>((resolve, reject) => {
+          reject(new Error('first'))
+          resolve(Promise.reject(rejection))
+        })
+        void ap.catch(() => {})
+      }).then((unhandled) => unhandled)
+    }
+
+    expect(await run(AbortablePromise)).toEqual(await run(Promise))
+    expect(await run(AbortablePromise)).toEqual([rejection])
+  })
+
+  it('is settled by a peer executor that throws: aborting the peer leaves the signal it shares alone', async () => {
+    let signal!: AbortSignal
+    const source = new AbortablePromise<string>(
+      (_resolve, _reject, context) => {
+        signal = context.signal
+      },
+    )
+    const peer = source.peer(() => {
+      throw new RangeError('thrown')
+    })
+    await expect(peer).rejects.toBeInstanceOf(RangeError)
+
+    peer.abort()
+
+    expect(signal.aborted).toBe(false)
+    void source.catch(() => {})
+    source.abort()
+  })
+
+  it('is settled by an executor that throws: a cleanup on its own signal does not run when it is aborted', async () => {
+    const cleanup = vi.fn()
+    const ap = new AbortablePromise<string>((_resolve, _reject, context) => {
+      context.signal.addEventListener('abort', cleanup)
+      throw new RangeError('thrown')
+    })
+    await expect(ap).rejects.toBeInstanceOf(RangeError)
+
+    ap.abort()
+
+    expect(cleanup).not.toHaveBeenCalled()
+  })
 })
 
 describe('AbortablePromise combinators, as the native ones are called', () => {
@@ -2516,6 +2675,165 @@ describe('AbortablePromise combinators, as the native ones are called', () => {
 
       expect(unhandled).toEqual([])
     })
+
+    it('rejects, or is rejected by, the error a then getter throws on its first read, as Promise does', async () => {
+      const readThrowing = (
+        member: Promise<unknown>,
+        abortableThen: unknown,
+      ) => {
+        let reads = 0
+        void Object.defineProperty(member, 'then', {
+          get() {
+            reads++
+            if (reads === 1) {
+              throw new RangeError('first read')
+            }
+            return abortableThen
+          },
+        })
+      }
+      const settled = async (combined: Promise<unknown>) => {
+        try {
+          return { fulfilled: await combined }
+        } catch (error) {
+          return { rejected: error }
+        }
+      }
+      const reasonsOf = (outcome: {
+        fulfilled?: unknown
+        rejected?: unknown
+      }): string[] => {
+        const messageOf = (reason: unknown) => (reason as Error).message
+        if ('fulfilled' in outcome) {
+          return (outcome.fulfilled as { reason: unknown }[]).map((result) =>
+            messageOf(result.reason),
+          )
+        }
+        return outcome.rejected instanceof AggregateError
+          ? (outcome.rejected.errors as unknown[]).map(messageOf)
+          : [messageOf(outcome.rejected)]
+      }
+
+      const native = Promise.resolve('a')
+      readThrowing(native, nativeThen)
+      const ours = AbortablePromise.resolve('a')
+      readThrowing(ours, abortableThen)
+
+      const nativeOutcome = await settled(natives[name]([native]))
+      const ourOutcome = await settled(calls[name]([ours]))
+
+      // `any` rejects with an AggregateError of the reasons, `allSettled`
+      // fulfils: each as it does for a member that rejects.
+      expect(reasonsOf(ourOutcome)).toEqual(reasonsOf(nativeOutcome))
+      expect(reasonsOf(ourOutcome)).toEqual(['first read'])
+    })
+
+    it('leaves a member alone when its then is not a function on the first read, and the combinator reads it again', async () => {
+      const member = new AbortablePromise<string>(() => {})
+      let reads = 0
+      void Object.defineProperty(member, 'then', {
+        get() {
+          reads++
+          return reads === 1 ? undefined : abortableThen
+        },
+      })
+      const abort = vi.spyOn(member, 'abort')
+
+      const combined = calls[name]([member]) as AbortablePromise<unknown>
+      void combined.catch(() => {})
+      combined.abort()
+
+      await expect(combined).rejects.toSatisfy(isAbortError)
+      // Subscribed to by the second read, and not aborted.
+      expect(reads).toBe(2)
+      expect(abort).not.toHaveBeenCalled()
+      void member.catch(() => {})
+      member.abort()
+    })
+
+    it('iterates lazily, as Promise does: a member before a throwing iterator is subscribed to', async () => {
+      const iterable = (rejected: Promise<unknown>) => ({
+        [Symbol.iterator]() {
+          let step = 0
+          return {
+            next(): IteratorResult<unknown> {
+              if (step++ === 0) {
+                return { value: rejected, done: false }
+              }
+              throw new RangeError('iterator')
+            },
+          }
+        },
+      })
+
+      const nativeUnhandled = await unhandledDuring(() => {
+        void natives[name](iterable(Promise.reject(new Error('r')))).catch(
+          () => {},
+        )
+      })
+      const ourUnhandled = await unhandledDuring(() => {
+        void calls[name](iterable(Promise.reject(new Error('r')))).catch(
+          () => {},
+        )
+      })
+
+      expect(nativeUnhandled).toEqual([])
+      expect(ourUnhandled).toEqual([])
+    })
+
+    it('closes the iterator when the combinator stops early, as Promise does', async () => {
+      const closed = vi.fn()
+      const iterable = {
+        [Symbol.iterator]() {
+          let step = 0
+          return {
+            next(): IteratorResult<unknown> {
+              return step++ < 3
+                ? { value: 1, done: false }
+                : { value: undefined, done: true }
+            },
+            return(): IteratorResult<unknown> {
+              closed()
+              return { value: undefined, done: true }
+            },
+          }
+        },
+      }
+      class Failing<T> extends AbortablePromise<T> {
+        static override resolve(): never {
+          throw new RangeError('resolve')
+        }
+      }
+      class NativeFailing<T> extends Promise<T> {
+        static override resolve(): never {
+          throw new RangeError('resolve')
+        }
+      }
+      const run = (construct: unknown) =>
+        (construct as Record<string, (values: unknown) => Promise<unknown>>)[
+          name
+        ].call(construct, iterable)
+
+      await expect(run(NativeFailing)).rejects.toBeInstanceOf(RangeError)
+      const afterNative = closed.mock.calls.length
+      await expect(run(Failing)).rejects.toBeInstanceOf(RangeError)
+
+      expect(afterNative).toBe(1)
+      expect(closed.mock.calls.length).toBe(2)
+    })
+
+    it('hands a subclass’s resolve a thenable for a member that is an AbortablePromise, not the member', async () => {
+      class Sub<T> extends AbortablePromise<T> {}
+      const resolveSpy = vi.spyOn(Sub, 'resolve')
+      const member = AbortablePromise.resolve('a')
+
+      await (
+        Sub as unknown as Record<string, (v: unknown) => Promise<unknown>>
+      )[name].call(Sub, [member])
+
+      expect(resolveSpy).toHaveBeenCalledTimes(1)
+      expect(resolveSpy.mock.calls[0]?.[0]).not.toBe(member)
+    })
   })
 })
 
@@ -2557,11 +2875,31 @@ describe('AbortablePromise with a controller whose abort() throws', () => {
       (resolve) => resolve(first),
       controller,
     )
-    first.abort = () => {
+    const abortFirst = vi.fn(() => {
       throw new TypeError('later')
-    }
+    })
+    first.abort = abortFirst
 
     expect(() => ap.abort()).toThrow(RangeError)
+    await expect(ap).rejects.toSatisfy(isAbortError)
+    expect(abortFirst).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops the controller’s error when it is already aborted as it is passed in: the promise rejects with the AbortError', async () => {
+    class ThrowingAfterAbort extends AbortController {
+      override abort(): void {
+        super.abort()
+        throw new RangeError('refused')
+      }
+    }
+    const controller = new ThrowingAfterAbort()
+    expect(() => controller.abort()).toThrow(RangeError)
+
+    let ap: AbortablePromise<string> | undefined
+    expect(() => {
+      ap = new AbortablePromise<string>(() => {}, controller)
+    }).not.toThrow()
+
     await expect(ap).rejects.toSatisfy(isAbortError)
   })
 })

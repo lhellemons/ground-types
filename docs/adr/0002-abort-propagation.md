@@ -126,13 +126,14 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   a resolution handed a plain value still settles at once, so aborting
   after it remains the documented no-op.
 
-  Adopting is a resolution, though, and a promise is resolved once: the
-  `resolve` and `reject` an executor receives share one flag, as a native
-  promise's do, and every call after the first is ignored, whether the
-  thenable handed to the first is still pending or has settled. While it is
-  pending only `abort()` still acts on the promise. An executor that throws
-  goes through the same `reject`, so a throw after `resolve(work)` is
-  ignored too.
+  **Update, 2026-11-15:** adopting is a resolution, though, and a promise
+  is resolved once: the `resolve` and `reject` an executor receives share
+  one flag, as a native promise's do, and every call after the first is
+  ignored, whether the thenable handed to the first is still pending or has
+  settled. While it is pending only `abort()` still acts on the promise. An
+  executor that throws goes through the same `reject`, so a throw after
+  `resolve(work)` is ignored too, and a promise resolved with itself rejects
+  with a `TypeError`.
 
 - **Delegation is upstream, so abort travels it.** Keeping the abort
   window open is only half of that ruling. The other half is where the
@@ -158,7 +159,9 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
     rather than being queued for an abort that is in the past. An
     executor may call `resolve` at any time, including long after its
     promise was aborted, and the delegate it hands over then is only
-    reached because late links still fire. `AbortState.link` owns that
+    reached because late links still fire. That holds for the first
+    call only: a later call is ignored, whether the first handed over a
+    delegate or not. `AbortState.link` owns that
     rule so every caller of it — the `then` override and the fan-in
     combinators included — gets it, though only delegation can register
     a link late enough to need it.
@@ -180,7 +183,13 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   the signal bindings are released either way. A throw from a link that
   fires at once, for a `resolve` after the abort, is dropped, since the
   promise is already settled. A Proxy over an `AbortablePromise` is a plain
-  thenable to it, so abort does not travel through one.
+  thenable to it, so abort does not travel through one. A controller passed
+  to the constructor whose `abort()` throws is the first link of that
+  loop: its error does not stop the rejection, the other links or the
+  release of the signal bindings, and is thrown first, after the last of
+  them. A controller that is already aborted when it is passed in has its
+  error dropped, since the promise is rejected inside its own constructor,
+  where there is no caller to throw to.
 
 - **A fresh `AbortError` per abort.** The imported implementation held a
   single `static readonly AbortError`, constructed once at module load.
