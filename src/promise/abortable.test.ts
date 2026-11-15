@@ -294,6 +294,19 @@ function hostileProxy<T extends object>(target: T): T {
   })
 }
 
+/* A Proxy whose `get` binds every method to the target, so calling a method
+   through it works where it would not with no traps. */
+function bindingProxy<T extends object>(target: T): T {
+  return new Proxy(target, {
+    get(t, key) {
+      const value: unknown = Reflect.get(t, key)
+      return typeof value === 'function'
+        ? (value as (...args: unknown[]) => unknown).bind(t)
+        : value
+    },
+  })
+}
+
 function revokedProxy(): object {
   const { proxy, revoke } = Proxy.revocable({}, {})
   revoke()
@@ -350,6 +363,33 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     ).resolves.toBe('adopted')
   })
 
+  /* Calls `resolve(value)` once the executor has returned, and reports whether
+     that call threw. */
+  function resolveLate(
+    construct: (
+      executor: (resolve: (value: unknown) => void) => void,
+    ) => Promise<unknown>,
+    value: unknown,
+  ): { promise: Promise<unknown>; thrown: unknown[] } {
+    const thrown: unknown[] = []
+    let resolveLater: (value: unknown) => void = () => {}
+    const promise = construct((resolve) => {
+      resolveLater = resolve
+    })
+    try {
+      resolveLater(value)
+    } catch (error) {
+      thrown.push(error)
+    }
+    return { promise, thrown }
+  }
+
+  const lateNative = (executor: (resolve: (value: unknown) => void) => void) =>
+    new Promise<unknown>(executor)
+  const lateAbortable = (
+    executor: (resolve: (value: unknown) => void) => void,
+  ) => new AbortablePromise<unknown>(executor)
+
   it.each([
     ['a revoked Proxy', revokedProxy(), TypeError],
     [
@@ -364,32 +404,33 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
   ])(
     'a late resolve(%s) rejects the promise rather than throwing, as new Promise does',
     async (_name, value, errorClass) => {
-      let thrown: unknown = 'did not throw'
-      const nativePromise = new Promise((resolve) => {
-        setTimeout(() => {
-          try {
-            resolve(value)
-          } catch (error) {
-            thrown = error
-          }
-        }, 0)
-      })
-      await expect(nativePromise).rejects.toBeInstanceOf(errorClass)
-      expect(thrown).toBe('did not throw')
+      const native = resolveLate(lateNative, value)
+      expect(native.thrown).toEqual([])
+      await expect(native.promise).rejects.toBeInstanceOf(errorClass)
 
-      const ap = new AbortablePromise((resolve) => {
-        setTimeout(() => {
-          try {
-            resolve(value)
-          } catch (error) {
-            thrown = error
-          }
-        }, 0)
-      })
-      await expect(ap).rejects.toBeInstanceOf(errorClass)
-      expect(thrown).toBe('did not throw')
+      const ours = resolveLate(lateAbortable, value)
+      expect(ours.thrown).toEqual([])
+      await expect(ours.promise).rejects.toBeInstanceOf(errorClass)
     },
   )
+
+  it('a late resolve() of a promise whose constructor getter throws rejects the promise rather than throwing, as new Promise does', async () => {
+    const make = () =>
+      Object.defineProperty(Promise.resolve('value'), 'constructor', {
+        get(): never {
+          throw new RangeError('constructor')
+        },
+      })
+
+    // `then` reads `constructor` to find the species, so native rejects too.
+    const native = resolveLate(lateNative, make())
+    expect(native.thrown).toEqual([])
+    await expect(native.promise).rejects.toBeInstanceOf(RangeError)
+
+    const ours = resolveLate(lateAbortable, make())
+    expect(ours.thrown).toEqual([])
+    await expect(ours.promise).rejects.toBeInstanceOf(RangeError)
+  })
 
   it('an executor resolving with a hostile thenable is still abortable', async () => {
     const hostileThenable = hostileProxy({ then() {} })
@@ -402,56 +443,144 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     await expect(ap).rejects.toSatisfy(isAbortError)
   })
 
-  it.each([
-    ['a Proxy whose getPrototypeOf trap throws', hostileProxy({})],
-    ['a revoked Proxy', revokedProxy()],
-  ])(
-    'aborting all() aborts every abortable member, with %s among them',
-    async (_name, hostile) => {
-      const before = new AbortablePromise<string>(() => {})
-      const after = new AbortablePromise<string>(() => {})
-      const afterThat = new AbortablePromise<string>(() => {})
+  const hostileMembers = [
+    ['a Proxy whose getPrototypeOf trap throws', () => hostileProxy({})],
+    ['a revoked Proxy', () => revokedProxy()],
+  ] as const
 
-      const combined = AbortablePromise.all([
-        before,
-        hostile,
-        after,
-        afterThat,
-      ] as unknown[])
+  const fanIn = {
+    all: (members: unknown[]) => AbortablePromise.all(members),
+    race: (members: unknown[]) => AbortablePromise.race(members),
+    any: (members: unknown[]) => AbortablePromise.any(members),
+    allSettled: (members: unknown[]) => AbortablePromise.allSettled(members),
+  }
 
-      expect(() => combined.abort()).not.toThrow()
+  describe.each(Object.keys(fanIn) as (keyof typeof fanIn)[])(
+    'aborting %s()',
+    (combinator) => {
+      it.each(hostileMembers)(
+        'aborts every abortable member, with %s among them',
+        async (_name, makeHostile) => {
+          const before = new AbortablePromise<string>(() => {})
+          const after = new AbortablePromise<string>(() => {})
+          const afterThat = new AbortablePromise<string>(() => {})
 
-      await expect(combined).rejects.toSatisfy(isAbortError)
-      await expect(before).rejects.toSatisfy(isAbortError)
-      await expect(after).rejects.toSatisfy(isAbortError)
-      await expect(afterThat).rejects.toSatisfy(isAbortError)
+          const combined = fanIn[combinator]([
+            before,
+            makeHostile(),
+            after,
+            afterThat,
+          ])
+
+          expect(() => combined.abort()).not.toThrow()
+
+          await expect(combined).rejects.toSatisfy(isAbortError)
+          await expect(before).rejects.toSatisfy(isAbortError)
+          await expect(after).rejects.toSatisfy(isAbortError)
+          await expect(afterThat).rejects.toSatisfy(isAbortError)
+        },
+      )
+
+      it('aborts every member when an earlier one has had its prototype swapped', async () => {
+        // The brand is a private field, which `setPrototypeOf` does not remove,
+        // so a member that has lost `abort()` is still aborted.
+        const swappedToPromise = new AbortablePromise<string>(() => {})
+        const swappedToNull = new AbortablePromise<string>(() => {})
+        Object.setPrototypeOf(swappedToPromise, Promise.prototype)
+        Object.setPrototypeOf(swappedToNull, null)
+        const after = new AbortablePromise<string>(() => {})
+        // Aborting rejects the swapped members; nothing else handles that.
+        for (const swapped of [swappedToPromise, swappedToNull]) {
+          void Promise.prototype.then.call(swapped, undefined, () => {})
+        }
+
+        const combined = fanIn[combinator]([
+          swappedToPromise,
+          swappedToNull,
+          after,
+        ])
+
+        expect(() => combined.abort()).not.toThrow()
+
+        await expect(combined).rejects.toSatisfy(isAbortError)
+        await expect(after).rejects.toSatisfy(isAbortError)
+      })
+
+      it('aborts a subclass instance, which the brand recognises', async () => {
+        class Sub<T> extends AbortablePromise<T> {}
+        const member = new Sub<string>(() => {})
+
+        const combined = fanIn[combinator]([member])
+        combined.abort()
+
+        await expect(combined).rejects.toSatisfy(isAbortError)
+        await expect(member).rejects.toSatisfy(isAbortError)
+      })
+
+      it('does not abort a member through a binding Proxy over it', async () => {
+        // Abort reaches a member through its private state, which no Proxy
+        // forwards, whatever its traps do with methods.
+        let aborted = false
+        const target = new AbortablePromise<string>(
+          (_resolve, _reject, ctx) => {
+            ctx.signal.addEventListener('abort', () => {
+              aborted = true
+            })
+          },
+        )
+        const binding = bindingProxy(target)
+
+        const combined = fanIn[combinator]([binding])
+        combined.abort()
+
+        await expect(combined).rejects.toSatisfy(isAbortError)
+        expect(aborted).toBe(false)
+        target.abort()
+        await expect(target).rejects.toSatisfy(isAbortError)
+      })
     },
   )
 
-  it.each(['race', 'any', 'allSettled'] as const)(
-    'aborting %s() aborts every abortable member around a hostile one',
-    async (combinator) => {
-      const before = new AbortablePromise<string>(() => {})
-      const after = new AbortablePromise<string>(() => {})
+  it('of() does not abort an AbortablePromise through a binding Proxy over it', async () => {
+    let aborted = false
+    const target = new AbortablePromise<string>((_resolve, _reject, ctx) => {
+      ctx.signal.addEventListener('abort', () => {
+        aborted = true
+      })
+    })
 
-      const members: unknown[] = [before, hostileProxy({}), after]
-      const combined = {
-        race: () => AbortablePromise.race(members),
-        any: () => AbortablePromise.any(members),
-        allSettled: () => AbortablePromise.allSettled(members),
-      }[combinator]()
+    const wrapped = AbortablePromise.of(bindingProxy(target))
+    wrapped.abort()
 
-      expect(() => combined.abort()).not.toThrow()
+    await expect(wrapped).rejects.toSatisfy(isAbortError)
+    expect(aborted).toBe(false)
+    target.abort()
+    await expect(target).rejects.toSatisfy(isAbortError)
+  })
 
-      await expect(combined).rejects.toSatisfy(isAbortError)
-      await expect(before).rejects.toSatisfy(isAbortError)
-      await expect(after).rejects.toSatisfy(isAbortError)
-    },
-  )
+  it('an executor resolving with a binding Proxy over an AbortablePromise does not abort it', async () => {
+    let aborted = false
+    const target = new AbortablePromise<string>((_resolve, _reject, ctx) => {
+      ctx.signal.addEventListener('abort', () => {
+        aborted = true
+      })
+    })
 
-  it('does not mistake a Proxy over an AbortablePromise for one', async () => {
-    // The class brand is a private field, which a Proxy does not carry; the
-    // Proxy is a plain value to `of`, as it is to `Promise.resolve`.
+    const outer = new AbortablePromise<string>((resolve) =>
+      resolve(bindingProxy(target)),
+    )
+    outer.abort()
+
+    await expect(outer).rejects.toSatisfy(isAbortError)
+    expect(aborted).toBe(false)
+    target.abort()
+    await expect(target).rejects.toSatisfy(isAbortError)
+  })
+
+  it('does not mistake a Proxy with no traps over an AbortablePromise for one', async () => {
+    // `then` called on the Proxy reaches `Promise.prototype.then` with the
+    // Proxy as its receiver, which throws; to `of` the Proxy is a thenable
+    // that fails, as it is to `Promise.resolve`.
     const inner = new AbortablePromise<string>(() => {})
     const proxy = new Proxy(inner, {})
 
@@ -462,6 +591,36 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     await expect(wrapped).rejects.toBeInstanceOf(TypeError)
     inner.abort()
     await expect(inner).rejects.toSatisfy(isAbortError)
+  })
+
+  it('of() returns a subclass instance as it is', () => {
+    class Sub<T> extends AbortablePromise<T> {}
+    const member = new Sub<string>(() => {})
+
+    expect(AbortablePromise.of(member)).toBe(member)
+    member.abort()
+    member.catch(() => {})
+  })
+
+  it('of() wraps an AbortablePromise whose prototype has been swapped, and does not throw', async () => {
+    const swapped = AbortablePromise.resolve('value')
+    Object.setPrototypeOf(swapped, Promise.prototype)
+
+    const wrapped = AbortablePromise.of(swapped)
+
+    expect(wrapped).not.toBe(swapped)
+    await expect(wrapped).resolves.toBe('value')
+  })
+
+  it('an executor resolving with an AbortablePromise whose prototype has been swapped can still be aborted', async () => {
+    const swapped = new AbortablePromise<string>(() => {})
+    Object.setPrototypeOf(swapped, Promise.prototype)
+    void Promise.prototype.then.call(swapped, undefined, () => {})
+
+    const outer = new AbortablePromise<string>((resolve) => resolve(swapped))
+
+    expect(() => outer.abort()).not.toThrow()
+    await expect(outer).rejects.toSatisfy(isAbortError)
   })
 })
 
