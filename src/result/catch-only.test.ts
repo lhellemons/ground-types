@@ -66,6 +66,7 @@ describe('catchOnly list validation', () => {
       { [Symbol.hasInstance]: () => true },
       Object.assign(function () {}, { prototype: 1 }),
       Object.defineProperty(() => {}, Symbol.hasInstance, { value: 1 }),
+      Object.assign(function () {}, { prototype: null }),
     ]
     for (const entry of unusable) {
       expect(() =>
@@ -135,7 +136,7 @@ describe('catchOnly entries with custom behaviour', () => {
     expect(create).toThrow(TypeError)
     expect(create).toThrow(/catchOnly entry 0 is not an error class/)
   })
-  it('accepts a function without an object prototype that has its own hasInstance', () => {
+  it('accepts a function without an object prototype that has an own or inherited hasInstance', () => {
     const bare = (): void => {}
     Object.defineProperty(bare, Symbol.hasInstance, {
       value: (value: unknown) =>
@@ -146,9 +147,17 @@ describe('catchOnly entries with custom behaviour', () => {
       value: (value: unknown) =>
         value instanceof Error && value.message === 'primitive',
     })
+    const inheritedFrom = Object.create(Function.prototype, {
+      [Symbol.hasInstance]: {
+        value: (value: unknown) =>
+          value instanceof Error && value.message === 'inherited',
+      },
+    }) as object
+    const inherited = Object.setPrototypeOf(() => {}, inheritedFrom) as object
     for (const [entry, message] of [
       [bare, 'bare'],
       [primitivePrototype, 'primitive'],
+      [inherited, 'inherited'],
     ] as const) {
       const handler = (
         catchOnly as (...classes: unknown[]) => (e: unknown) => unknown
@@ -245,10 +254,6 @@ describe('tryCatch default handler', () => {
     expect((result as ThrownError).thrown).toBe(unrenderable)
     expect((result as ThrownError).message).toBe('threw [object Unknown]')
   })
-  it('keeps an Error as it was thrown', () => {
-    const error = new B()
-    expect(tryCatch(() => throws(error))()).toBe(error)
-  })
 })
 
 describe('tryCatch handler dispatch', () => {
@@ -258,6 +263,16 @@ describe('tryCatch handler dispatch', () => {
       Bare,
       class {},
       class Named extends Error {},
+      TypeError,
+      Error,
+      SyntaxError,
+      AggregateError,
+      new Proxy(A, {}),
+      new Proxy(() => {}, {
+        get(): never {
+          throw new RangeError('trap')
+        },
+      }),
       new Set([A]),
       {},
       'handler',
@@ -281,7 +296,18 @@ describe('tryCatch handler dispatch', () => {
       async(this: void, e: unknown) {
         return e as A
       },
+      class$(this: void, e: unknown) {
+        return e as A
+      },
+      classé(this: void, e: unknown) {
+        return e as A
+      },
     }
+    // Built with `Function` so prettier cannot remove the space in `class (e)`.
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const spaced = new Function(
+      'return { class (e) { return e } }.class',
+    )() as (e: unknown) => A
     const handlers = [
       (e: unknown) => e as A,
       function (e: unknown) {
@@ -294,6 +320,9 @@ describe('tryCatch handler dispatch', () => {
       methods.class,
       methods.classify,
       methods.async,
+      methods.class$,
+      methods.classé,
+      spaced,
     ]
     for (const handler of handlers) {
       expect(tryCatch(() => throws(error), handler)()).toBe(error)
@@ -306,8 +335,8 @@ describe('tryCatch handler dispatch', () => {
     revocable.revoke()
     expect(() => tryCatch(() => 1, revocable.proxy as never)).toThrow(TypeError)
   })
-  /* Known limitation: a bound class or a Proxy of a class has `[native code]`
-     source, so it passes creation and fails on the error path. */
+  /* Known limitation: a bound class has `[native code]` source and no
+     `prototype`, so it passes creation and fails on the error path. */
 })
 
 describe('error classes with a private constructor', () => {

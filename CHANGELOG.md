@@ -25,9 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   admitted. An entry that fails inside `instanceof` later, such as a proxy
   revoked after the handler is created, counts as not matching: the original
   error is rethrown unless a later entry matches.
-- **Breaking:** `tryCatch` now throws a `TypeError` when called with a handler
-  that is neither an array nor a function, or with a bare class. Before, one
-  was accepted and replaced the original error on the error path.
+- **Breaking:** `tryCatch` (and so `definePrimitiveValueObject`'s
+  `errorHandler`) now throws a `TypeError` when called with a handler that is
+  neither an array nor a function, or with an error class, including built-in
+  ones such as `TypeError`. Before, one was accepted and replaced the original
+  error on the error path.
 - When the `instanceof Error` check itself throws, such as for a Proxy whose
   `getPrototypeOf` trap throws, `catchOnly` rethrows the original value and
   the default `tryCatch` handler wraps it in a `ThrownError`. `ThrownError`

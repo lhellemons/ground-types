@@ -168,8 +168,9 @@ type CheckedClasses<C extends readonly unknown[]> = {
  *
  * Domain code can use `tryCatch(construct, catchOnly(InvalidValue))`
  * or the shorthand `tryCatch(construct, [InvalidValue, OtherError])`.
- * A handler that is neither an array nor a function, or is a bare class,
- * throws a `TypeError` when `tryCatch` is called. The default handler never
+ * A handler that is neither an array nor a function, or is an error class
+ * (a bare class, or a built-in such as `TypeError`), throws a `TypeError`
+ * when `tryCatch` is called. The default handler never
  * throws: a value whose `instanceof Error` check throws, or that cannot be
  * rendered, is wrapped in a {@link ThrownError} like any other non-`Error`.
  *
@@ -245,13 +246,13 @@ function isError(value: unknown): value is Error {
   }
 }
 
-/* Accepts a function as the handler and refuses everything else. A bare
-   class is a function too, but calling it throws on the error path, so a
-   function whose source starts with `class` is refused as well. */
+/* Accepts a function as the handler and refuses everything else. An error
+   class is a function too, but calling it either throws or builds a fresh
+   error in place of the original, so it is refused as well. */
 function checkedHandler<T, E extends Error>(
   handler: unknown,
 ): Mapper<unknown, Result<T, E>> {
-  if (typeof handler !== 'function' || isBareClass(handler)) {
+  if (typeof handler !== 'function' || isErrorClass(handler)) {
     throw new TypeError(
       'tryCatch requires an error handler function or a non-empty array of error classes',
     )
@@ -259,9 +260,24 @@ function checkedHandler<T, E extends Error>(
   return handler as Mapper<unknown, Result<T, E>>
 }
 
+/* A function whose source starts with `class`, or whose `prototype` is an
+   Error (the built-in error constructors have native source). A function
+   whose inspection throws is refused too. */
 // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- narrowed by typeof at the call site
-function isBareClass(candidate: Function): boolean {
-  return /^class\b(?!\s*\()/.test(Function.prototype.toString.call(candidate))
+function isErrorClass(candidate: Function): boolean {
+  try {
+    if (
+      /^class(?=[\s{/])(?!\s*\()/.test(
+        Function.prototype.toString.call(candidate),
+      )
+    ) {
+      return true
+    }
+    const prototype = (candidate as { prototype?: unknown }).prototype
+    return prototype === Error.prototype || prototype instanceof Error
+  } catch {
+    return true
+  }
 }
 
 /**
