@@ -32,8 +32,8 @@ describe('abortable', () => {
     await expect(abortable(abortingCall)()).rejects.toSatisfy(isAbortError)
   })
   it('wraps a Call that returns a Proxy over an AbortablePromise, so abort no longer reaches the target through it', async () => {
-    // Abort reaches an AbortablePromise through its private state, which a
-    // Proxy does not forward, even one that binds every method to the target.
+    // A Proxy has no private field of the class, so it is no AbortablePromise,
+    // even one that binds every method to the target.
     let aborted = false
     const target = new AbortablePromise<string>((_resolve, _reject, ctx) => {
       ctx.signal.addEventListener('abort', () => {
@@ -57,6 +57,19 @@ describe('abortable', () => {
     expect(aborted).toBe(false)
     target.abort()
     await expect(target).rejects.toSatisfy(isAbortError)
+  })
+  it('wraps a Call that returns a Proxy whose getPrototypeOf trap throws, as Promise.resolve does', async () => {
+    const hostile = new Proxy(
+      {},
+      {
+        getPrototypeOf(): never {
+          throw new RangeError('trap')
+        },
+      },
+    )
+
+    await expect(abortable(() => hostile)()).resolves.toBe(hostile)
+    await expect(Promise.resolve(hostile)).resolves.toBe(hostile)
   })
   it('reports a Call that throws synchronously as a rejection', async () => {
     // A Call may settle synchronously, so it may fail that way too. The lifted
