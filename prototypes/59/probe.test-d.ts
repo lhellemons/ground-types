@@ -85,8 +85,9 @@ describe('A. collect', () => {
     expectTypeOf(swapped).toEqualTypeOf<
       Result<D, InvalidPieceId | InvalidCoordinate>
     >()
-    map(({ id }) => {
+    map(({ id, n }) => {
       expectTypeOf(id).toBeAny()
+      expectTypeOf(n).toBeAny()
       return 0
     }, parts)
     map((p) => {
