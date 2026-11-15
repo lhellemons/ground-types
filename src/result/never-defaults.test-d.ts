@@ -122,7 +122,7 @@ describe('ADR 0001 safety properties', () => {
     expectTypeOf(result(u)).toEqualTypeOf<Result<number, Invalid | Other>>()
   })
 
-  it('a plain Error is rejected where T admits an object ', () => {
+  it('a plain Error is rejected where T admits an object', () => {
     // With `failure`'s `T` defaulting to `never`, `Failure<never, Error>`
     // would fit `Success<unknown, Invalid>` structurally: its phantom
     // `never` passes and an Error object satisfies `unknown`. `Success`
@@ -444,11 +444,12 @@ describe('a variable seeded by an unannotated constructor call keeps the narrowe
     // `result(primitive)` seeds a Result with no error arm at all.
     let seeded = result(5 as number)
     expectTypeOf(seeded).toEqualTypeOf<Result<number, never>>()
-    // @ts-expect-error - Breaking: the seed has no error arm
-    seeded = failure(new Invalid('x'))
-    let s = success(1)
-    expectTypeOf(s).toEqualTypeOf<Success<1, never>>()
-    // @ts-expect-error - Breaking: the seed carries no error
+    // @ts-expect-error - Breaking: the seed has no error arm; 0.4.0 took this
+    seeded = null as unknown as Failure<number, Invalid>
+    const n = 1 as number
+    let s = success(n)
+    expectTypeOf(s).toEqualTypeOf<Success<number, never>>()
+    // @ts-expect-error - Breaking: the seed carries no error; 0.4.0 took this
     s = null as unknown as Success<number, Invalid>
     // Annotated, both are fine.
     let ok: Result<number, Invalid> = failure(new Invalid('x'))

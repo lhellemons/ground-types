@@ -77,7 +77,7 @@ class ResultBox<R> {
    * Boxes a `Result` already in hand — a factory's output, a combinator
    * chain's result — with both arms exact and no type arguments needed.
    * The way in {@link from} cannot be for a whole object-valued `Result`.
-   * A raw non-Result value cannot be rejected: an object takes exactly
+   * A raw object or primitive cannot be rejected: an object takes exactly
    * `from`'s result; a primitive keeps `Error` in the error arm where
    * `from` drops it; `null` and `undefined` do not compile through `box`.
    * Which of these promises `box` keeps is open (#89). `Result` only: the

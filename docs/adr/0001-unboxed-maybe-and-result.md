@@ -253,9 +253,9 @@ Invalid>(x)` is `Result<number, Invalid>`; `success(x)` is now
 seeded by an unannotated `failure(e)`, `success(x)` or
 `result(primitive)` takes the narrower type and rejects a later wider
 assignment (`let last = failure(new Invalid())`, then `last = s` with
-`s: Failure<number, Invalid>`, and `let s = success(1)`, then `s = x`
-with `x: Success<number, Invalid>`, no longer compile; annotate the
-variable). The guard's type, `NotPossiblyAnError`, is exported so its
+`s: Failure<number, Invalid>`, and `let s = success(n)` with `n:
+number`, then `s = x` with `x: Success<number, Invalid>`, no longer
+compile; annotate the variable). The guard's type, `NotPossiblyAnError`, is exported so its
 message can be pinned, as `NotAResult`'s is: it joins the README's
 module table, the `/result` surface test and the CHANGELOG.
 
@@ -376,13 +376,16 @@ is expected, through `failure`, through `result` of a union, of an
 `unknown` value, of an `object` or narrowed `catch` binding and of an
 object type an `Error` subclass could hide in, through `success` of an
 `unknown`, `object`, all-optional, `Error`-union or `Result` value,
-through a bare `Failure<_, Error>`, and at a target whose `T` is
-`unknown`, `object`, `{}` or an all-optional object; and
+through a bare `Failure<_, Error>`, and, through `failure`, at a target
+whose `T` is `unknown`, `object`, `{}` or an all-optional object; and
 `Result<Result<T>>` is still not assignable to `Result<T>`. The residual
 no type can close, as before: a raw `Error` returned without `failure()`
-where `T` is `object` or a type a plain `Error` fits (`Result<object,
-Invalid>`, `Result<{ name: string }, Invalid>`, `Result<number | object,
-Invalid>`) compiles. Every existing type-level test stays green but two,
+compiles where `T` is `object`, a union with `object`, or an object type
+whose required members a plain `Error` has (`Result<object, Invalid>`,
+`Result<{ name: string }, Invalid>`, `Result<number | object,
+Invalid>`). Where `T` is `unknown`, `{}` or an all-optional object the raw
+return is rejected, on 0.4.0 as now, by weak-type detection on
+`Success`'s optional markers. Every existing type-level test stays green but two,
 whose expectations change from `Success<number, Error>` to
 `Success<number, never>` and from `Failure<unknown, Invalid>` to
 `Failure<never, Invalid>`, plus the Box `from` expectations the overload

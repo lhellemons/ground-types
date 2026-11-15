@@ -19,8 +19,9 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   flow into any `Result<T, E>`. A plain `Error` is still rejected, through
   `failure`, `result` and `success`, where a narrower class is expected, and
   `Result<Result<T>>` is still not assignable to `Result<T>`. A raw `Error`
-  returned without `failure()` where `T` is `object` or a type a plain `Error`
-  fits still compiles, as before.
+  returned without `failure()` still compiles where `T` is `object`, a union
+  with `object`, or an object type whose required members a plain `Error` has
+  (`{ name: string }`), as before.
 - **Breaking:** TypeScript 5.4 or later is required, for `NoInfer` on the
   phantom position of `success` and `failure`.
 - **Breaking:** `success` rejects, at any site and with or without type
@@ -42,8 +43,8 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
 - **Breaking:** a variable seeded by an unannotated `failure(e)`, `success(x)`
   or `result(primitive)` takes the narrower type and rejects a later wider
   assignment: `let last = failure(new Invalid())` followed by `last = s` with
-  `s: Failure<number, Invalid>`, and `let s = success(1)` followed by `s = x`
-  with `x: Success<number, Invalid>`, no longer compile. Annotate the
+  `s: Failure<number, Invalid>`, and `let s = success(n)` with `n: number`
+  followed by `s = x` with `x: Success<number, Invalid>`, no longer compile. Annotate the
   variable.
 - **Breaking:** `failure<E>(e)` now has phantom `T = never`, where it had
   `unknown`.

@@ -125,7 +125,7 @@ describe('box: the way in for a Result in hand (#51)', () => {
     >()
   })
 
-  it("a raw non-Result value cannot be rejected; an object takes from's result, a primitive does not", () => {
+  it("a raw object or primitive cannot be rejected; an object takes from's result, a primitive does not", () => {
     expectTypeOf(Result.box(rawUser).unbox()).toEqualTypeOf<
       ResultIndex<BoxUser, Error>
     >()

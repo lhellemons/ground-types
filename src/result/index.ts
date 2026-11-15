@@ -66,12 +66,13 @@ export function result<T, E extends Error = Error>(value: T | E): Result<T, E> {
  * Rejects a `success` value whose type can hold an `Error` at runtime, as
  * far as the type says so: a union with an `Error` member, a `Result` or
  * a `Failure`, a type the empty object fits (`unknown`, `object`, `{}`,
- * an all-optional object, and any union of one with a primitive, `null`
- * or `undefined`, and an index-signature type such as `Record<string,
- * number>`), and a type a plain `Error` fits (`{ message: string }`, a class
- * whose members an `Error` has). It cannot see past three things: `any`
- * passes, as it passes every constraint; so does an object type that only an `Error` subclass fits
- * (a plain interface, a DTO, a class instance without private members);
+ * an all-optional object, an index-signature type such as `Record<string,
+ * number>`, and any union of one of those with a primitive, `null` or
+ * `undefined`), and a type a plain `Error` fits (`{ message: string }`, a
+ * class whose members an `Error` has). It cannot see past three things:
+ * `any` passes, as it passes every constraint; so does an object type that
+ * only an `Error` subclass fits (a plain interface, a DTO, a class
+ * instance without private members);
  * and an unresolved type parameter is refused, so generic code casts
  * instead. See docs/adr/0001-unboxed-maybe-and-result.md.
  */
