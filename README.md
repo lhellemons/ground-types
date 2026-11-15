@@ -119,18 +119,19 @@ expected and the caller should handle a Failure.
 ```ts
 import type { Branded } from '@lhellemons/ground-types/brand'
 import { definePrimitiveValueObject } from '@lhellemons/ground-types/value-object'
-import { isFailure } from '@lhellemons/ground-types/result'
+import { catchOnly, isFailure } from '@lhellemons/ground-types/result'
 
+class InvalidBoardId extends Error {}
 type BoardId = Branded<string, 'BoardId'>
-const BoardId = definePrimitiveValueObject<BoardId>((value) => {
+const BoardId = definePrimitiveValueObject((value: string): BoardId => {
   if (typeof value !== 'string' || value.length === 0) {
-    throw new Error('BoardId must be a non-empty string')
+    throw new InvalidBoardId('BoardId must be a non-empty string')
   }
   return value as BoardId
-})
+}, catchOnly(InvalidBoardId))
 
 const id = BoardId('board-1') // throws on invalid input
-const outcome = BoardId.from('')
+const outcome = BoardId.from('') // Result<BoardId, InvalidBoardId>
 if (isFailure(outcome)) console.log(outcome.message)
 ```
 
@@ -154,7 +155,7 @@ class Door {
     void (Door satisfies DomainObjectFactory<Door, DoorDTO>)
   }
 
-  static from(dto: DoorDTO): Result<Door> {
+  static from(dto: DoorDTO): Result<Door, InvalidDoor> {
     return tryCatch(() => {
       if (typeof dto.open !== 'boolean') throw new InvalidDoor('Invalid door')
       return new Door(dto.open)
@@ -166,7 +167,7 @@ class Door {
 Brands exist only in TypeScript; JSON preserves neither proof of validation
 nor class prototypes. Treat parsed data as untrusted and re-validate a
 Branded primitive with `BoardId.from`, or rebuild a domain object through
-its Factory's `from(dto)`. Never use `JSON.parse(text) as Play` to bypass
+its Factory's `from(dto)`. Never use `JSON.parse(text) as Door` to bypass
 that boundary. Check the DTO's shape before passing it to a typed Factory:
 
 ```ts
@@ -179,7 +180,10 @@ if (
 ) {
   const restored = Door.from({ open: parsed.open })
 }
-const restoredId = BoardId.from(JSON.parse('"board-1"'))
+const raw: unknown = JSON.parse('"board-1"')
+if (typeof raw === 'string') {
+  const restoredId = BoardId.from(raw)
+}
 ```
 
 ## Interned instance lifetime
