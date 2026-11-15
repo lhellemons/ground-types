@@ -175,6 +175,17 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   throws), and `maybe/fromResult` keeps such a value as a `Just`. Before, the
   trap's error replaced the reason: `resultify(fail)(Promise.reject(proxy))`
   rejected with it.
+- `result/isSuccess`, `isFailure` and `assertSuccess`, and so `map`, `mapError`,
+  `fallback`, `orElse` and `andThen`, no longer throw when the Error check
+  itself throws (a Proxy whose `getPrototypeOf` trap throws). Such a value
+  counts as not an `Error`, as `maybe/fromResult` already treats it:
+  `isSuccess` is true for it, `isFailure` false, `assertSuccess` returns it
+  rather than throwing, and the combinators treat it as a `Success`. Before,
+  the trap's error escaped: `map(x => x, proxy)` threw the trap's `RangeError`.
+- `abort/isAbortError` answers `false` for a value on which its check throws,
+  where it threw before: a Proxy whose `getPrototypeOf` trap throws, a revoked
+  Proxy, and a Proxy over a real abort, whose `name` read throws unless a `get`
+  trap forwards it to the target. A value whose check throws is not an abort.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`

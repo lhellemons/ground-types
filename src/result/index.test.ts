@@ -110,12 +110,31 @@ describe('result / success / failure', () => {
   })
 })
 
+// `value instanceof Error` throws for a Proxy whose `getPrototypeOf` trap
+// throws; a guard's own error must never replace the value it classifies.
+function hostileProxy(): never {
+  return new Proxy(
+    {},
+    {
+      getPrototypeOf(): never {
+        throw new RangeError('trap')
+      },
+    },
+  ) as never
+}
+
 describe('isSuccess / isFailure', () => {
   it('discriminates by instanceof Error', () => {
     expect(isSuccess(success(1))).toBe(true)
     expect(isSuccess(failure(new Error('x')))).toBe(false)
     expect(isFailure(success(1))).toBe(false)
     expect(isFailure(failure(new Error('x')))).toBe(true)
+  })
+
+  it('counts a value whose Error guard throws as a Success, not a Failure', () => {
+    const hostile = hostileProxy()
+    expect(isSuccess(hostile)).toBe(true)
+    expect(isFailure(hostile)).toBe(false)
   })
 })
 
@@ -211,6 +230,11 @@ describe('assertSuccess', () => {
   it('rethrows the Error for a Failure', () => {
     const error = new Error('bad')
     expect(() => assertSuccess(error)).toThrow(error)
+  })
+
+  it('returns a value whose Error guard throws, not the guard error', () => {
+    const hostile = hostileProxy()
+    expect(assertSuccess(hostile)).toBe(hostile)
   })
 })
 
@@ -314,6 +338,23 @@ describe('orElse', () => {
   it('applies immediately when the value is supplied', () => {
     expect(orElse(0, success(5))).toBe(5)
     expect(orElse(0, failure<Error, number>(new Error('bad')))).toBe(0)
+  })
+})
+
+describe('combinators on a value whose Error guard throws', () => {
+  // Such a value is a Success, so each combinator treats it as one rather
+  // than throwing the trap's error.
+  it('map and andThen apply fn to it', () => {
+    const hostile = hostileProxy()
+    expect(map((x: unknown) => x, hostile)).toBe(hostile)
+    expect(andThen((x: unknown) => result(x), hostile)).toBe(hostile)
+  })
+
+  it('mapError, fallback and orElse pass it through', () => {
+    const hostile = hostileProxy()
+    expect(mapError((error: Error) => error, hostile)).toBe(hostile)
+    expect(fallback(() => 0, hostile)).toBe(hostile)
+    expect(orElse(0, hostile)).toBe(hostile)
   })
 })
 

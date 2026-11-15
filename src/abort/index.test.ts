@@ -15,3 +15,25 @@ test('isAbortError', () => {
 test('AbortError is an Error, so it can be a Failure', () => {
   expect(new AbortError('aborted')).toBeInstanceOf(Error)
 })
+
+test('isAbortError answers false for a value whose checks throw', () => {
+  const trap = (): never => {
+    throw new RangeError('trap')
+  }
+  // `instanceof` throws: the `getPrototypeOf` trap.
+  expect(isAbortError(new Proxy({}, { getPrototypeOf: trap }))).toBe(false)
+  // `instanceof` passes (a real DOMException behind the proxy), then the
+  // `name` read throws: the `get` trap.
+  expect(
+    isAbortError(new Proxy(new DOMException('', 'AbortError'), { get: trap })),
+  ).toBe(false)
+  // A Proxy with no traps over a real abort: `instanceof` passes, but the
+  // `name` getter rejects the proxy as its receiver, so it throws.
+  expect(isAbortError(new Proxy(new DOMException('', 'AbortError'), {}))).toBe(
+    false,
+  )
+  // A revoked proxy throws on `instanceof`.
+  const { proxy, revoke } = Proxy.revocable({}, {})
+  revoke()
+  expect(isAbortError(proxy)).toBe(false)
+})
