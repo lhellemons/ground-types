@@ -27,11 +27,11 @@ export type Success<T, E extends Error = Error> =
   SuccessArm<T, E> | NoInfer<Extract<T, null | undefined | void>>
 
 /**
- * The non-nullish part of a {@link Success}: the value type carrying the
- * `Success` phantom markers. A named alias of its own so that inference
- * and declaration emit can see it through a {@link Result}.
+ * The marked part of a {@link Success}: `T` without its `Error`, `null`,
+ * `undefined` and `void` members, carrying the phantom markers. A `Success`
+ * is a `SuccessArm` or a bare nullish member of `T`.
  */
-export type SuccessArm<T, E extends Error> = Exclude<
+export type SuccessArm<T, E extends Error = Error> = Exclude<
   T,
   Error | null | undefined | void
 > & {

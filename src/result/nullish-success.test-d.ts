@@ -8,8 +8,10 @@ import {
   andThen,
   failure,
   isFailure,
+  fallback,
   isSuccess,
   map,
+  mapError,
   orElse,
   result,
   success,
@@ -17,6 +19,7 @@ import {
 } from './index.js'
 import type { Failure, Result, Success } from './index.js'
 import { act } from './act.js'
+import { Result as ResultBox } from './box.js'
 import { fromResult } from '../maybe/index.js'
 import type { Maybe } from '../maybe/index.js'
 
@@ -32,9 +35,11 @@ interface User {
 }
 
 declare const maybeNumber: Result<number | undefined, Invalid>
+declare const nullableString: Result<string | null, Invalid>
 declare const nullableNumber: Result<number | null, Invalid>
 declare const nothing: Result<undefined, Invalid>
 declare const maybe: Maybe<number>
+declare const mn: Result<Maybe<number>, Invalid>
 declare function step(): Result<number, Invalid>
 
 describe('a nullish value keeps its own Success arm', () => {
@@ -167,8 +172,7 @@ describe('the combinators carry a nullish value', () => {
 
   it('map to a nullish value keeps it in the value arm', () => {
     const next = map((n: number) => (n > 0 ? n : undefined), result(1))
-    expectTypeOf(next).toExtend<Result<number | undefined, Error>>()
-    expectTypeOf<undefined>().toExtend<typeof next>()
+    expectTypeOf(next).toEqualTypeOf<Result<number | undefined, never>>()
   })
 
   it('andThen to a Result with a nullish value', () => {
@@ -299,15 +303,127 @@ describe('costs of a nullish arm that has no phantom', () => {
       (_x: undefined) => 1,
       success(undefined),
     )
-    expectTypeOf(map((_x: undefined) => 1, success(undefined))).toExtend<
+    expectTypeOf(map((_x: undefined) => 1, success(undefined))).toEqualTypeOf<
       Result<number, Error>
     >()
     void c
   })
+
+  it('explicit type arguments on the combinator, a cast or result<T, E>() narrow E', () => {
+    const validate = (_u: undefined): Result<string, Invalid> => success('x')
+    const a: Result<number, Invalid> = map<
+      undefined,
+      number,
+      undefined,
+      Invalid
+    >((_x) => 1, success(undefined))
+    const b: Result<number, Invalid> = map(
+      (_x: undefined) => 1,
+      success(undefined) as Result<undefined, Invalid>,
+    )
+    const c: Result<number, Invalid> = map(
+      (_x: undefined) => 1,
+      result<undefined, Invalid>(undefined),
+    )
+    const d: Result<string, Invalid> = andThen(
+      validate,
+      result<undefined, Invalid>(undefined),
+    )
+    void [a, b, c, d]
+  })
+
+  it('success<undefined, E>(undefined), a declared seed and andThen(f, success(undefined)) do not narrow E', () => {
+    const validate = (_u: undefined): Result<string, Invalid> => success('x')
+    // @ts-expect-error - a nullish arm keeps no phantom, so E stays Error
+    const a: Result<number, Invalid> = map(
+      (_x: undefined) => 1,
+      success<undefined, Invalid>(undefined),
+    )
+    // @ts-expect-error - E stays Error beside the callback's Invalid
+    const b: Result<string, Invalid> = andThen(validate, success(undefined))
+    const seed: Result<undefined, Invalid> = success(undefined)
+    // @ts-expect-error - the declared type narrows to undefined on assignment
+    const c: Result<number, Invalid> = map((_x: undefined) => 1, seed)
+    // @ts-expect-error - the curried form infers E from the value too
+    const d: Result<string, Invalid> = andThen(validate)(success(undefined))
+    void [a, b, c, d]
+  })
 })
 
-describe('the curried act family still takes a Maybe<Result> shaped argument', () => {
-  it('act with a Result<Maybe<number>, E> callback applies to a Maybe<number>', () => {
+describe('a Success narrowed out of a Result<number | undefined, E> keeps its undefined through a generic', () => {
+  const unwrap = <T, E extends Error>(x: Result<T, E>): T => {
+    if (isFailure(x)) throw x
+    return x
+  }
+
+  it('ruling the undefined out of the Success arm does not narrow T', () => {
+    if (isSuccess(maybeNumber) && maybeNumber !== undefined) {
+      // @ts-expect-error - T is read from the arm's number | undefined
+      const a: number = unwrap(maybeNumber)
+      // @ts-expect-error - T is read from the arm's number | undefined
+      const b: number = orElse(0, maybeNumber)
+      // @ts-expect-error - T is read from the arm's number | undefined
+      const c: number = fallback(() => 0, maybeNumber)
+      void [a, b, c]
+    }
+    if (isSuccess(maybeNumber) && typeof maybeNumber === 'number') {
+      // @ts-expect-error - T is read from the arm's number | undefined
+      const d: number = unwrap(maybeNumber)
+      void d
+    }
+    if (isSuccess(maybeNumber)) {
+      // @ts-expect-error - the non-null assertion narrows the value, not the arm
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- the assertion is the case under test
+      const e: number = unwrap(maybeNumber!)
+      void e
+    }
+    if (isSuccess(nullableString) && nullableString !== null) {
+      // @ts-expect-error - T is read from the arm's string | null
+      const f: string = unwrap(nullableString)
+      void f
+    }
+  })
+
+  it('so a narrowed arm widens back through mapError and box', () => {
+    if (isSuccess(maybeNumber) && maybeNumber !== undefined) {
+      const widened = mapError((e: Invalid) => e, maybeNumber)
+      expectTypeOf<undefined>().toExtend<typeof widened>()
+      void widened
+      const boxed = ResultBox.box(maybeNumber).unbox()
+      expectTypeOf<undefined>().toExtend<typeof boxed>()
+      void boxed
+    }
+  })
+
+  it('ruling undefined out of the whole Result first leaves the Failure arm at number | undefined', () => {
+    if (maybeNumber !== undefined) {
+      // @ts-expect-error - the Failure arm still carries number | undefined
+      const a: number = orElse(0, maybeNumber)
+      // @ts-expect-error - the Failure arm still carries number | undefined
+      const b: number = unwrap(maybeNumber)
+      void [a, b]
+    }
+  })
+
+  it('explicit type arguments and a declared Result<number, E> work', () => {
+    if (isSuccess(maybeNumber) && maybeNumber !== undefined) {
+      const a: number = orElse<number, Invalid>(0, maybeNumber)
+      const rebound: Result<number, Invalid> = maybeNumber
+      const b: number = orElse(0, rebound)
+      void [a, b]
+    }
+    if (maybeNumber !== undefined) {
+      const mapped = map((n: number) => n, maybeNumber)
+      const c: number = orElse(0, mapped)
+      void c
+    }
+  })
+})
+
+describe('the curried act family, a stub, does not take a Result<Maybe<T>, E> argument', () => {
+  it('act with a Result<Maybe<number>, E> callback applies to a Maybe<number> but not to the Result', () => {
     act((_x: Result<Maybe<number>, Invalid>) => 1)(maybe)
+    // @ts-expect-error - T and E infer from the value and the callback's parameter at once; handed to the act and Box work (#89)
+    act((_x: Result<Maybe<number>, Invalid>) => 1)(mn)
   })
 })

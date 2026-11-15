@@ -22,9 +22,10 @@ compiler rather than assumed:
 - `Result<Result<T>>` **is** a distinct type, and it is **not**
   assignable back to `Result<T>`. Once a Result nests, it is stuck —
   there is no generic way to un-nest it back to the outer shape.
-  A `Maybe<Result<T, E>>` is not a nest of that kind: it reads as
-  `Result<T | undefined, E>`, matching the runtime, where `isSuccess(undefined)`
-  is true (the 2026-11-15 amendment).
+
+**Update, 2026-11-15:** a `Maybe<Result<T, E>>` is not a nest of that kind.
+It reads as `Result<T | undefined, E>`, matching the runtime, where
+`isSuccess(undefined)` is true (the 2026-11-15 amendment below).
 
 ## Decision
 
@@ -338,8 +339,8 @@ both `Result<{ id: string }, Error>`); for a primitive it no longer does
 (`Result.from(5)` is `Result<number, never>` where `Result.box(5)` is
 `Result<5, Error>`); and `Result.box(null)` and `Result.box(undefined)`
 do not compile. **Update, 2026-11-15:** they compile since #93; see the
-2026-11-15 amendment below. Which of the two promises `box` keeps is not decided
-here; it goes to the implementation task and to the Box implementation
+2026-11-15 amendment below. Which of the two promises `box` keeps is not
+decided here; it goes to the implementation task and to the Box implementation
 (#89), under docs/adr/0005-box-classes.md. These statements were
 superseded by this amendment and are corrected in the implementation
 (#88): ADR 0005's "`Result.success` seeds `E = never`, the one
@@ -490,23 +491,55 @@ it, so `resultify(catchOnly(A, B), promise)` bound `O` to the error class
 (measured; the first form of this change broke several existing
 expectations that way). `NoInfer` is already required (5.4).
 
-The markers keep the whole `T` in `[_value]`, but inference from that
-optional marker drops `undefined`: a `Result<number | undefined, E>` read
-through `ValueOf` or inferred into `T` yields the `undefined` from the
-bare arm, not from the marker. One consequence is a stub's, and it is
-fine: the curried `act` (`Result<T, E> & A`, in `src/result/act.ts`) takes
-a `(x: Result<Maybe<number>, Invalid>) => …` callback and a `Maybe<number>`
-as before, pinned in `nullish-success.test-d.ts`.
+The markers keep the whole `T` in `[_value]`. A `Result<number | undefined,
+E>` therefore infers `T = number | undefined` from the arm's alias type
+argument, as it should; the cost of that is the narrowed-arm case in the
+list below. One more consequence is a stub's: the curried `act` overload
+(`Result<T, E> & A`, `src/result/act.ts`) does not take a
+`Result<Maybe<number>, Invalid>` argument for a callback written over the
+same type (TS2345: `T` and `E` infer as `number` and `Error` from the value
+and `Invalid` from the parameter at once). That compiled on 0.4.0. `act` is
+an unexported, unimplemented stub, so the case is pinned as an error in
+`nullish-success.test-d.ts` and handed to the act and Box work (#89).
 
 Costs, on record. A nullish arm carries no phantom, so `Success<undefined,
 Invalid>` and `Success<undefined, Other>` are the same type, `undefined`;
 the error arm of a `Result<undefined, E>` is still its `Failure<_, E>`,
-which the phantom keeps distinct. Three consequences are observable:
+which the phantom keeps distinct. Four consequences are observable:
 
 - `success(undefined)` and `success(null)` seed no `E = never` into a
   chain: `map(f, success(undefined))` is `Result<number, Error>`, so a
   `Result<number, Invalid>` annotation on that call does not compile.
-  Annotate the call or the callback's error type.
+  None of these narrow `E`: `success<undefined, Invalid>(undefined)` (the
+  arm keeps no phantom), `andThen(validate, success(undefined))` (which
+  gives `Invalid | Error`), a seed declared `Result<undefined, Invalid>`
+  (its declared type narrows to `undefined` on assignment) and the curried
+  `andThen`. What works is explicit type arguments on the combinator
+  (`map<undefined, number, undefined, Invalid>(f, success(undefined))`),
+  `result<undefined, Invalid>(undefined)` as the value, or a cast to
+  `Result<undefined, Invalid>`; all three are pinned.
+- A `Success` narrowed out of a `Result<number | undefined, E>` keeps its
+  `undefined` through a generic. After `isSuccess(r) && r !== undefined`
+  (or a `typeof r === 'number'` test, or `r!`), `r` is still a
+  `SuccessArm<number | undefined, E>`, and a generic that infers `T` from
+  `Result<T, E>` reads the alias's type argument, `number | undefined`:
+  `orElse(0, r)`, `fallback(() => 0, r)` and a user
+  `unwrap<T, E>(x: Result<T, E>): T` no longer give a `number`, and `mapError(…, r)` and `Result.box(r).unbox()`
+  widen back to `number | undefined`. Ruling the `undefined` out of the
+  whole `Result` first (`if (r === undefined) return`) does not help for
+  `orElse`, `fallback` or `unwrap` either: the `Failure` arm still names
+  `number | undefined`. All of these compiled on main, because the
+  `undefined` was lost from the Success arm. Workarounds, all pinned: explicit
+  type arguments (`orElse<number, Invalid>(0, r)`), rebinding to a declared
+  `Result<number, Invalid>`, or `map((n: number) => n, r)` first. Two
+  structural alternatives were measured and each costs more: passing the
+  alias the non-nullish part (`SuccessArm<Exclude<T, nullish>, E>`, and the
+  `T & {}` and `NonNullable<T>` spellings) loses the seeding, since
+  inference through the wrapper has lower priority and `plain(success(1))`
+  becomes `[1 | undefined, never]`; and distributing `Success` over `T`
+  (`T extends nullish ? NoInfer<T> : SuccessArm<T, E>`) fixes seeding and
+  most of this, but breaks `fallback`'s callback and `mapError`'s recovery
+  inference.
 - `unknown` gets no nullish arm, since `Extract<unknown, null | undefined>`
   is `never`, so `success(undefined)` and `success(null)` no longer fit a
   `Result<unknown, Invalid>`, though they did on 0.4.0. Narrowing a
@@ -545,6 +578,8 @@ Result<number | undefined, E>`, `map((n: number) => n * 2, r)` and
   value used to be lost from the Success arm, so the callback compiled; it
   now reaches a callback that cannot take it, which is the point. Annotate
   the callback `(n: number | undefined)`, or handle the `undefined` first.
+  Handling it first helps `map` and `andThen` only, not `orElse`,
+  `fallback` or a user `unwrap`; see the narrowed-arm cost above.
 - The Result Box's `box(null)` and `box(undefined)` pins moved: the two
   lines that said they do not compile now compile, as `Result<null, Error>`
   and `Result<undefined, Error>`, the primitive rule of #89 (a primitive

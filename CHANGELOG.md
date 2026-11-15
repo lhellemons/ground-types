@@ -38,10 +38,27 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   With `r: Result<number | undefined, E>`, `map((n: number) => n * 2, r)` and
   `andThen((n: number) => success(n), r)` are now errors, since the
   `undefined` reaches a callback that takes a number: annotate it
-  `(n: number | undefined)` or handle the `undefined` first. A nullish arm has
+  `(n: number | undefined)`, or handle the `undefined` first (for `map` and
+  `andThen` only). A nullish arm has
   no error phantom, so `map(f, success(undefined))` is `Result<number, Error>`
   where a value-carrying `success(x)` seeds `E = never`: a chain over
-  `success(undefined)` needs an annotation to reach a narrower `Result`.
+  `success(undefined)` does not reach a narrower `Result`, and neither
+  `success<undefined, E>(undefined)` nor a declared seed nor `andThen(f,
+success(undefined))` narrows `E`. Pass type arguments to the combinator
+  (`map<undefined, number, undefined, Invalid>(f, success(undefined))`), use
+  `result<undefined, Invalid>(undefined)`, or cast.
+  A `Success` narrowed out of a `Result<number | undefined, E>`
+  (`isSuccess(r) && r !== undefined`, `typeof r === 'number'`, `r!`) still
+  carries `number | undefined` through a generic: `orElse(0, r)`,
+  `fallback(() => 0, r)` and your own `unwrap<T, E>(x: Result<T, E>): T` no
+  longer give a `number`, and `mapError(f, r)` and `Result.box(r).unbox()`
+  widen back. So does ruling the `undefined` out of the whole `Result` first
+  for `orElse`, `fallback` and `unwrap`. Pass type arguments
+  (`orElse<number, Invalid>(0, r)`), rebind to a declared
+  `Result<number, Invalid>`, or `map((n: number) => n, r)` first.
+  The curried `act` overload (an unimplemented stub) no longer takes a
+  `Result<Maybe<number>, E>` argument for a callback written over the same
+  type.
   `unknown` gets no nullish arm, so `(): Result<unknown, E> =>
 success(undefined)` and `success(null)` no longer compile. Checked on
   TypeScript 5.4, 5.9 and 7.0.
@@ -77,7 +94,7 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   overload: `result<number>(5)` is `Result<number, never>`,
   `result<number>(x)` with `x: any` is too, and
   `result<number | Invalid>(x)` is `Result<number, Invalid>`.
-- `Success` carries a third marker, `[_error]?: never`, so that no `Failure`
+- `SuccessArm` carries a third marker, `[_error]?: never`, so that no `Failure`
   can pass as a `Success`.
 - Add `NotPossiblyAnError`, the type of `success`'s guard, exported from
   `/result`.
