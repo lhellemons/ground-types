@@ -55,6 +55,11 @@ describe('catchOnly(Object) from plain JS', () => {
   it('refuses a bound subclass of a built-in that is not an Error', () => {
     class Mapish extends Map {}
     expect(() => unchecked(Mapish.bind(null))).toThrow(TypeError)
+    // A bound derived class inherits its parent's `prototype`, whatever it is.
+    class Plain {}
+    class Sub extends Plain {}
+    expect(() => unchecked(Sub.bind(null))).toThrow(TypeError)
+    expect(() => unchecked(Plain.bind(null))).not.toThrow()
     for (const builtin of [Map, Array, Promise, Date, Symbol]) {
       expect(() => unchecked(builtin)).toThrow(TypeError)
     }
@@ -81,6 +86,52 @@ describe('catchOnly(Object) from plain JS', () => {
     const handler = unchecked(Matcher) as (e: unknown) => unknown
     const error = new Error('match')
     expect(handler(error)).toBe(error)
+  })
+})
+
+describe('the Error prototype check does not consult Error[Symbol.hasInstance]', () => {
+  const unchecked = catchOnly as (...classes: unknown[]) => unknown
+  /* Runs `attempts` with `Error[Symbol.hasInstance]` redefined and reports
+     whether each threw. The matchers run afterwards: they use `instanceof
+     Error` themselves. */
+  function throwsUnder(
+    result: boolean,
+    attempts: (() => unknown)[],
+  ): boolean[] {
+    Object.defineProperty(Error, Symbol.hasInstance, {
+      value: () => result,
+      configurable: true,
+    })
+    try {
+      return attempts.map((attempt) => {
+        try {
+          attempt()
+          return false
+        } catch {
+          return true
+        }
+      })
+    } finally {
+      // The property was an own addition; the inherited one comes back.
+      delete (Error as unknown as Record<symbol, unknown>)[Symbol.hasInstance]
+    }
+  }
+  it('still refuses Object and Map and accepts a plain handler when it answers true', () => {
+    expect(
+      throwsUnder(true, [
+        () => unchecked(Object),
+        () => unchecked(Map),
+        () => tryCatch(() => 1, ((e: unknown) => e) as never),
+      ]),
+    ).toEqual([true, true, false])
+  })
+  it('still refuses an Error constructor as a handler and accepts a class when it answers false', () => {
+    expect(
+      throwsUnder(false, [
+        () => tryCatch(() => 1, TypeError as never),
+        () => unchecked(A),
+      ]),
+    ).toEqual([true, false])
   })
 })
 

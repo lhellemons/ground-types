@@ -72,19 +72,20 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   `Promise`, `Date`, a class that does not extend `Error`, a function
   declaration, a bound subclass of `Map`), or no object `prototype` and source
   text that does not say `[native code]` (`undefined`, an arrow function, a
-  method). Before, a bad entry threw on the error path and replaced the
-  original error, so a list holding one (an `undefined` from a circular
-  CommonJS import) loaded on 0.4.0 and now throws at creation. `Object` also
-  matched every `Error`, so `catchOnly(Object)(new TypeError('bug'))` turned a
-  programming bug into a Failure; the other refused entries matched nothing and
-  rethrew every error. TypeScript already rejected all of them. Still
-  admitted: a class or an ES5-style error constructor
+  method). Before, an entry with no object `prototype` (`undefined`, an arrow
+  function, a method) threw on the error path and replaced the original error,
+  so a list holding one (an `undefined` from a circular CommonJS import)
+  loaded on 0.4.0 and now throws at creation. `Object` matched every `Error`,
+  so `catchOnly(Object)(new TypeError('bug'))` turned a programming bug into a
+  Failure; the other entries with a non-Error object `prototype` matched
+  nothing and rethrew every error. TypeScript already rejected all of them.
+  Still admitted: an `Error` class or an ES5-style error constructor
   (`Legacy.prototype = Object.create(Error.prototype)`), a bound subclass of
   `Error`, a class with a custom `Symbol.hasInstance`, a function from another
-  realm, and a function with no object `prototype` whose source says
+  realm, and a function with no `prototype` of type object whose source says
   `[native code]`, such as `Math.max`, `parseInt`, `Function`, or a bound
-  `Error`, `Object` or class with no `Error` ancestor: a bound `Object` still
-  matches every `Error`. An entry is checked once, at creation. An entry that
+  `Error`, `Object` or base class (one declared without `extends`): a bound
+  `Object` still matches every `Error`. An entry is checked once, at creation. An entry that
   fails inside `instanceof` later, such as a proxy revoked after the handler is
   created, counts as not matching: the original error is rethrown unless a
   later entry matches.
@@ -92,7 +93,7 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   `errorHandler`) now throws a `TypeError` when called with a handler that is
   neither an array nor a function, or is a function that is a class (its source
   starts with `class`, an error class or not, so `class {}` and
-  `class Foo extends Map {}` too), whose `prototype` is `Error.prototype` or
+  `class Foo extends Map {}` too), or whose `prototype` is `Error.prototype` or
   inherits from it (`Error`, `TypeError` and the other built-ins, an ES5-style
   error constructor, a bound subclass of `Error`), or whose inspection throws.
   Before, one was accepted and replaced the original error on the error path.

@@ -325,9 +325,10 @@ function checkedHandler<T, E extends Error>(
    error constructor, which has native source, an ES5-style error
    constructor, or a bound Error subclass, which inherits its target's parent
    `prototype`). A function whose inspection throws is refused too. A bound
-   function's source is native, so a bound class is not detected by source;
-   a bound `Error` or a bound class with no Error ancestor has no `prototype`
-   and passes. */
+   function's source is native, so a bound class is not detected by source:
+   a bound `Error` has no `prototype`, and a bound class that is not an Error
+   subclass has none or one without `Error.prototype` on its chain, so it
+   passes. */
 // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- narrowed by typeof at the call site
 function isClassLike(candidate: Function): boolean {
   try {
@@ -349,10 +350,10 @@ function isClassLike(candidate: Function): boolean {
   }
 }
 
-/* True when `prototype` is `Error.prototype` or inherits from it. Built on
-   `isPrototypeOf`, which unlike `instanceof` does not consult
-   `Error[Symbol.hasInstance]`, which global code can redefine. Throws for a
-   Proxy whose `getPrototypeOf` trap throws; both callers guard it. */
+/* True when `prototype` is `Error.prototype` or inherits from it, by
+   `isPrototypeOf` and never `instanceof`, so `Error[Symbol.hasInstance]` is
+   not consulted. Throws for a Proxy whose `getPrototypeOf` trap throws; both
+   callers guard it. */
 function hasErrorPrototype(prototype: object): boolean {
   return (
     prototype === Error.prototype ||
@@ -679,8 +680,9 @@ export function fromMaybe<T, E extends Error>(
  * `prototype` and source text that does not say `[native code]` (`undefined`,
  * an arrow function, a method). A function with no object `prototype` whose
  * source says `[native code]` is admitted: `Math.max`, `parseInt`, and a bound
- * `Error`, `Object` or class with no `Error` ancestor. A bound subclass of
- * `Error` is admitted through its inherited `prototype`. A function from
+ * `Error`, `Object` or base class (one declared without `extends`). A bound
+ * subclass of `Error` is admitted through its inherited `prototype`, and a
+ * bound derived class that does not extend `Error` is refused through it. A function from
  * another realm is not checked. Each entry is checked once, when the handler
  * is created. An entry that throws inside `instanceof` later, such as a proxy
  * revoked after the handler is created, counts as not matching.
@@ -721,13 +723,13 @@ export function catchOnly(
    (an accessor getter or a Proxy get trap does run at creation). An entry is
    usable when it has a custom `hasInstance`, or an object `prototype` with
    `Error.prototype` on its chain, or no object `prototype` and native
-   source. `Object` is refused because it would match every error; `Symbol`,
-   a plain `function () {}` and a class that does not extend `Error` are
-   refused because they would match none. A bound function has no own
+   source. `Object`, `Symbol`, a plain `function () {}` and a class that
+   does not extend `Error` are refused. A bound function has no own
    `prototype` and inherits its target's parent's: a bound Error subclass
-   reaches `Error.prototype` and is admitted, while a bound `Error`,
-   `Object` or class with no Error ancestor has none, and is admitted as a
-   native function. A function from another realm inherits that realm's
+   reaches `Error.prototype` and is admitted, a bound derived class that does
+   not extend `Error` reaches another `prototype` and is refused, and a bound
+   `Error`, `Object` or base class has none, and is admitted as a native
+   function. A function from another realm inherits that realm's
    `Function.prototype[Symbol.hasInstance]`, so it counts as having a custom
    one. */
 function isUsableClass(candidate: unknown): boolean {
