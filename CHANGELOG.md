@@ -268,32 +268,41 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   and is not aborted with the outer promise; before, `resolve` threw.
 - The `then` of a delegate, and the `constructor` of a promise delegate, are
   each read once, as `new Promise` reads them; before they were read twice. A
-  `then` getter that throws only on its second read now fulfils the promise, as
-  it does for `new Promise`.
-- Some promise delegates settle the outer promise in a different number of
-  microtask turns. A native promise whose `constructor` is not `Promise`, and an
-  instance of a Promise subclass that does not override `then`, take 2 turns
-  where they took 4, and the species constructor of the subclass, user code,
-  runs before `resolve` returns. A native promise whose own `then` is replaced
-  or spied on, and every native promise once `Promise.prototype.then` has been
-  patched after the module loaded, take 4 turns where they took 2. A plain
-  thenable, an `AbortablePromise`, a subclass that overrides `then` and a
-  thenable that wraps a native promise take the turns they took.
+  `then` getter that throws only on its second read now makes the promise
+  follow the delegate, as it does for `new Promise`.
+- A delegate is followed with the `Promise` captured when the module loads: a
+  global `Promise` replaced afterwards is not used, where `Promise.resolve` was
+  called on the replacement when `resolve` ran.
+- A delegate's `then` is called at once when it is the `Promise.prototype.then`
+  captured when the module loads, and from a job otherwise. Before, it was
+  called at once when `Promise.resolve` returned the delegate as it was: a
+  native promise of this realm whose `constructor` is `Promise`. A delegate that
+  passes only the new test (a native promise whose `constructor` was replaced,
+  an instance of a Promise subclass that does not override `then`) settles the
+  outer promise two turns sooner, and the species constructor of a subclass,
+  user code, runs before `resolve` returns. One that passes only the old test
+  (such a native promise with its own `then` replaced or spied on, or any
+  native promise once `Promise.prototype.then` has been patched after the
+  module loaded) settles it two turns later. Every other delegate takes the
+  turns it took: a plain thenable, an `AbortablePromise`, a subclass that
+  overrides `then`, a promise from another realm, a thenable that wraps a
+  native promise.
 - A delegate is followed before the upstream link to it is registered. Before,
   the link was registered first: for a `resolve` that came after the abort, the
   link fired at once, and when the delegate's `abort()` threw, the error reached
   the caller of `resolve` and the delegate was left with no handler, so its
   rejection was unhandled and ends a Node process. Now a delegate whose `then`
   is `Promise.prototype.then` has its handlers attached by then, and any other
-  has a job queued that calls its `then`, which runs before a rejection is reported as unhandled; and a
-  throw from a link that fires at once is dropped, since the promise is already
-  settled. A delegate whose own `then` subscribes nothing is still unhandled, as
-  before. A delegate is checked again when the promise is aborted: one whose
-  prototype was swapped after `resolve` to one without `abort()` made `abort()`
-  throw a `TypeError`, and now is skipped, as is one whose new prototype has an
-  `abort()`, which was called. `Object.create(AbortablePromise.prototype)`, as a
-  delegate or as a member below, is skipped, where `abort()` threw a
-  `TypeError`.
+  has a job queued that calls its `then`, which runs before a rejection is
+  reported as unhandled; and a throw from a link that fires at once is dropped,
+  since the promise is already settled. A delegate whose own `then` subscribes
+  nothing is still unhandled, as before. A delegate is checked again when the
+  promise is aborted: one whose prototype was swapped after `resolve` to one
+  that does not inherit `AbortablePromise.prototype` and has no `abort()` made
+  `abort()` throw a `TypeError`, and now is skipped, as is one whose new
+  prototype has an `abort()`, which was called.
+  `Object.create(AbortablePromise.prototype)`, as a delegate or as a member
+  below, is skipped, where `abort()` threw a `TypeError`.
 - Aborting the promise returned by `all`, `race`, `any` or `allSettled` aborts
   every `AbortablePromise` member whose `then` is a function, which are the
   members the combinator can subscribe to. A throw from one member's `abort()`

@@ -1,3 +1,4 @@
+import vm from 'node:vm'
 import { describe, expect, it, vi } from 'vitest'
 import { isAbortError } from '../abort/index.js'
 import { AbortablePromise } from './abortable.js'
@@ -983,7 +984,7 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
         await expect(after).rejects.toSatisfy(isAbortError)
       })
 
-      it('skips an unbranded forgery, and aborts the rest', async () => {
+      it('skips a forgery with no private field, and aborts the rest', async () => {
         const forgery = Object.create(AbortablePromise.prototype) as unknown
         const after = new AbortablePromise<string>(() => {})
 
@@ -992,6 +993,20 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
         expect(() => combined.abort()).not.toThrow()
         await expect(combined).rejects.toSatisfy(isAbortError)
         await expect(after).rejects.toSatisfy(isAbortError)
+      })
+
+      it('leaves one AbortError unhandled when a member’s own then subscribes nothing', async () => {
+        const member = new AbortablePromise<string>(() => {})
+        void Object.assign(member, { then: () => {} })
+
+        const unhandled = await unhandledDuring(() => {
+          const combined = fanIn[combinator]([member])
+          combined.abort()
+          void combined.catch(() => {})
+        })
+
+        expect(unhandled).toHaveLength(1)
+        expect(unhandled[0]).toSatisfy(isAbortError)
       })
 
       it('does not throw for a Proxy with no traps over an AbortablePromise', async () => {
@@ -1300,6 +1315,33 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     expect(await turns(spied)).toBe(4)
   })
 
+  it('follows a native promise from another realm as before, in four turns', async () => {
+    // Its `constructor` is not this realm's `Promise`, and neither is its
+    // `then`, so it is called from a job, as `Promise.resolve` wrapping it did.
+    expect(
+      await turnsToSettle(
+        () =>
+          new AbortablePromise((resolve) =>
+            resolve(vm.runInNewContext('Promise.resolve(1)')),
+          ),
+      ),
+    ).toBe(4)
+  })
+
+  it('leaves one AbortError unhandled when a delegate’s own then subscribes nothing', async () => {
+    const delegate = new AbortablePromise<string>(() => {})
+    void Object.assign(delegate, { then: () => {} })
+
+    const unhandled = await unhandledDuring(() => {
+      const outer = new AbortablePromise<string>((resolve) => resolve(delegate))
+      outer.abort()
+      void outer.catch(() => {})
+    })
+
+    expect(unhandled).toHaveLength(1)
+    expect(unhandled[0]).toSatisfy(isAbortError)
+  })
+
   it('compares the then of a delegate with the Promise.prototype.then captured at load', async () => {
     // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below
     const original = Promise.prototype.then
@@ -1323,7 +1365,7 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     }
   })
 
-  it('an executor resolving with an unbranded forgery is abortable, and abort() does not throw', async () => {
+  it('an executor resolving with a forgery with no private field is abortable, and abort() does not throw', async () => {
     const forgery = Object.create(
       AbortablePromise.prototype,
     ) as PromiseLike<string>

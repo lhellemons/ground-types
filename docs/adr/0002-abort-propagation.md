@@ -169,10 +169,10 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   spied on the instance and a patched `AbortablePromise.prototype.abort` are
   called. A throw from it ends neither the loop over the promise's upstream
   links nor the abort: each link fires, then the first error is thrown, and
-  the signal bindings are released either way. A throw from a link that fires at once, for a `resolve` after
-  the abort, is dropped, since the promise is already settled. A Proxy over
-  an `AbortablePromise` is a plain thenable to it, so abort does not travel
-  through one.
+  the signal bindings are released either way. A throw from a link that
+  fires at once, for a `resolve` after the abort, is dropped, since the
+  promise is already settled. A Proxy over an `AbortablePromise` is a plain
+  thenable to it, so abort does not travel through one.
 
 - **A fresh `AbortError` per abort.** The imported implementation held a
   single `static readonly AbortError`, constructed once at module load.
