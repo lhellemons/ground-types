@@ -668,7 +668,7 @@ The consumer feedback round (#56) found fan-in, not propagation, to be the
 pain: 21 of slider's 22 `tryCatch` factories (at slider 55d9998) use
 `tryCatch((dto) => { const x = assertSuccess(X.from(dto.x)); … })(dto)`
 (`DialogueEntry.from`'s parts are throwing helpers), 180 `assertSuccess`
-calls across slider's src to 0 `andThen` callers, and that idiom
+calls in slider's non-test src to 0 `andThen` callers, and that idiom
 widens every factory's `E` to `Error` and turns a bug inside a part into a
 Failure. Its two parsers differ: `parseBoard` is `tryCatch(() => …)()` with
 `assertSuccess` calls, widened the same way; `parseOpenWhen` is `tryCatch(()
@@ -749,11 +749,13 @@ E>>(part: R) => ValueOf<R>`). So a typed union at the boundary is the
   catches, or a `finally` that returns, sees the token, so a `try`/`catch`
   or a `return` inside `finally` swallows the leave, and a `tryCatch`
   inside the body sees it too: with the default handler the leave becomes
-  a `ThrownError` Failure, with a function handler it becomes whatever
-  that handler returns, its own Failure or even a Success, and `catchOnly`
-  or a class list lets it through; an `async` body compiles, as a Result
-  of a Promise whose rejection is the token, since its `take`s run after
-  the `attempt` has returned; and a plain `return failure(…)` in the
+  a `ThrownError` Failure, a function handler that returns turns it into
+  whatever it returns, its own Failure or even a Success, and one that
+  rethrows it, as `catchOnly` or a class list does, lets it through; an
+  `async` body compiles, as a Result of a Promise whose rejection is the
+  token: an async function turns any throw into a rejection, a `take`
+  before its first `await` included, and a `take` after it runs once the
+  `attempt` has returned; and a plain `return failure(…)` in the
   body lands in `T`, with `E` still `Error`, where under an annotation it
   is a type error. The guards and docblocks for these are #115's.
 

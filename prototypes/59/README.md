@@ -68,10 +68,13 @@ Error>`, so under that annotation `E` is `Error`; a typed union at the
   boundary is written by hand.
 - B's costs: a `try`/`catch` or a `return` inside `finally` in the body
   swallows the leave; a `tryCatch` inside the body sees the leave too:
-  with the default handler it becomes a `ThrownError` Failure, with a
-  function handler whatever that handler returns (its own Failure, or a
-  Success), and `catchOnly` lets it through; an `async` body compiles (a
-  Result of a Promise) and its promise rejects with the token; a plain
+  with the default handler it becomes a `ThrownError` Failure, a function
+  handler that returns turns it into whatever it returns (its own Failure,
+  or a Success), and one that rethrows it, as `catchOnly` or a class list
+  does, lets it through; an `async` body compiles (a Result of a Promise)
+  and its promise rejects with the token, because an async function turns
+  any throw into a rejection, a `take` before its first `await` included;
+  a plain
   `return failure(…)` in the body lands in `T`, with `E` still `Error`,
   where under an annotation it is a type error. A `take` from an
   enclosing `attempt` that is still running leaves that one; a `take`

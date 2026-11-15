@@ -164,7 +164,7 @@ describe('A. collect', () => {
     expect(collect(list)).toBe(list)
   })
 
-  it('accumulates every failed part, in part order, nested for a nested struct', () => {
+  it('accumulates every failed part, in part order, nested for a nested object of parts', () => {
     const r = collectAll({
       id: PieceId.from('BAD'),
       x: Coordinate.from(-1),
@@ -226,6 +226,7 @@ describe('B. attempt/take', () => {
     }
     expect(thrown).toBeDefined()
     expect(thrown).not.toBeInstanceOf(Error)
+    expect((thrown as object).constructor.name).toBe('Bail')
   })
 
   it('a take inside a .map callback leaves the attempt', () => {

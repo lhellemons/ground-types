@@ -75,7 +75,7 @@ export class Door {
   /* The two preconditions read the DTO, not the parts, so they stay early
      returns ahead of the fan-in. An optional part is a Maybe of a Result,
      which the unboxed encoding reads as a Result of a Maybe; a nested
-     struct is a nested `collect`. */
+     object of parts is a nested `collect`. */
   static from(dto: DoorDTO) {
     if ((dto.kind as string) !== 'door')
       return failure(new WrongKind(`Expected a Door, got kind "${dto.kind}"`))
@@ -105,7 +105,7 @@ export class Door {
   }
 
   /* The accumulating variant: every failed part at once, as `Failures`. A
-     nested struct accumulates too, which nests a `Failures` inside the
+     nested object of parts accumulates too, which nests a `Failures` inside the
      outer one. The error union is `Failures<DoorError>` minus the two
      preconditions. */
   static fromAll(dto: DoorDTO) {

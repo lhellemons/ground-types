@@ -6,7 +6,7 @@ import type { Failure, Result } from '../../src/result/index.js'
 import type { ErrorOf, ValueOf } from '../../src/result/internal.js'
 
 /* ------------------------------------------------------------------------ */
-/* A. `collect`: a struct (or tuple, or list) combinator.                    */
+/* A. `collect`: an object-of-parts (or tuple, or list) combinator.          */
 /* ------------------------------------------------------------------------ */
 
 /** Every part unboxed: `{ id: Result<PieceId, E1> }` reads as `{ id: PieceId }`,

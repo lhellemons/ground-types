@@ -45,7 +45,7 @@ describe('slider today: tryCatch + assertSuccess', () => {
 })
 
 describe('A. collect', () => {
-  it('infers the struct, the error union, and passes a plain value through', () => {
+  it('infers the object of parts, the error union, and passes a plain value through', () => {
     const r = collect({ id: PieceId.from('a'), x: Coordinate.from(1), n: 5 })
     expectTypeOf<ValueOf<typeof r>>().toEqualTypeOf<{
       id: PieceId
@@ -179,7 +179,7 @@ describe('A. collect', () => {
     >()
   })
 
-  it('accumulation: Failures over the parts union, nested for a nested struct', () => {
+  it('accumulation: Failures over the parts union, nested for a nested object of parts', () => {
     const r = collectAll({ id: PieceId.from('a'), x: Coordinate.from(1) })
     expectTypeOf<ErrorOf<typeof r>>().toEqualTypeOf<
       Failures<InvalidPieceId | InvalidCoordinate>
@@ -187,7 +187,7 @@ describe('A. collect', () => {
     expectTypeOf<ErrorOf<typeof r>['errors']>().toEqualTypeOf<
       (InvalidPieceId | InvalidCoordinate)[]
     >()
-    // The preconditions stay plain; the parts' failures nest per struct.
+    // The preconditions stay plain; the parts' failures nest per object of parts.
     const doorAll = (
       dto: DoorDTO,
     ): Result<
