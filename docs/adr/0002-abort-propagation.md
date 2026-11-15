@@ -126,6 +126,14 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   a resolution handed a plain value still settles at once, so aborting
   after it remains the documented no-op.
 
+  Adopting is a resolution, though, and a promise is resolved once: the
+  `resolve` and `reject` an executor receives share one flag, as a native
+  promise's do, and every call after the first is ignored, whether the
+  thenable handed to the first is still pending or has settled. While it is
+  pending only `abort()` still acts on the promise. An executor that throws
+  goes through the same `reject`, so a throw after `resolve(work)` is
+  ignored too.
+
 - **Delegation is upstream, so abort travels it.** Keeping the abort
   window open is only half of that ruling. The other half is where the
   abort goes: aborting the outer promise in
