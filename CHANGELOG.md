@@ -28,10 +28,11 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   intersection with `object` (`{ id?: string } & object`), `any` (as `T` or
   as the returned expression), a raw `Error` subclass that fits a member type
   (an `Other` into `Result<{ code: string }, Invalid>`) or a union with any
-  of these (`number | { name?: string }`), as before. `unknown`, `{}`, `Record<string, unknown>` and an
-  all-optional object with no such key (`{ id?: string }`, `{ name?: number }`)
-  reject it. A `void`-typed expression also compiles where `T` admits `void`,
-  since the `void` arm below: `(f: () => void): Result<void, Invalid> => f()`.
+  of these (`number | { name?: string }`), as before. `unknown`, `{}`,
+  `Record<string, unknown>` and an all-optional object with no such key
+  (`{ id?: string }`, `{ name?: number }`) reject it. A `void`-typed
+  expression also compiles where `T` admits `void`, since the `void` arm
+  below: `(f: () => void): Result<void, Invalid> => f()`.
 - **Breaking:** `Success<undefined>`, `Success<null>` and `Success<void>` no
   longer reduce to `never`; each is the bare `undefined`, `null` or `void`,
   with no error phantom, and a nullish member of `T` is a Success arm of its

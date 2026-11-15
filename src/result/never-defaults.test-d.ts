@@ -371,13 +371,17 @@ describe('ADR 0001 safety properties', () => {
     /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-wrapper-object-types, @typescript-eslint/no-unsafe-return */
     void [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s]
     // Rejected, each for its own reason.
+    // @ts-expect-error - weak-type detection on Success's optional markers
+    const w = (): Result<unknown, Invalid> => raw
+    // @ts-expect-error - weak-type detection on Success's optional markers
+    const x = (): Result<{}, Invalid> => raw
     // @ts-expect-error - weak-type detection: no key in common with Error
     const t = (): Result<{ id?: string }, Invalid> => raw
     // @ts-expect-error - Error has no index signature
     const u = (): Result<Record<string, unknown>, Invalid> => raw
     // @ts-expect-error - the shared key `name` is a number here, a string on Error
     const v = (): Result<{ name?: number }, Invalid> => raw
-    void [t, u, v]
+    void [t, u, v, w, x]
   })
 
   it('rejects a plain Failure<_, Error> where Failure<_, Invalid> is expected', () => {
