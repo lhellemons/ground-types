@@ -39,7 +39,17 @@ describe('/result type exports', () => {
   it('SuccessArm is the marked part of a Success, and a Success is it or a nullish value', () => {
     expectTypeOf<SuccessArm<number, RangeError>>().toExtend<typeof s>()
     expectTypeOf<Success<string | undefined, RangeError>>().toEqualTypeOf<
-      SuccessArm<string, RangeError> | undefined
+      SuccessArm<string | undefined, RangeError> | undefined
+    >()
+    // `toEqualTypeOf` cannot tell the alias argument `string | undefined`
+    // from `string`; a generic reads it.
+    const plain = <T, E extends Error = Error>(value: Result<T, E>): [T, E] => [
+      value as T,
+      undefined as unknown as E,
+    ]
+    const optional = null as unknown as Success<string | undefined, RangeError>
+    expectTypeOf(plain(optional)).toEqualTypeOf<
+      [string | undefined, RangeError]
     >()
   })
 
@@ -62,6 +72,20 @@ describe('/result type exports', () => {
       NotPossiblyAnError<unknown>
     >().toEqualTypeOf<'This value may be an Error — wrap it with result(), not success()'>()
     expectTypeOf<NotPossiblyAnError<number>>().toEqualTypeOf<unknown>()
+  })
+
+  it('NotPossiblyAnError carries the same message from each of its three branches', () => {
+    type Message =
+      'This value may be an Error — wrap it with result(), not success()'
+    // an `Error` member
+    expectTypeOf<NotPossiblyAnError<number | Error>>().toEqualTypeOf<Message>()
+    // the empty object fits
+    // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` is the case under test
+    expectTypeOf<NotPossiblyAnError<{}>>().toEqualTypeOf<Message>()
+    // a plain Error fits
+    expectTypeOf<
+      NotPossiblyAnError<{ message: string }>
+    >().toEqualTypeOf<Message>()
   })
 
   it('NotAPromise names the sanctioned lift for a callback returning a Promise', () => {

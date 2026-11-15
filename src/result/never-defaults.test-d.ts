@@ -161,6 +161,11 @@ describe('ADR 0001 safety properties', () => {
     >()
     expectTypeOf(result(5 as number)).toEqualTypeOf<Result<number, never>>()
     expectTypeOf(result(null)).toEqualTypeOf<Result<null, never>>()
+    // `undefined` is on `ErrorArmOf`'s primitive list: dropping it gives the
+    // `undefined` member of a union an `Error` arm.
+    expectTypeOf(result(undefined as number | undefined)).toEqualTypeOf<
+      Result<number | undefined, never>
+    >()
     expectTypeOf(result(true as boolean)).toEqualTypeOf<
       Result<boolean, never>
     >()
@@ -317,6 +322,66 @@ describe('ADR 0001 safety properties', () => {
     const sneaky: Game = new Sneaky()
     const l = (): Result<Game, Invalid> => success(sneaky)
     void [k, l]
+    // With an explicit type argument the guard judges the argument, not the
+    // value: `sub` is an Error, and `success(sub)` is rejected.
+    const sub = new Other('x')
+    const sameValue = (): Result<{ code: string }, Invalid> =>
+      success<{ code: string }>(sub)
+    // @ts-expect-error - Other is an Error
+    const inferred = (): Result<{ code: string }, Invalid> => success(sub)
+    void [sameValue, inferred]
+    // `void` passes beside `any`, and can hide an Error: `() => Error` is
+    // assignable to `() => void`.
+    const fn: () => void = () => new Error('x')
+    const m = (f: () => void): Result<void, Invalid> => success(f())
+    void [fn, m]
+  })
+
+  it('a raw Error returned without failure() still compiles into the residual types', () => {
+    // No type closes these without a cost (ADR 0001, ticket 101); each
+    // compiled on 0.4.0 as well, bar `void`.
+    const raw = new Error('x')
+    const other = new Other('x')
+    /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-wrapper-object-types, @typescript-eslint/no-unsafe-return -- `any` and `Object` are the cases under test */
+    // An object type, or an object type whose required members an Error has.
+    const a = (): Result<object, Invalid> => raw
+    const b = (): Result<{ name: string }, Invalid> => raw
+    const c = (): Result<number | object, Invalid> => raw
+    // An all-optional object with a key Error has, typed so Error's fits.
+    const d = (): Result<{ name?: string }, Invalid> => raw
+    const e = (): Result<Partial<{ name: string; port: number }>, Invalid> =>
+      raw
+    const f = (): Result<{ message?: string; id?: number }, Invalid> => raw
+    // `Object`, an any-indexed object, an intersection with `object`.
+    const g = (): Result<Object, Invalid> => raw
+    const h = (): Result<Record<string, any>, Invalid> => raw
+    const i = (): Result<{ [k: string]: any }, Invalid> => raw
+    const j = (): Result<Readonly<Record<string, any>>, Invalid> => raw
+    const k = (): Result<{ id?: string } & object, Invalid> => raw
+    // A wrong Error subclass, a union with a residual member, and `any`.
+    const l = (): Result<{ code: string }, Invalid> => other
+    const m = (): Result<{ code?: string }, Invalid> => other
+    const n = (): Result<number | { name?: string }, Invalid> => raw
+    const o = (): Result<number | Record<string, any>, Invalid> => raw
+    const p = (): Result<any, Invalid> => raw
+    const q = (loose: any): Result<number, Invalid> => loose
+    // `void` has an arm of its own since 2026-11-15.
+    const r = (fn: () => void): Result<void, Invalid> => fn()
+    const s = (fn: () => void): Result<number | void, Invalid> => fn()
+    /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-wrapper-object-types, @typescript-eslint/no-unsafe-return */
+    void [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s]
+    // Rejected, each for its own reason.
+    // @ts-expect-error - weak-type detection on Success's optional markers
+    const w = (): Result<unknown, Invalid> => raw
+    // @ts-expect-error - weak-type detection on Success's optional markers
+    const x = (): Result<{}, Invalid> => raw
+    // @ts-expect-error - weak-type detection: no key in common with Error
+    const t = (): Result<{ id?: string }, Invalid> => raw
+    // @ts-expect-error - Error has no index signature
+    const u = (): Result<Record<string, unknown>, Invalid> => raw
+    // @ts-expect-error - the shared key `name` is a number here, a string on Error
+    const v = (): Result<{ name?: number }, Invalid> => raw
+    void [t, u, v, w, x]
   })
 
   it('rejects a plain Failure<_, Error> where Failure<_, Invalid> is expected', () => {

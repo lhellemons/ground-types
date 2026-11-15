@@ -39,6 +39,7 @@ declare const nullableString: Result<string | null, Invalid>
 declare const nullableNumber: Result<number | null, Invalid>
 declare const nothing: Result<undefined, Invalid>
 declare const maybe: Maybe<number>
+declare const opt: number | undefined
 declare const mn: Result<Maybe<number>, Invalid>
 declare function step(): Result<number, Invalid>
 
@@ -114,6 +115,10 @@ describe('success(undefined) fits only a Result that admits undefined', () => {
   it('an optional value passes through success without losing undefined', () => {
     const f = (n?: number): Result<number | undefined, Invalid> => success(n)
     void f
+    // The `undefined` stays in the value type: on 0.4.0 `success(n)` lost it.
+    const s = success(undefined as number | undefined)
+    expectTypeOf<undefined>().toExtend<typeof s>()
+    expectTypeOf(s).toEqualTypeOf<Success<number | undefined, never>>()
   })
 
   it('a Failure is still not a Success of a nullish T', () => {
@@ -274,6 +279,43 @@ describe('success(x) still seeds E = never through a generic', () => {
   })
 })
 
+describe('success of a value that may be undefined, with no Failure arm, flows into a generic', () => {
+  const plain = <T, E extends Error = Error>(value: Result<T, E>): [T, E] => [
+    value as T,
+    undefined as unknown as E,
+  ]
+  const orZero = (n: number | undefined): number => n ?? 0
+
+  it('map seeds E = never and keeps the undefined for the callback', () => {
+    expectTypeOf(map(orZero, success(opt))).toEqualTypeOf<
+      Result<number, never>
+    >()
+  })
+
+  it('a function taking a Result infers T with the undefined and E = never', () => {
+    expectTypeOf(plain(success(opt))).toEqualTypeOf<
+      [number | undefined, never]
+    >()
+  })
+
+  it('a narrowed Success flows into map and the early return needs no annotation', () => {
+    const early = (
+      r: Result<number | undefined, Invalid>,
+    ): Result<number, Invalid> => {
+      if (isSuccess(r)) return map(orZero, r)
+      return failure(r)
+    }
+    void early
+  })
+
+  it('Result.box takes it as a Result<number | undefined, never>', () => {
+    const boxed = ResultBox.box(success(opt))
+    expectTypeOf(boxed.unbox()).toEqualTypeOf<
+      Result<number | undefined, never>
+    >()
+  })
+})
+
 describe('a nullish value now reaches a callback that cannot take it', () => {
   it('map and andThen over a Result<number | undefined, E> reject a (n: number) callback', () => {
     // @ts-expect-error - the undefined value reaches a callback that takes a number
@@ -356,29 +398,36 @@ describe('a Success narrowed out of a Result<number | undefined, E> keeps its un
     return x
   }
 
+  /* Regressed with the nullish arm (each compiled before it, on TypeScript 5.4
+     and 5.9): `orElse` and `unwrap` on the narrowed arm, and `orElse` and
+     `fallback` after ruling the `undefined` out of the whole Result. On 7.0
+     the narrowed-arm `unwrap` already failed. Already errors on 0.4.0 and
+     before the nullish arm, so not regressions: `fallback(() => 0, r)` on the
+     narrowed arm (its callback was typed `never`), `unwrap` after ruling the
+     `undefined` out of the whole Result, and the `string | null` case. */
   it('ruling the undefined out of the Success arm does not narrow T', () => {
     if (isSuccess(maybeNumber) && maybeNumber !== undefined) {
-      // @ts-expect-error - T is read from the arm's number | undefined
+      // @ts-expect-error - T is read from the arm's number | undefined (regressed)
       const a: number = unwrap(maybeNumber)
-      // @ts-expect-error - T is read from the arm's number | undefined
+      // @ts-expect-error - T is read from the arm's number | undefined (regressed)
       const b: number = orElse(0, maybeNumber)
-      // @ts-expect-error - T is read from the arm's number | undefined
+      // @ts-expect-error - T is read from the arm's number | undefined (the callback was typed never before)
       const c: number = fallback(() => 0, maybeNumber)
       void [a, b, c]
     }
     if (isSuccess(maybeNumber) && typeof maybeNumber === 'number') {
-      // @ts-expect-error - T is read from the arm's number | undefined
+      // @ts-expect-error - T is read from the arm's number | undefined (regressed)
       const d: number = unwrap(maybeNumber)
       void d
     }
     if (isSuccess(maybeNumber)) {
-      // @ts-expect-error - the non-null assertion narrows the value, not the arm
+      // @ts-expect-error - the non-null assertion narrows the value, not the arm (regressed)
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- the assertion is the case under test
       const e: number = unwrap(maybeNumber!)
       void e
     }
     if (isSuccess(nullableString) && nullableString !== null) {
-      // @ts-expect-error - T is read from the arm's string | null
+      // @ts-expect-error - T is read from the arm's string | null (an error before the nullish arm too)
       const f: string = unwrap(nullableString)
       void f
     }
@@ -397,11 +446,13 @@ describe('a Success narrowed out of a Result<number | undefined, E> keeps its un
 
   it('ruling undefined out of the whole Result first leaves the Failure arm at number | undefined', () => {
     if (maybeNumber !== undefined) {
-      // @ts-expect-error - the Failure arm still carries number | undefined
+      // @ts-expect-error - the Failure arm still carries number | undefined (regressed)
       const a: number = orElse(0, maybeNumber)
-      // @ts-expect-error - the Failure arm still carries number | undefined
-      const b: number = unwrap(maybeNumber)
-      void [a, b]
+      // @ts-expect-error - the Failure arm still carries number | undefined (regressed)
+      const b: number = fallback(() => 0, maybeNumber)
+      // @ts-expect-error - the Failure arm still carries number | undefined (an error before the nullish arm too)
+      const c: number = unwrap(maybeNumber)
+      void [a, b, c]
     }
   })
 
