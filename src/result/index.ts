@@ -82,12 +82,14 @@ export function result<T, E extends Error = Error>(value: T | E): Result<T, E> {
  * an all-optional object, an index-signature type such as `Record<string,
  * number>`, and any union of one of those with a primitive, `null` or
  * `undefined`), and a type a plain `Error` fits (`{ message: string }`, a
- * class whose members an `Error` has). It lets three things through:
- * `any`, as it passes every constraint; `void`, which can hold an `Error`
- * (a `() => Error` is assignable to a `() => void`); and an object type
- * that only an `Error` subclass fits (a plain interface, a DTO, a class
- * instance without private members). An unresolved type parameter is
- * refused, so generic code casts instead. See docs/adr/0001-unboxed-maybe-and-result.md.
+ * class whose members an `Error` has). Three things that can hold an
+ * `Error` pass: `any`, as it passes every constraint; `void` (a
+ * `() => Error` is assignable to a `() => void`); and an object type that
+ * only an `Error` subclass fits (a plain interface, a DTO, a class
+ * instance without private members). With an explicit type argument it
+ * judges the argument, not the value. An unresolved type parameter is
+ * refused, so generic code casts instead. See
+ * docs/adr/0001-unboxed-maybe-and-result.md.
  */
 export type NotPossiblyAnError<T> = [Extract<T, Error>] extends [never]
   ? // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` is the point: a type the empty object fits admits any non-nullish value, an Error included

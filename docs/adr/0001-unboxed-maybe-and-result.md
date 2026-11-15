@@ -236,11 +236,15 @@ interface (`{ code: string }` holding an `Other`), a DTO with required
 members, a class instance without private members (a `Game { id; round
 }` holding a `Sneaky extends Error { id; round }`). `success` still
 trusts its caller there. `any` passes too, as it passes every
-constraint, and so does `void`, which can hide an `Error` as well: a
-`() => Error` is assignable to a `() => void`, so `(f: () => void):
-Result<void, Invalid> => success(f())` compiles. A `void`-typed value needs
-no `success()` either; see the residual below. **Breaking:** the guard
-judges the value's type at every call, not only at a site typed to a narrower error class, so `success`
+constraint. With an explicit type argument the guard judges the argument,
+not the value: `success<{ code: string }>(other)` compiles where
+`success(other)` is rejected. **Update, 2026-11-15:** `void` passes as well
+and can hide an `Error`, since a `() => Error` is assignable to a
+`() => void`: `(f: () => void): Result<void, Invalid> => success(f())`
+compiles, and so does the raw return `(f: () => void): Result<void,
+Invalid> => f()`, because `void` has an arm of its own. The guard's design
+is unchanged. **Breaking:** the guard judges the value's type at every
+call, not only at a site typed to a narrower error class, so `success`
 of any value whose type it judges may hold an `Error` (`unknown`,
 `object`, `{}`, an all-optional object, an `Error` union, a `Result`, a
 class like `Tag` or the shape `{ name: string }`, an index-signature
@@ -389,10 +393,10 @@ object type an `Error` subclass could hide in, through `success` of an
 through a bare `Failure<_, Error>`, and, through `failure`, at a target
 whose `T` is `unknown`, `object`, `{}` or an all-optional object; and
 `Result<Result<T>>` is still not assignable to `Result<T>`. The residual
-no type can close, as before: a raw `Error` returned without `failure()`
-compiles where `T` is `object`, a union with `object`, or an object type
-whose required members a plain `Error` has (`Result<object, Invalid>`,
-`Result<{ name: string }, Invalid>`, `Result<number | object,
+no type closes without a cost, as before: a raw `Error` returned without
+`failure()` compiles where `T` is `object`, a union with `object`, or an
+object type whose required members a plain `Error` has (`Result<object,
+Invalid>`, `Result<{ name: string }, Invalid>`, `Result<number | object,
 Invalid>`); where `T` is an all-optional object with a key `Error` has,
 typed so that `Error`'s member fits (`name`, `message`, `stack`, `cause`:
 `Result<{ name?: string }, Invalid>`, `Result<Partial<{ name: string; port:
@@ -400,15 +404,22 @@ number }>, Invalid>`, `Result<{ message?: string; id?: number }, Invalid>`),
 which passes weak-type detection through that key; where `T` is `Object`, an
 `any`-indexed object (`Record<string, any>`, `{ [k: string]: any }`,
 `Readonly<Record<string, any>>`) or an intersection with `object`
-(`{ id?: string } & object`); and when the returned expression is
-`any`-typed. A `void`-typed expression compiles too where `T` admits `void`
-(`(f: () => void): Result<void, Invalid> => f()`,
-`Result<number | void, Invalid>`), since the 2026-11-15 amendment gave `void`
-an arm. All but the `void` case compile on 0.4.0 as well. Where `T` is
-`unknown`, `{}`, `Record<string, unknown>` or an all-optional object with no
-such key (`Result<{ id?: string }, Invalid>`, `Result<{ name?: number },
-Invalid>`) the raw return is rejected, on 0.4.0 as now, by weak-type
-detection on `Success`'s optional markers. Every existing
+(`{ id?: string } & object`); where `T` is `any`, or the returned
+expression is; where the returned value is an `Error` subclass that fits a
+member type (`(o: Other): Result<{ code: string }, Invalid> => o`, and
+`{ code?: string }`); and where `T` is a union with any of these members
+(`number | { name?: string }`, `number | Record<string, any>`). All of this
+compiles on 0.4.0 as well; `void` joins it since 2026-11-15 (see the update
+in the guard paragraph above). Three raw returns are rejected, on 0.4.0 as
+now, each for its own reason. Where `T` is `unknown`, `{}` or an
+all-optional object with no key in common with `Error` (`Result<{ id?:
+string }, Invalid>`), weak-type detection on `Success`'s optional markers
+rejects it (TS2559). Where `T` is `Record<string, unknown>`, `Error` has no
+index signature; where `T` is `{ name?: number }`, `Error`'s `name` is a
+string, and the shared key passes weak-type detection. A `stack?: never`
+marker on the marked arm would close every structural case above and leave
+`any` and `void`, at the cost of every `T` with a `stack` member; ticket
+#101 holds that decision, and this amendment changes no type. Every existing
 type-level test stays green but two, whose expectations change from
 `Success<number, Error>` to `Success<number, never>` and from
 `Failure<unknown, Invalid>` to `Failure<never, Invalid>`, plus the Box
@@ -569,11 +580,15 @@ item records a changed reason:
   `orElse(0, success(5))` breaks (`T` infers `0`, which
   `SuccessArm<5, never>` does not fit) and
   `if (isSuccess(r)) return map(f, r)` becomes a hard error for
-  `r: Result<number | undefined, E>`. Distributing
-  `Success` over `T` (`T extends nullish ? NoInfer<T> : SuccessArm<T, E>`)
-  fixes seeding and most of this, but breaks `mapError`'s recovery
-  inference, and makes the same
-  `if (isSuccess(r)) return map(f, r)` a hard error.
+  `r: Result<number | undefined, E>`. Under both, a `success` of an
+  optional value no longer flows into a generic at all: with
+  `opt: number | undefined`, `map(f, success(opt))`, `plain(success(opt))`
+  and `Result.box(success(opt))` are hard errors (pinned in
+  `nullish-success.test-d.ts`). Distributing `Success` over `T`
+  (`T extends nullish ? NoInfer<T> : SuccessArm<T, E>`) fixes seeding for a
+  non-nullish `T` and most of the rest, but breaks `mapError`'s recovery
+  inference, and makes the same `if (isSuccess(r)) return map(f, r)` a hard
+  error.
 - `unknown` gets no nullish arm, since `Extract<unknown, null | undefined>`
   is `never`, so `success(undefined)` and `success(null)` no longer fit a
   `Result<unknown, Invalid>`, though they did on 0.4.0. Narrowing a

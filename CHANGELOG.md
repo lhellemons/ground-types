@@ -25,8 +25,10 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   so that `Error`'s member fits (`name`, `message`, `stack`, `cause`:
   `{ name?: string }`, `Partial<{ name: string; port: number }>`), `Object`,
   an `any`-indexed object (`Record<string, any>`, `{ [k: string]: any }`), an
-  intersection with `object` (`{ id?: string } & object`), or an `any`-typed
-  expression, as before. `unknown`, `{}`, `Record<string, unknown>` and an
+  intersection with `object` (`{ id?: string } & object`), `any` (as `T` or
+  as the returned expression), a raw `Error` subclass that fits a member type
+  (an `Other` into `Result<{ code: string }, Invalid>`) or a union with any
+  of these (`number | { name?: string }`), as before. `unknown`, `{}`, `Record<string, unknown>` and an
   all-optional object with no such key (`{ id?: string }`, `{ name?: number }`)
   reject it. A `void`-typed expression also compiles where `T` admits `void`,
   since the `void` arm below: `(f: () => void): Result<void, Invalid> => f()`.
