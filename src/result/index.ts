@@ -163,6 +163,8 @@ type CheckedClasses<C extends readonly unknown[]> = {
  *
  * Domain code can use `tryCatch(construct, catchOnly(InvalidValue))`
  * or the shorthand `tryCatch(construct, [InvalidValue, OtherError])`.
+ * A handler that is neither an array nor a function, or is a bare class,
+ * throws a `TypeError` when `tryCatch` is called.
  *
  * Naming `E` explicitly requires supplying the handler that produces it:
  * `tryCatch(fn)` fixes `E = Error`, and no overload takes three type
@@ -209,13 +211,13 @@ export function tryCatch<
     // still needs the cast — but the handler-less overload above pins
     // `E = Error` at every call site that can reach it, which is what the
     // cast then truthfully claims.
-    (error instanceof Error ? error : new ThrownError(error)) as Failure<T, E>,
+    (isErrorOrRethrow(error) ? error : new ThrownError(error)) as Failure<T, E>,
 ): (...args: Args) => Result<T, E> {
   const handler = Array.isArray(errorHandler)
     ? (catchOnly as (...classes: unknown[]) => Mapper<unknown, Result<T, E>>)(
         ...(errorHandler as readonly unknown[]),
       )
-    : (errorHandler as Mapper<unknown, Result<T, E>>)
+    : checkedHandler<T, E>(errorHandler)
   return function (...args: Args) {
     try {
       return fn(...args) as Result<T, E>
@@ -223,6 +225,36 @@ export function tryCatch<
       return handler(error)
     }
   }
+}
+
+/* `value instanceof Error`, except that a guard which throws (a Proxy whose
+   `getPrototypeOf` trap throws) rethrows `value` itself, so the original
+   error is never replaced by the guard's own. */
+function isErrorOrRethrow(value: unknown): value is Error {
+  try {
+    return value instanceof Error
+  } catch {
+    throw value
+  }
+}
+
+/* Accepts a function as the handler and refuses everything else. A bare
+   class is a function too, but calling it throws on the error path, so a
+   function whose source starts with `class` is refused as well. */
+function checkedHandler<T, E extends Error>(
+  handler: unknown,
+): Mapper<unknown, Result<T, E>> {
+  if (typeof handler !== 'function' || isBareClass(handler)) {
+    throw new TypeError(
+      'tryCatch requires an error handler function or a non-empty array of error classes',
+    )
+  }
+  return handler as Mapper<unknown, Result<T, E>>
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- narrowed by typeof at the call site
+function isBareClass(candidate: Function): boolean {
+  return /^class\b/.test(Function.prototype.toString.call(candidate))
 }
 
 /**
@@ -530,8 +562,12 @@ export function fromMaybe<T, E extends Error>(
  * Rethrows every other value, including foreign-realm errors, unchanged.
  *
  * Each class must be an Error class (a private constructor is fine). An
- * empty list, or an entry that cannot be used with `instanceof`, throws a
- * `TypeError` when the handler is created.
+ * empty list throws a `TypeError` when the handler is created, and so does an
+ * entry that is not a function, or is a non-native function with neither an
+ * object `prototype` nor its own `Symbol.hasInstance` (such as `undefined`,
+ * an arrow function or a method). A native function (`Math.max`, `Symbol`,
+ * a bound function) is admitted, since a bound class cannot be told from
+ * one; an entry that fails inside `instanceof` counts as not matching.
  *
  * Use `tryCatch(construct, catchOnly(InvalidValue))` for domain code.
  */
@@ -558,15 +594,15 @@ export function catchOnly(
     }
   })
   return (error: unknown): Failure<never, Error> => {
-    if (error instanceof Error && isInstanceOfAny(error, classes)) {
+    if (isErrorOrRethrow(error) && isInstanceOfAny(error, classes)) {
       return failure<Error, never>(error)
     }
     throw error
   }
 }
 
-/* Checks the shape without calling anything the entry defines, so a custom
-   `Symbol.hasInstance` is not run at creation. A bound class has neither an
+/* Checks the shape without calling the entry or its `Symbol.hasInstance`
+   (an accessor getter or a Proxy get trap does run at creation). A bound class has neither an
    own object `prototype` nor a custom `hasInstance`, so it is recognised by
    being a native function. */
 function isUsableClass(candidate: unknown): boolean {
@@ -591,14 +627,14 @@ function isUsableClass(candidate: unknown): boolean {
 
 /* An entry that throws when used with `instanceof` (a revoked proxy, a
    `prototype` reassigned after creation, a throwing `hasInstance`) counts as
-   not matching, so the caller rethrows the original error. */
+   not matching, so the caller rethrows the original error unless a later
+   entry matches. Each entry is guarded on its own. */
 function isInstanceOfAny(error: Error, classes: readonly unknown[]): boolean {
-  try {
-    return classes.some(
-      (ErrorClass) =>
-        error instanceof (ErrorClass as abstract new () => unknown),
-    )
-  } catch {
-    return false
-  }
+  return classes.some((ErrorClass) => {
+    try {
+      return error instanceof (ErrorClass as abstract new () => unknown)
+    } catch {
+      return false
+    }
+  })
 }
