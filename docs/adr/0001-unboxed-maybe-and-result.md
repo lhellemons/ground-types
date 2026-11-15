@@ -39,6 +39,16 @@ It reads as `Result<T | undefined, E>`, matching the runtime, where
   guarantee that a `Success` can never be an `Error`. Fan-in
   constructors are expected to use `tryCatch` over throwing code
   instead, not a Maybe/Result combinator kit.
+  **Update, 2026-11-15:** amended by the 2026-11-15 fan-in amendment
+  below (#59). The ban on a container-based `all`/`sequence` stands.
+  Fan-in over the unboxed `Result` is `collect`, which takes a struct, a
+  tuple or a list of parts and returns the first `Failure` among them or
+  the parts themselves, already unboxed, with no container and no cast
+  the other combinators do not already make; and `attempt`/`take`, the
+  imperative form, which leaves on the first `Failure` through a token
+  private to the call and catches nothing else. `tryCatch` over
+  `assertSuccess` is no longer the expected fan-in idiom: it widens `E`
+  to `Error` and turns bugs into Failures.
 - **No Maybe analogue of `tryCatch`.** `tryCatch` exists to lift a
   _throwing_ function into a `Result`. A `Maybe`-producing operation
   doesn't throw to signal absence — it returns `undefined`, which is
@@ -97,7 +107,8 @@ type`, erased entirely at emit by `verbatimModuleSyntax`), and each
 
 - The unboxed encoding stays load-bearing and un-fought: no
   `all`/`sequence`/`traverseMaybe` primitives, now or for as long as the
-  encoding holds.
+  encoding holds. **Update, 2026-11-15:** `collect` and `attempt` (#59)
+  are fan-in without a container; see the amendment.
 - `maybe` and `result` present a matching combinator surface
   (`map`/`andThen`, `orElse`/`fallback`, and a bridge each way) without
   actually sharing an implementation underneath — the asymmetry between
@@ -655,3 +666,79 @@ compiles a file that exports `success(1)`, `success(undefined)`, a function
 returning `success(n)` or `failure(e)` and a value narrowed by `isSuccess`,
 with `declaration` on and `skipLibCheck` off, and expects no TS4023 or
 TS4058.
+
+### 2026-11-15 — Typed fan-in over the unboxed Result: `collect` and `attempt`/`take` (#59)
+
+The consumer feedback round (#56) found fan-in, not propagation, to be the
+pain: slider's 23 factories all use `tryCatch((dto) => { const x =
+assertSuccess(X.from(dto.x)); … })(dto)`, about 180 `assertSuccess` calls
+to 0 `andThen` callers, and that idiom widens every factory's `E` to
+`Error` and turns a bug inside a part into a Failure. The "No
+`all`/`sequence`" bullet's premise was that a fan-in needs a container; it
+does not, because the parts are already unboxed.
+
+A prototype (`prototypes/59/`, measured on TypeScript 5.9.3) rewrote three
+slider factories (Position, Door and Slide: a precondition on the DTO, a
+nested struct, an optional part, a list, and a step that depends on built
+parts) with three candidates and scored them on error-union inference,
+bugs staying separate from Failures, dependent steps, use inside callbacks,
+readability and fit with the Result Box. The owner chose **A + B**:
+
+- **`collect(parts)`**: a struct, a tuple or a list whose members are
+  `Result`s (a plain member passes through). It returns the first
+  `Failure` among the parts, or the parts themselves: on success nothing
+  is allocated, and nothing is caught. Its value type is the parts with
+  each member unboxed; its error type is the union of the members' error
+  types, read through `ErrorOf`, inferred with no annotation (`collect({
+id: PieceId.from(dto.id), at: Position.from(dto.at) })` is
+  `Result<{ id: PieceId; at: Position }, InvalidPieceId | InvalidCoordinate>`,
+  and `collect(dto.path.map(Position.from))` is `Result<Position[],
+InvalidCoordinate>`). The parts are evaluated by the caller, eagerly, so
+  a part cannot depend on another part: the construction step follows,
+  through `map`, `andThen` or an early return. The early-return form
+  re-wraps the Failure (`if (isFailure(parts)) return failure(parts)`),
+  which leaks the nested `Failure` into an un-annotated return type, and
+  an un-annotated factory that mixes early returns with a combinator
+  returns a union of Results that `isFailure` cannot take; a return
+  annotation, which every slider factory writes, resolves both. An
+  un-annotated factory also cannot be emitted into a declaration file
+  (TS4050, the private markers).
+- **`attempt((take) => …)`**: the imperative form, slider's shape with
+  `assertSuccess` renamed. `take(part)` unboxes the part or leaves the
+  `attempt` with its Failure, by throwing a token private to that call,
+  compared by identity; `attempt` catches that token and nothing else, so
+  a bug propagates (an `Error` or a bare string alike), and a `take` from
+  another `attempt` propagates to its own. `take` works inside `.map`
+  and inside a Maybe `map` callback, and a step can depend on an earlier
+  one. `E` has no inference site in the body: with no contextual type it
+  falls to `Error` (not `never`, as the ticket's first probe had it); from
+  the enclosing return annotation it is found, and `take` then rejects a
+  part whose error is outside it (`take` is `<R extends Result<unknown,
+E>>(part: R) => ValueOf<R>`). An explicit `attempt<T, E>` serves where
+  there is no annotation. A factory's own failure is a `take(failure(…))`
+  or an early return ahead of the `attempt`, never a throw.
+
+The third candidate, `gen`/`yield* take` (generator do-notation), infers
+the exact union with no annotation and catches nothing, but a `yield*`
+cannot sit inside a nested function, so lists and Maybe callbacks become
+loops or go through `collect`, and it is `function*`/`yield*` noise on
+every part. Not adopted; the prototype keeps it as the record.
+
+Also decided:
+
+- **Accumulation is recorded for #65, not shipped.** The prototype's
+  `collectAll` keeps every failed part as one `Failures<E>`, an
+  `AggregateError` subclass with `errors: E[]` in part order, which fits
+  the encoding as any other Failure does; measured on Door, a nested
+  struct nests its `Failures`, so flattening is a choice still open. No
+  consumer has asked for it. #65 (partially valid aggregates) decides.
+- **The names are `collect`, `attempt` and `take`**, and `collect` keeps
+  all three input shapes (struct, tuple, list) through one signature.
+- **The Box statics are #89's.** `Result.collect({ … }).map(…)` and
+  `Result.attempt((take) => …)` are natural static entries on the Result
+  Box; whether the Box carries them is decided with its other questions.
+
+Implementation is a task of its own (filed from #59's resolution): the two
+functions in `/result`, their docblocks, CONTEXT.md entries, the README's
+module table and the `/result` surface test, with a declaration-emit
+check for a `collect`-built factory with an annotated return type.
