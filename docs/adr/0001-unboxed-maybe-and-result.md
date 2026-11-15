@@ -823,8 +823,9 @@ both arrays, as one drop and one diagnostic. A partially valid world the
 parse knows how to recover is a Success carrying both arrays; anything
 outside that pinned policy (for example an untagged per-entry shape
 error, a missing world id, a `World.from` rejection it cannot pin on one
-entry, an exhausted drop budget) is the strict parse's Failure. A dangling Link comes back a Success with the
-Link in `dropped` and `diagnostics` empty, and slider's editor
+entry, an exhausted drop budget) is the strict parse's Failure. A
+dangling Link comes back a Success with the Link in `dropped` and
+`diagnostics` empty, and slider's editor
 (`src/editor-document/rebuild.ts`) treats a Stage or Link drop as a
 blocking error and a diagnostic or a Piece drop as non-blocking. A known
 gap in that consumer: the best-effort parse is blind to the `format:
@@ -862,23 +863,25 @@ fallback)` turns a Failure into the fallback value with the error
   `toResult` fails when any diagnostic exists, through a consumer-supplied
   `(diagnostics) => Error`, because the library cannot choose how a list
   of diagnostics becomes one `Error` (slider wraps its own in
-  `WorldFormatErrors`). `Result`'s unboxed encoding constrains
-  `toResult`: its Success arm takes `success`'s `NotPossiblyAnError`
-  guard, or an `Error`-typed value would read as a Failure; whether the
-  constructor, `map` and `recover`'s fallback also carry the guard is the
-  prototype's to measure. The shape is measured first: a prototype
-  ticket builds the kit in `prototypes/` against slider's best-effort
-  parse, measuring `D` against both of slider's arrays (a `toResult` that
-  read only `diagnostics` would let a dropped Link through as a Success),
-  and writes the module's own ADR and its CONTEXT.md entries from what it
-  finds; this amendment records the rulings, not the shape. Whether the
+  `WorldFormatErrors`). `Result`'s unboxed encoding means an
+  `Error`-typed value in `toResult`'s Success arm would read as a
+  Failure; whether `toResult`, the constructor, `map` and `recover`'s
+  fallback carry `success`'s `NotPossiblyAnError` guard (which rejects an
+  all-optional, index-signature or unresolved `T`) or bypass it as
+  `orElse` and `fromMaybe` do is the prototype's to measure. The shape is
+  measured first: a prototype ticket builds the kit in `prototypes/`
+  against slider's best-effort parse, measuring `D` against both of
+  slider's arrays (a `toResult` that read only `diagnostics` would let a
+  dropped Link through as a Success), and writes the module's own ADR and
+  its CONTEXT.md entries from what it finds; this amendment records the
+  rulings, not the shape. Whether the
   module gets a fifth Box is #89's question.
 - **Accumulation waits for a ticket of its own**, after #115 has shipped
   `collect` and after the best-effort prototype has measured the kit, so
-  that `collectAll`, a fan-in that keeps the parts that passed, and the
-  open question of whether nested `Failures` flatten are designed against
-  the shipped `collect` and the measured `BestEffort`. A fan-in that keeps
-  the parts that passed is a fan-in into a container, which the standing
-  "No `all`/`sequence`" bullet bans; whether and how it fits is that
-  ticket's to decide. `Failures<E>` as measured in
+  that `collectAll`, the open question of whether nested `Failures`
+  flatten, and a fan-in that keeps the parts that passed are designed
+  against the shipped `collect` and the measured `BestEffort`. Whether a
+  fan-in that keeps the parts that passed is a fan-in into a container,
+  which the standing "No `all`/`sequence`" bullet bans, and if so whether
+  it can ship, is that ticket's to decide. `Failures<E>` as measured in
   `prototypes/59/fan-in.ts` is the recorded shape until then.
