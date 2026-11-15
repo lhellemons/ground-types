@@ -8,6 +8,7 @@ const promisePrototype = Promise.prototype
 // eslint-disable-next-line @typescript-eslint/unbound-method -- only applied
 const promiseThen = Promise.prototype.then
 const apply = Reflect.apply
+const cycleMessage = 'Chaining cycle detected for promise #<AbortablePromise>'
 
 /* Whether `value` is a native Promise or a subclass instance: `instanceof
    Promise`, but by `isPrototypeOf`, so `Promise[Symbol.hasInstance]` is not
@@ -26,12 +27,14 @@ function isPromise(value: unknown): value is Promise<unknown> {
    and what the call throws is thrown. Any other `then` is called from a job of
    a native promise that is resolved with it, so its callbacks run once at most,
    a thenable it resolves with is followed in turn, and what the call throws
-   rejects that promise. */
+   rejects that promise. A callback that `then` calls with `isOwner`'s value
+   rejects instead, as a native resolve function does for its own promise. */
 function follow(
   value: unknown,
   then: (onFulfilled: unknown, onRejected: unknown) => unknown,
   onFulfilled: (settledValue: never) => void,
   onRejected: (reason: unknown) => void,
+  isOwner: (settledValue: unknown) => boolean,
 ): void {
   if (then === promiseThen) {
     apply(then, value, [onFulfilled, onRejected])
@@ -39,8 +42,20 @@ function follow(
   }
   const following = new NativePromise<unknown>((resolve) => {
     resolve({
-      then: (resolveFollowing: unknown, rejectFollowing: unknown) =>
-        apply(then, value, [resolveFollowing, rejectFollowing]),
+      then: (
+        resolveFollowing: (settledValue: unknown) => void,
+        rejectFollowing: (reason: unknown) => void,
+      ) =>
+        apply(then, value, [
+          (settledValue: unknown) => {
+            if (isOwner(settledValue)) {
+              rejectFollowing(new TypeError(cycleMessage))
+            } else {
+              resolveFollowing(settledValue)
+            }
+          },
+          rejectFollowing,
+        ]),
     })
   })
   apply(promiseThen, following, [onFulfilled, onRejected])
@@ -196,7 +211,10 @@ class AbortState {
       onAbort()
       return
     }
-    this.#linked.push(onAbort)
+    // A settled promise never fires its links.
+    if (!this.#settled) {
+      this.#linked.push(onAbort)
+    }
   }
 
   abort(): void {
@@ -208,8 +226,20 @@ class AbortState {
 
     // Fire the platform signal before rejecting, so an executor watching it
     // can release resources before the rejection propagates. Re-entry through
-    // watchController is harmless: #aborted is already set.
-    this.#controller?.abort()
+    // watchController is harmless: #aborted is already set. A controller whose
+    // signal has aborted is not asked again. One whose `abort()` throws does
+    // not stop the rejection, the links or the release; its error is thrown
+    // after the last link, ahead of theirs.
+    let failed = false
+    let firstError: unknown
+    try {
+      if (this.#controller && !this.#controller.signal.aborted) {
+        this.#controller.abort()
+      }
+    } catch (error) {
+      failed = true
+      firstError = error
+    }
     this.#rejectSelf?.(new AbortError('AbortablePromise aborted'))
 
     // Every link fires, whether or not an earlier one throws; the first error
@@ -219,10 +249,17 @@ class AbortState {
       runAll(linked, (onAbort) => {
         onAbort()
       })
-    } finally {
-      // Last, so that a signal firing into this call has already been handled
-      // by the listener that is about to be removed.
-      this.#release()
+    } catch (error) {
+      if (!failed) {
+        failed = true
+        firstError = error
+      }
+    }
+    // Last, so that a signal firing into this call has already been handled
+    // by the listener that is about to be removed.
+    this.#release()
+    if (failed) {
+      throw firstError
     }
   }
 }
@@ -246,16 +283,6 @@ function thenOf(
   return typeof then === 'function'
     ? (then as (onFulfilled: unknown, onRejected: unknown) => unknown)
     : undefined
-}
-
-/* Whether `value` is a thenable, answering false instead of throwing when the
-   read of `then` throws. */
-function isThenable(value: unknown): boolean {
-  try {
-    return thenOf(value) !== undefined
-  } catch {
-    return false
-  }
 }
 
 /**
@@ -372,31 +399,76 @@ export class AbortablePromise<T> extends Promise<T> {
   }
 
   /**
-   * Links the abort of `combined` to its members: aborting it calls `abort()`
-   * on each member that is an AbortablePromise (`#isAbortablePromise`) with a
-   * function `then`, chosen when `combined` is made, and that is still an
-   * AbortablePromise when `combined` is aborted. `abort()` is called on every
-   * such member even when one throws; the first error is thrown after the last.
-   * A member that settles first aborts no other (see
+   * Makes the promise `combine` returns for the items of `values`, and links
+   * its abort to the members: aborting it calls `abort()` on each member that
+   * is an AbortablePromise (`#isAbortablePromise`) whose `then`, read when the
+   * combinator takes the member, is a function, and that is still an
+   * AbortablePromise when it is aborted. `abort()` is called on every such
+   * member even when one throws; the first error is thrown after the last. A
+   * member that settles first aborts no other (see
    * docs/adr/0002-abort-propagation.md).
+   *
+   * `values` is iterated lazily, as the native combinators iterate it, so
+   * what it throws rejects the promise, a member taken before the throw is
+   * subscribed to, and the iterator is closed when the combinator stops early.
+   * A member that is an AbortablePromise is handed to the combinator as a
+   * thenable that calls the `then` that was read, and a subclass's `resolve`
+   * receives that thenable; one whose `then` getter throws is handed over as a
+   * thenable whose `then` throws that error; one whose `then` is not a
+   * function is handed over as it is, read again by the combinator, and not
+   * aborted.
    */
-  static #abortMembersWith(
-    combined: AbortablePromise<unknown>,
-    members: readonly unknown[],
-  ): void {
+  static #fanIn(
+    values: Iterable<unknown>,
+    combine: (members: Iterable<unknown>) => Promise<unknown>,
+  ): AbortablePromise<unknown> {
     const adopted: AbortablePromise<unknown>[] = []
-    for (const member of members) {
-      if (AbortablePromise.#isAbortablePromise(member) && isThenable(member)) {
-        adopted.push(member)
+    const members = function* (): Generator<unknown> {
+      for (const item of values) {
+        if (!AbortablePromise.#isAbortablePromise(item)) {
+          yield item
+          continue
+        }
+        let then: ReturnType<typeof thenOf>
+        try {
+          then = thenOf(item)
+        } catch (error) {
+          // What the combinator would have met: a thenable whose `then` throws.
+          yield {
+            get then(): never {
+              throw error
+            },
+          }
+          continue
+        }
+        if (then === undefined) {
+          yield item
+          continue
+        }
+        adopted.push(item)
+        yield {
+          then: (onFulfilled: unknown, onRejected: unknown) =>
+            apply(then, item, [onFulfilled, onRejected]),
+        }
       }
     }
-    combined.#state.link(() => {
-      runAll(adopted, (member) => {
-        if (AbortablePromise.#isAbortablePromise(member)) {
-          member.abort()
-        }
+
+    const combined = combine(members()) as AbortablePromise<unknown>
+    const combinedState = combined.#state
+    try {
+      combinedState.link(() => {
+        runAll(adopted, (member) => {
+          if (AbortablePromise.#isAbortablePromise(member)) {
+            member.abort()
+          }
+        })
       })
-    })
+    } catch {
+      // The combined promise was aborted while `values` was iterated, so the
+      // link fired at once and a member's `abort()` threw. It is aborted
+      // already, and has no caller to throw to.
+    }
+    return combined
   }
 
   /**
@@ -411,10 +483,7 @@ export class AbortablePromise<T> extends Promise<T> {
     values: Iterable<T | PromiseLike<T>>,
   ): AbortablePromise<Awaited<T>[]>
   static all(values: Iterable<unknown>): AbortablePromise<unknown> {
-    const members = [...values]
-    const combined = super.all(members) as AbortablePromise<unknown>
-    AbortablePromise.#abortMembersWith(combined, members)
-    return combined
+    return AbortablePromise.#fanIn(values, (members) => super.all(members))
   }
 
   static allSettled<T extends readonly unknown[] | []>(
@@ -426,10 +495,9 @@ export class AbortablePromise<T> extends Promise<T> {
     values: Iterable<T | PromiseLike<T>>,
   ): AbortablePromise<PromiseSettledResult<Awaited<T>>[]>
   static allSettled(values: Iterable<unknown>): AbortablePromise<unknown> {
-    const members = [...values]
-    const combined = super.allSettled(members) as AbortablePromise<unknown>
-    AbortablePromise.#abortMembersWith(combined, members)
-    return combined
+    return AbortablePromise.#fanIn(values, (members) =>
+      super.allSettled(members),
+    )
   }
 
   static race<T extends readonly unknown[] | []>(
@@ -439,10 +507,7 @@ export class AbortablePromise<T> extends Promise<T> {
     values: Iterable<T | PromiseLike<T>>,
   ): AbortablePromise<Awaited<T>>
   static race(values: Iterable<unknown>): AbortablePromise<unknown> {
-    const members = [...values]
-    const combined = super.race(members) as AbortablePromise<unknown>
-    AbortablePromise.#abortMembersWith(combined, members)
-    return combined
+    return AbortablePromise.#fanIn(values, (members) => super.race(members))
   }
 
   static any<T extends readonly unknown[] | []>(
@@ -452,10 +517,7 @@ export class AbortablePromise<T> extends Promise<T> {
     values: Iterable<T | PromiseLike<T>>,
   ): AbortablePromise<Awaited<T>>
   static any(values: Iterable<unknown>): AbortablePromise<unknown> {
-    const members = [...values]
-    const combined = super.any(members) as AbortablePromise<unknown>
-    AbortablePromise.#abortMembersWith(combined, members)
-    return combined
+    return AbortablePromise.#fanIn(values, (members) => super.any(members))
   }
 
   readonly #state: AbortState
@@ -466,7 +528,12 @@ export class AbortablePromise<T> extends Promise<T> {
    * rejects it with an {@link AbortError}.
    *
    * @param executor An executor callback as a regular Promise takes, with an
-   * {@link AbortContext} passed as a third argument.
+   * {@link AbortContext} passed as a third argument. Only the first call to
+   * its `resolve` or `reject` has an effect, as for a regular Promise's:
+   * a thenable passed to a later `resolve` is not followed, and an executor
+   * that throws rejects the promise unless `resolve` or `reject` was called
+   * already. Resolving with the promise itself rejects it with a `TypeError`,
+   * as does a thenable it was resolved with that fulfils with the promise.
    * @param controller If given, this AbortablePromise is governed by that
    * controller rather than one of its own. Aborting the promise then aborts
    * the passed controller too, and so everything else it governs — which cuts
@@ -486,6 +553,11 @@ export class AbortablePromise<T> extends Promise<T> {
     // Built before super() so the executor below can reach it. Referencing a
     // local is allowed there; referencing `this` would not be.
     const state = new AbortState(controller)
+    // The promise itself, once `super()` has returned, for the check a native
+    // resolve function makes that it is not resolved with its own promise.
+    const owner = Object.create(null) as { promise?: object }
+    const isOwner = (value: unknown): boolean =>
+      owner.promise !== undefined && value === owner.promise
 
     super((resolve, reject) => {
       state.captureReject(reject)
@@ -496,85 +568,116 @@ export class AbortablePromise<T> extends Promise<T> {
       }
       state.watchController()
 
-      executor(
-        (value) => {
-          // Reading `then` can throw (a revoked Proxy, a throwing getter). As
-          // with a native Promise's resolve function, that rejects the promise
-          // rather than throwing to whoever called `resolve`, which would
-          // otherwise leave it pending when called after the executor returned.
-          let then: ReturnType<typeof thenOf>
-          try {
-            then = thenOf(value)
-          } catch (error) {
-            if (state.claimSettlement()) {
-              reject(error)
-            }
-            return
-          }
+      // Native resolve and reject functions share one flag: every call after
+      // the first is ignored, also while a thenable passed to the first is
+      // being followed. Whether the promise has settled is another matter, and
+      // is what `abort` goes by.
+      let alreadyResolved = false
 
-          if (then === undefined) {
-            if (state.claimSettlement()) {
-              resolve(value)
-            }
-            return
-          }
+      const resolveWith = (value: T | PromiseLike<T>): void => {
+        if (alreadyResolved) {
+          return
+        }
+        alreadyResolved = true
 
-          // Resolving with a thenable is not settling: the outcome has been
-          // handed to that thenable, which may not settle for a long time or
-          // at all. Claiming settlement here would make `abort()` a silent
-          // no-op for the delegating shape this class exists for —
-          // `new AbortablePromise((resolve) => resolve(fetchThing()))`. Adopt
-          // it instead, and claim only when it really settles.
-          const adopted = value as PromiseLike<T>
-          try {
-            follow(
-              adopted,
-              then,
-              (settledValue: T) => {
-                if (state.claimSettlement()) {
-                  resolve(settledValue)
-                }
-              },
-              (reason: unknown) => {
-                if (state.claimSettlement()) {
-                  reject(reason)
-                }
-              },
-            )
-
-            // Delegation is upstream, so abort travels it like any other
-            // upstream link: the delegate is where the work actually is, and
-            // rejecting only the outer promise would leave it running. The
-            // adoption has been started before the link is registered: a
-            // delegate whose `then` is `Promise.prototype.then` already has its
-            // handlers, and any other has a job queued that calls its `then`,
-            // which runs before a rejection is reported as unhandled, also for
-            // a link that fires at once because `resolve` came after the abort.
-            if (AbortablePromise.#isAbortablePromise(adopted)) {
-              state.link(() => {
-                if (AbortablePromise.#isAbortablePromise(adopted)) {
-                  adopted.abort()
-                }
-              })
-            }
-          } catch (error) {
-            // As a native resolve function rejects when following the thenable
-            // throws (its `then` throws). Once the promise is settled, so also
-            // when a late link throws, the error is dropped.
-            if (state.claimSettlement()) {
-              reject(error)
-            }
-          }
-        },
-        (reason) => {
+        // A promise resolved with itself rejects, as a native one does.
+        if (isOwner(value)) {
           if (state.claimSettlement()) {
-            reject(reason)
+            reject(new TypeError(cycleMessage))
           }
-        },
-        state,
-      )
+          return
+        }
+
+        // Reading `then` can throw (a revoked Proxy, a throwing getter). As
+        // with a native Promise's resolve function, that rejects the promise
+        // rather than throwing to whoever called `resolve`, which would
+        // otherwise leave it pending when called after the executor returned.
+        let then: ReturnType<typeof thenOf>
+        try {
+          then = thenOf(value)
+        } catch (error) {
+          if (state.claimSettlement()) {
+            reject(error)
+          }
+          return
+        }
+
+        if (then === undefined) {
+          if (state.claimSettlement()) {
+            resolve(value)
+          }
+          return
+        }
+
+        // Resolving with a thenable is not settling: the outcome has been
+        // handed to that thenable, which may not settle for a long time or
+        // at all. Claiming settlement here would make `abort()` a silent
+        // no-op for the delegating shape this class exists for —
+        // `new AbortablePromise((resolve) => resolve(fetchThing()))`. Adopt
+        // it instead, and claim only when it really settles.
+        const adopted = value as PromiseLike<T>
+        try {
+          follow(
+            adopted,
+            then,
+            (settledValue: T) => {
+              if (state.claimSettlement()) {
+                resolve(settledValue)
+              }
+            },
+            (reason: unknown) => {
+              if (state.claimSettlement()) {
+                reject(reason)
+              }
+            },
+            isOwner,
+          )
+
+          // Delegation is upstream, so abort travels it like any other
+          // upstream link: the delegate is where the work actually is, and
+          // rejecting only the outer promise would leave it running. The
+          // adoption has been started before the link is registered: a
+          // delegate whose `then` is `Promise.prototype.then` already has its
+          // handlers, and any other has a job queued that calls its `then`,
+          // which runs before a rejection is reported as unhandled, also for
+          // a link that fires at once because `resolve` came after the abort.
+          if (AbortablePromise.#isAbortablePromise(adopted)) {
+            state.link(() => {
+              if (AbortablePromise.#isAbortablePromise(adopted)) {
+                adopted.abort()
+              }
+            })
+          }
+        } catch (error) {
+          // As a native resolve function rejects when following the thenable
+          // throws (its `then` throws). Once the promise is settled, so also
+          // when a late link throws, the error is dropped.
+          if (state.claimSettlement()) {
+            reject(error)
+          }
+        }
+      }
+
+      const rejectWith = (reason?: unknown): void => {
+        if (alreadyResolved) {
+          return
+        }
+        alreadyResolved = true
+        if (state.claimSettlement()) {
+          reject(reason)
+        }
+      }
+
+      // An executor that throws rejects through the same function it was given,
+      // so a throw after `resolve(thenable)` is ignored as a native one is.
+      try {
+        executor(resolveWith, rejectWith, state)
+      } catch (error) {
+        rejectWith(error)
+      }
     })
 
+    owner.promise = this
     this.#state = state
   }
 
@@ -586,12 +689,14 @@ export class AbortablePromise<T> extends Promise<T> {
    * Throws only when the abort reaches a promise whose own `abort()` throws or
    * is missing — a subclass's override, say, on the promise this one was
    * derived from, a delegate or a fan-in member — or when the controller passed
-   * to the constructor throws from its `abort()`, in which case this promise
-   * stays pending and nothing upstream of it is aborted. `abort()` is called on
-   * every promise the abort reaches, and the first error is thrown after the
-   * last. Called
-   * through a signal that aborts later ({@link AbortablePromise.abortOn}, a
-   * controller passed to the constructor, {@link AbortablePromise.peer}), the
+   * to the constructor throws from its `abort()`. In each case this promise is
+   * rejected and its signals are released, and `abort()` is called on every
+   * promise the abort reaches; the first error is thrown after the last, the
+   * controller's before the others. A controller whose signal has aborted
+   * already is not asked to abort again.
+   *
+   * Called through a signal that aborts later ({@link AbortablePromise.abortOn},
+   * a controller passed to the constructor, {@link AbortablePromise.peer}), the
    * error is thrown inside the signal's event listener, where the platform
    * reports it as an uncaught exception, and nothing returns it to a caller.
    * `abortOn` with a signal that has already aborted aborts at once and throws
