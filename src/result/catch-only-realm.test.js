@@ -89,7 +89,29 @@ describe('foreign-realm error constructors as a tryCatch handler', () => {
   it('admits an ES5-style one, which returns undefined as a Success', () => {
     expect(tryCatch(boom, ForeignEs5)()).toBeUndefined()
   })
+  it('accepts a plain handler function from another realm', () => {
+    const plain = runInNewContext('(function h(e) { return e })')
+    const error = new Error('boom')
+    expect(
+      tryCatch(() => {
+        throw error
+      }, plain)(),
+    ).toBe(error)
+    expect(() => tryCatch(boom, runInNewContext('Number'))).toThrow(TypeError)
+  })
   it('refuses a foreign class that extends Error', () => {
     expect(() => tryCatch(boom, ForeignError)).toThrow(TypeError)
+  })
+})
+
+describe('catchOnly with a function whose Symbol.hasInstance is from another realm', () => {
+  // Admitted unchecked: the inherited hook counts as a custom one, whatever
+  // the entry's `prototype` is.
+  it('is admitted, and matches every error when its prototype is Object.prototype', () => {
+    const entry = function Entry() {}
+    Object.setPrototypeOf(entry, runInNewContext('Function.prototype'))
+    entry.prototype = Object.prototype
+    const bug = new TypeError('bug')
+    expect(catchOnly(entry)(bug)).toBe(bug)
   })
 })

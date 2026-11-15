@@ -216,7 +216,7 @@ statement.** See the next section.
 ### No cross-Box members
 
 `Maybe.fromResult` and `Result.fromMaybe` are statics with inlined
-`instanceof Error` / `=== undefined` checks — the same convention
+`Error`-prototype-chain / `=== undefined` checks — the same convention
 ADR-0001's bridges use — so the parity requirement never forces a runtime
 import between the Box modules. The instance bridges (`.toResult()`,
 `.toMaybe()`) that would have forced one are dropped. The naive cycle

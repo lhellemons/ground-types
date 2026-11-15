@@ -7,7 +7,8 @@ Date: 2026-08-03. Status: accepted.
 `Maybe<T>` and `Result<T, E>` are both encoded unboxed: a `Just<T>` _is_
 the `T`, a `Success<T>` _is_ the `T`, and a `Failure` _is_ the `E`.
 Discrimination is a primitive check — `=== undefined` for Maybe,
-`Error.prototype` on the prototype chain for Result — with no wrapper object ever allocated.
+`Error.prototype` on the prototype chain for Result — with no wrapper object
+ever allocated.
 This rationale previously lived only in the consuming project's own
 ADR-0016, which does not travel with this library now that it has been
 extracted; this ADR records it here as the library's own ground truth.
@@ -71,9 +72,9 @@ It reads as `Result<T | undefined, E>`, matching the runtime, where
   `Maybe`; `result/fromMaybe` takes an error to turn a `Maybe` into a
   `Result`. The two modules import each other's _types_ only (`import
 type`, erased entirely at emit by `verbatimModuleSyntax`), and each
-  bridge's runtime check is an inlined primitive (`Error.prototype` on
-  the value's prototype chain, `value === undefined`) rather than a call to the other module's
-  `isSuccess`/`isNothing` guard — calling those across the boundary
+  bridge's runtime check is a primitive (`Error.prototype` on the value's
+  prototype chain, `value === undefined`) rather than a call to the other
+  module's `isSuccess`/`isNothing` guard — calling those across the boundary
   would create a real runtime import cycle. This is maintained by
   convention, not enforced: nothing in `pnpm check` or CI builds and
   inspects the emitted output, so a contributor who "tidies" a bridge by
@@ -88,8 +89,9 @@ type`, erased entirely at emit by `verbatimModuleSyntax`), and each
   `isSuccess`, `isFailure` and `assertSuccess` now use too (#96): such a
   value is a Success. The guard asks whether `Error.prototype` is on the
   chain (`isPrototypeOf`), not `instanceof Error`, so a defined
-  `Error[Symbol.hasInstance]` is not consulted; the two differ only for such
-  a hook.
+  `Error[Symbol.hasInstance]` is not consulted. The two answer differently
+  when that hook is defined or the global `Error` is replaced after load; the
+  guard captures `Error.prototype` when its module loads.
 
 ## Consequences
 

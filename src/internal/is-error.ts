@@ -4,8 +4,8 @@
    without importing `/result` at runtime (see
    docs/adr/0001-unboxed-maybe-and-result.md). */
 
-/* Captured when the module loads, so code that patches `Function.prototype.call`
-   or `Object.prototype.isPrototypeOf` later cannot change an answer. */
+/* `Error.prototype`, and `isPrototypeOf` bound to `Function.prototype.call`,
+   both captured when the module loads. */
 const errorPrototype = Error.prototype
 const isPrototypeOf: (prototype: object, value: unknown) => boolean =
   // eslint-disable-next-line @typescript-eslint/unbound-method -- bound at once

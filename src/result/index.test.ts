@@ -196,27 +196,64 @@ describe('isSuccess / isFailure', () => {
   })
 })
 
-describe('the Error guard is not fooled by patched intrinsics', () => {
-  it('reads Function.prototype.call, Object.prototype.isPrototypeOf and Error once, at load', () => {
+describe('the Error guard and the handler checks are not fooled by patched intrinsics', () => {
+  it('read the intrinsics once, at load', () => {
     const abort = new DOMException('', 'AbortError')
     const error = new Error('x')
     const boom = (): never => {
       throw error
     }
     const handler = catchOnly(Error)
+    const plain = function (e: unknown) {
+      return e as Error
+    }
+    const creates = (handler: unknown): boolean => {
+      try {
+        tryCatch(boom, handler as never)
+        return true
+      } catch {
+        return false
+      }
+    }
+    const listsTypeError = (): boolean => {
+      try {
+        catchOnly(TypeError)
+        return true
+      } catch {
+        return false
+      }
+    }
     /* eslint-disable @typescript-eslint/unbound-method -- restored below */
-    const { call } = Function.prototype
-    const { isPrototypeOf } = Object.prototype
+    const original = {
+      call: Function.prototype.call,
+      toString: Function.prototype.toString,
+      isPrototypeOf: Object.prototype.isPrototypeOf,
+      getOwnPropertyDescriptor: Object.getOwnPropertyDescriptor,
+      Error: globalThis.Error,
+    }
     /* eslint-enable @typescript-eslint/unbound-method */
-    const OriginalError = globalThis.Error
+    const restore = () => {
+      Function.prototype.call = original.call
+      Function.prototype.toString = original.toString
+      Object.prototype.isPrototypeOf = original.isPrototypeOf
+      Object.getOwnPropertyDescriptor = original.getOwnPropertyDescriptor
+      globalThis.Error = original.Error
+    }
     const patches = [
       () => {
         Function.prototype.call = function (): never {
           throw new RangeError('call')
-        } as typeof call
+        } as typeof original.call
+      },
+      () => {
+        // What an anti-fingerprinting patch does: every function looks native.
+        Function.prototype.toString = () => 'function () { [native code] }'
       },
       () => {
         Object.prototype.isPrototypeOf = (): boolean => false
+      },
+      () => {
+        Object.getOwnPropertyDescriptor = () => undefined
       },
       () => {
         globalThis.Error = class Other {} as ErrorConstructor
@@ -233,24 +270,30 @@ describe('the Error guard is not fooled by patched intrinsics', () => {
           tryCatch(boom)(),
           handler(error),
           fail(abort),
+          creates(Map),
+          creates(TypeError),
+          creates(plain),
+          listsTypeError(),
         ])
-        Function.prototype.call = call
-        Object.prototype.isPrototypeOf = isPrototypeOf
-        globalThis.Error = OriginalError
+        restore()
       }
     } finally {
-      Function.prototype.call = call
-      Object.prototype.isPrototypeOf = isPrototypeOf
-      globalThis.Error = OriginalError
+      restore()
     }
     expect(answers).toHaveLength(patches.length)
     for (const row of answers) {
-      expect(row[0]).toBe(true)
-      expect(row[1]).toBe(false)
-      expect(row[2]).toBe(true)
-      expect(row[3]).toBe(error)
-      expect(row[4]).toBe(error)
-      expect(row[5]).toBe(abort)
+      expect(row).toEqual([
+        true,
+        false,
+        true,
+        error,
+        error,
+        abort,
+        false,
+        false,
+        true,
+        true,
+      ])
     }
   })
 })

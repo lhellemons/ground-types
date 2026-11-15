@@ -1,5 +1,8 @@
 import { hasPrototype } from '../internal/is-error.js'
 
+/* Captured when the module loads. */
+const domExceptionPrototype = DOMException.prototype
+
 /**
  * The `name` the platform gives a `DOMException` raised by aborting an
  * `AbortSignal` — what {@link isAbortError} matches on.
@@ -47,7 +50,7 @@ export function isAbortError(error: unknown): error is AbortError {
   // narrowing promises no member it cannot deliver.
   try {
     return (
-      hasPrototype(DOMException.prototype, error) &&
+      hasPrototype(domExceptionPrototype, error) &&
       (error as DOMException).name === ABORT_ERROR_NAME
     )
   } catch {

@@ -13,6 +13,13 @@ import type {
   ErrorArmOf,
 } from './internal.js'
 
+/* Captured when the module loads: the function-inspection intrinsics that
+   `isClassLike` and `isUsableClass` call. */
+const sourceOf: (candidate: unknown) => string =
+  // eslint-disable-next-line @typescript-eslint/unbound-method -- bound at once
+  Function.prototype.call.bind(Function.prototype.toString)
+const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor
+
 declare const _phantom: unique symbol
 
 /**
@@ -53,9 +60,10 @@ export type Failure<T, E extends Error = Error> = E & {
 /**
  * The outcome of a fallible operation: either a {@link Success} carrying
  * the value or a {@link Failure} carrying an `Error`, discriminated by
- * `Error.prototype` being on the value's prototype chain. Unlike `Maybe`, a `Result` genuinely cannot nest:
- * `Result<Result<T>>` is a distinct type, not assignable back to
- * `Result<T>` — see docs/adr/0001-unboxed-maybe-and-result.md.
+ * `Error.prototype` being on the value's prototype chain. Unlike `Maybe`, a
+ * `Result` genuinely cannot nest: `Result<Result<T>>` is a distinct type, not
+ * assignable back to `Result<T>` — see
+ * docs/adr/0001-unboxed-maybe-and-result.md.
  */
 export type Result<T, E extends Error = Error> = Success<T, E> | Failure<T, E>
 
@@ -245,16 +253,19 @@ type CheckedClasses<C extends readonly unknown[]> = {
  * that is a class (its source starts with `class`, an error class or not),
  * whose `prototype` is `Error.prototype` or inherits from it (`TypeError` and
  * the other built-in error constructors, an ES5-style error constructor, a
- * bound subclass of `Error`), or whose source ends `{ [native code] }` and that
- * has an own `prototype` that is an object (a built-in constructor such as
- * `Map`, `Number`, `String`, `Date`, `Function` or `Symbol`, and a Proxy over a function with an
- * own `prototype`; a built-in error constructor from another realm too), or
- * whose inspection throws. Not detected: a bound `Error`, a bound built-in
- * constructor, a bound ES5-style error constructor and a bound class that is
- * not an `Error` subclass (a bound function has no own `prototype`), and an
- * ES5-style error constructor from another realm. A native function with no
- * own `prototype` (`parseInt`, `Math.max`) and a handler bound with
- * `handler.bind(ctx)` are accepted. The default handler never throws: a value
+ * bound subclass of `Error`), or that is a built-in constructor: its source
+ * ends `{ [native code] }` and its own `prototype` is an object whose own
+ * `constructor` is not an ordinary function (missing, not a function, or with
+ * native or class source). That covers `Map`, `Set`, `Promise`, `Number`,
+ * `String`, `Date`, `Function`, `Object`, `Symbol` and the other built-ins,
+ * those of another realm too, and a Proxy over one of them, over a class or
+ * over a generator function. A Proxy over a plain function and a native
+ * function with no own `prototype` (`parseInt`, `Math.max`) are accepted. A
+ * function whose inspection throws is refused as well. Not detected: a bound
+ * `Error`, a bound built-in constructor, a bound ES5-style error constructor,
+ * a bound class that is not an `Error` subclass, `Proxy`, and an ES5-style
+ * error constructor from another realm. A handler bound with
+ * `handler.bind(ctx)` is accepted. The default handler never throws: a value
  * whose prototype chain cannot be read (a Proxy whose `getPrototypeOf` trap
  * throws, a revoked Proxy), or that cannot be rendered, is wrapped in a
  * {@link ThrownError} like any other non-`Error`.
@@ -353,20 +364,17 @@ function checkedHandler<T, E extends Error>(
    whose `prototype` is `Error.prototype` or inherits from it (a built-in
    error constructor, which has native source, an ES5-style error
    constructor, or a bound Error subclass, which inherits its target's parent
-   `prototype`), or whose source ends `{ [native code] }` and that has an own
-   `prototype` that is an object (a built-in constructor: `Map`, `Number`,
-   `Function`, `Symbol`; a Proxy over a function with an own `prototype` too).
-   A function whose inspection throws is refused too. A bound function's
-   source is native but it has no own `prototype`, so a bound built-in
-   constructor, a bound `Error`, a bound ES5-style error constructor (it
-   inherits `Function.prototype`, which has no `prototype`) and a bound class
-   that is not an Error subclass are not detected, and neither are the
-   native non-constructors (`parseInt`, `Math.max`). */
+   `prototype`), or that `isBuiltInConstructor` recognises. A function whose
+   inspection throws is refused too. A bound function has no own `prototype`:
+   a bound built-in constructor, a bound `Error`, a bound ES5-style error
+   constructor (it inherits `Function.prototype`, which has no `prototype`)
+   and a bound class that is not an Error subclass are not detected, and
+   neither are `Proxy` and the native non-constructors (`parseInt`,
+   `Math.max`). */
 // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- narrowed by typeof at the call site
 function isClassLike(candidate: Function): boolean {
   try {
-    const source = Function.prototype.toString.call(candidate)
-    if (/^class(?=[\s{/])(?!\s*\()/.test(source)) {
+    if (isClassSource(sourceOf(candidate))) {
       return true
     }
     const prototype = (candidate as { prototype?: unknown }).prototype
@@ -377,30 +385,51 @@ function isClassLike(candidate: Function): boolean {
     ) {
       return true
     }
-    return isNativeSource(source) && hasOwnObjectPrototype(candidate)
+    return isBuiltInConstructor(candidate)
   } catch {
     return true
   }
 }
 
-/* Whether the source text is a native function's: it ends `{ [native code] }`,
-   so a function whose own text merely mentions `[native code]` is not one. */
+/* Whether the source text starts with `class`. */
+function isClassSource(source: string): boolean {
+  return /^class(?=[\s{/])(?!\s*\()/.test(source)
+}
+
+/* Whether the source text ends `{ [native code] }`. */
 function isNativeSource(source: string): boolean {
   return /\{\s*\[native code\]\s*\}\s*$/.test(source)
 }
 
-/* Whether `candidate` has an own `prototype` data property holding an object
-   (one whose `typeof` is `'object'`, or `'function'` as `Function.prototype`
-   is), read through the descriptor so no getter runs. */
+/* Whether `candidate` has native source and an own `prototype` data property
+   holding an object (`typeof` `'object'` or `'function'`, as
+   `Function.prototype` is) whose own `constructor` data property is not an
+   ordinary function: missing, not a function, or a function with native or
+   class source. `Map`, `Number`, `Function`, `Symbol`, the typed-array and
+   `Intl` constructors, `AsyncFunction`, `GeneratorFunction` and a foreign
+   realm's built-ins qualify, and so does a Proxy over one of them or over a
+   class or generator function. A Proxy over a plain function does not: the
+   `constructor` of its `prototype` is that function. */
 // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- narrowed by typeof at the call site
-function hasOwnObjectPrototype(candidate: Function): boolean {
-  const descriptor = Object.getOwnPropertyDescriptor(candidate, 'prototype')
-  return (
-    descriptor !== undefined &&
-    (typeof descriptor.value === 'object' ||
-      typeof descriptor.value === 'function') &&
-    descriptor.value !== null
-  )
+function isBuiltInConstructor(candidate: Function): boolean {
+  if (!isNativeSource(sourceOf(candidate))) return false
+  const prototype: unknown = getOwnPropertyDescriptor(
+    candidate,
+    'prototype',
+  )?.value
+  if (
+    (typeof prototype !== 'object' && typeof prototype !== 'function') ||
+    prototype === null
+  ) {
+    return false
+  }
+  const constructor: unknown = getOwnPropertyDescriptor(
+    prototype,
+    'constructor',
+  )?.value
+  if (typeof constructor !== 'function') return true
+  const source = sourceOf(constructor)
+  return isNativeSource(source) || isClassSource(source)
 }
 
 /**
@@ -728,14 +757,16 @@ export function fromMaybe<T, E extends Error>(
  * `Error`, `Object` or base class (one declared without `extends`). A bound
  * subclass of `Error` is admitted through its inherited `prototype`, and a
  * bound derived class that does not extend `Error` is refused through it. A
- * function from another realm is not checked.
+ * function from another realm is not checked, and neither is an entry whose
+ * inherited `Symbol.hasInstance` comes from another realm: it counts as a
+ * custom one and is admitted.
  *
- * Each entry is checked once, when the handler is created, and the check is
- * not repeated: an entry changed afterwards (a reassigned `prototype`, a Proxy
- * whose `prototype` read changes) is matched by `instanceof` as it then
- * stands, and can match an error it did not match at creation. An entry that
- * throws inside `instanceof` later, such as a proxy revoked after the handler
- * is created, counts as not matching.
+ * Each entry is checked once, when the handler is created, and not again: an
+ * entry changed afterwards (a reassigned `prototype`, a Proxy whose
+ * `prototype` read changes) is matched by `instanceof` as it then stands, so
+ * it can match errors it would have been refused for, and a programming bug
+ * becomes a Failure. An entry that throws inside `instanceof` later, such as a
+ * proxy revoked after the handler is created, counts as not matching.
  *
  * Use `tryCatch(construct, catchOnly(InvalidValue))` for domain code.
  */
@@ -798,7 +829,7 @@ function isUsableClass(candidate: unknown): boolean {
     if (typeof prototype === 'object' && prototype !== null) {
       return isErrorPrototype(prototype)
     }
-    return /\[native code\]/.test(Function.prototype.toString.call(candidate))
+    return isNativeSource(sourceOf(candidate))
   } catch {
     return false
   }
