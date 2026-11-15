@@ -304,7 +304,8 @@ library's emitted declarations. A consumer whose own `lib` is
 `Maybe` and `Result` are unboxed. A `Just<T>` **is** the `T`, a
 `Nothing` **is** `undefined`, a `Success<T>` **is** the `T`, and a
 `Failure` **is** the `Error` — discriminated at runtime by
-`instanceof Error`, with no wrapper object allocated.
+`instanceof Error` (a value on which that check throws, such as a hostile
+Proxy, counts as not an `Error`), with no wrapper object allocated.
 
 This makes them nearly free to pass across a boundary, and it means a
 value that is already a `T` needs no unwrapping at the point of use. The

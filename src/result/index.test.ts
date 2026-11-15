@@ -112,7 +112,7 @@ describe('result / success / failure', () => {
 
 // `value instanceof Error` throws for a Proxy whose `getPrototypeOf` trap
 // throws; a guard's own error must never replace the value it classifies.
-function hostileProxy(): never {
+function hostileProxy(): object {
   return new Proxy(
     {},
     {
@@ -120,7 +120,14 @@ function hostileProxy(): never {
         throw new RangeError('trap')
       },
     },
-  ) as never
+  )
+}
+
+// A revoked Proxy throws on `instanceof` too.
+function revokedProxy(): object {
+  const { proxy, revoke } = Proxy.revocable({}, {})
+  revoke()
+  return proxy
 }
 
 describe('isSuccess / isFailure', () => {
@@ -132,9 +139,51 @@ describe('isSuccess / isFailure', () => {
   })
 
   it('counts a value whose Error guard throws as a Success, not a Failure', () => {
-    const hostile = hostileProxy()
+    const hostile = hostileProxy() as never
     expect(isSuccess(hostile)).toBe(true)
     expect(isFailure(hostile)).toBe(false)
+    const revoked = revokedProxy() as never
+    expect(isSuccess(revoked)).toBe(true)
+    expect(isFailure(revoked)).toBe(false)
+  })
+
+  it('is not fooled by an Error[Symbol.hasInstance] hook', () => {
+    // The guard asks about the prototype chain, never `instanceof`, so a
+    // hook (a polyfill, instrumentation) can neither throw away a real
+    // Error nor make a non-Error one.
+    for (const hook of [
+      (): boolean => true,
+      (): never => {
+        throw new RangeError('hook')
+      },
+    ]) {
+      Object.defineProperty(Error, Symbol.hasInstance, {
+        configurable: true,
+        value: hook,
+      })
+      const error = new Error('x')
+      let answers: unknown[] | undefined
+      let thrown: unknown
+      try {
+        // The answers are checked after the hook is removed: `expect`
+        // itself consults `Error[Symbol.hasInstance]`.
+        answers = [
+          isFailure(error),
+          isSuccess(error),
+          isSuccess(5),
+          isFailure(5 as never),
+        ]
+        try {
+          assertSuccess(error)
+        } catch (caught) {
+          thrown = caught
+        }
+      } finally {
+        delete (Error as { [Symbol.hasInstance]?: unknown })[Symbol.hasInstance]
+      }
+      expect(answers).toEqual([true, false, true, false])
+      expect(thrown).toBe(error)
+    }
   })
 })
 
@@ -233,8 +282,10 @@ describe('assertSuccess', () => {
   })
 
   it('returns a value whose Error guard throws, not the guard error', () => {
-    const hostile = hostileProxy()
+    const hostile = hostileProxy() as never
     expect(assertSuccess(hostile)).toBe(hostile)
+    const revoked = revokedProxy() as never
+    expect(assertSuccess(revoked)).toBe(revoked)
   })
 })
 
@@ -345,16 +396,18 @@ describe('combinators on a value whose Error guard throws', () => {
   // Such a value is a Success, so each combinator treats it as one rather
   // than throwing the trap's error.
   it('map and andThen apply fn to it', () => {
-    const hostile = hostileProxy()
-    expect(map((x: unknown) => x, hostile)).toBe(hostile)
-    expect(andThen((x: unknown) => result(x), hostile)).toBe(hostile)
+    const hostile = hostileProxy() as never
+    // Sentinels: a Success runs the callback, a Failure would skip it.
+    expect(map(() => 'mapped', hostile)).toBe('mapped')
+    expect(andThen(() => 'chained', hostile)).toBe('chained')
   })
 
   it('mapError, fallback and orElse pass it through', () => {
-    const hostile = hostileProxy()
-    expect(mapError((error: Error) => error, hostile)).toBe(hostile)
-    expect(fallback(() => 0, hostile)).toBe(hostile)
-    expect(orElse(0, hostile)).toBe(hostile)
+    const hostile = hostileProxy() as never
+    // A Failure would run the callback or take the default instead.
+    expect(mapError(() => new Error('mapped'), hostile)).toBe(hostile)
+    expect(fallback(() => 'fallen back', hostile)).toBe(hostile)
+    expect(orElse('default', hostile)).toBe(hostile)
   })
 })
 

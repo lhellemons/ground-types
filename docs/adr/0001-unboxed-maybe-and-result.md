@@ -80,6 +80,13 @@ Error`, `value === undefined`) rather than a call to the other module's
   importing the other module's guard as a value would create the cycle
   silently, with every existing check still passing. Both bridge
   functions carry an inline comment saying so, next to the check itself.
+  **Update, 2026-11-15:** since #91 `maybe/fromResult` calls the shared
+  module-private `internal/is-error` guard instead of an inlined
+  `instanceof`; it is a module of its own, so the boundary stays free of a
+  runtime cycle. The guard answers false for a value on which the
+  `Error` check throws (a Proxy whose `getPrototypeOf` trap throws), which
+  `isSuccess`, `isFailure` and `assertSuccess` now use too (#96): such a
+  value is a Success.
 
 ## Consequences
 

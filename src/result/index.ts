@@ -131,7 +131,7 @@ export function failure<E extends Error, T = never>(
 /**
  * Type guard: true when `value` is a {@link Success}, narrowing to it. A
  * value whose `instanceof Error` check throws (a Proxy whose `getPrototypeOf`
- * trap throws) counts as not an `Error`, so a `Success`.
+ * trap throws, a revoked Proxy) counts as not an `Error`, so a `Success`.
  */
 export function isSuccess<T, E extends Error = Error>(
   value: Result<T, E>,
@@ -142,7 +142,7 @@ export function isSuccess<T, E extends Error = Error>(
 /**
  * Type guard: true when `value` is a {@link Failure}, narrowing to it. A
  * value whose `instanceof Error` check throws (a Proxy whose `getPrototypeOf`
- * trap throws) counts as not an `Error`, so not a `Failure`.
+ * trap throws, a revoked Proxy) counts as not an `Error`, so not a `Failure`.
  */
 export function isFailure<T, E extends Error = Error>(
   value: Result<T, E>,
@@ -388,7 +388,8 @@ function hasErrorPrototype(prototype: object): boolean {
  * carried `Error` otherwise. Mirrors `maybe/assertJust`, but here the thrown
  * value is the `Failure` itself — there is no separate message to supply. A
  * value whose `instanceof Error` check throws (a Proxy whose `getPrototypeOf`
- * trap throws) counts as not an `Error`: it is returned, not thrown.
+ * trap throws, a revoked Proxy) counts as not an `Error`: it is returned, not
+ * thrown.
  */
 export function assertSuccess<T, E extends Error = Error>(
   value: T | E,

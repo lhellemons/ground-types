@@ -31,7 +31,9 @@ export class AbortError extends DOMException {
  *
  * Never throws: a value on which the check itself throws (a Proxy whose
  * `getPrototypeOf` or `get` trap throws, a revoked Proxy) is not an abort,
- * so the answer is `false`.
+ * so the answer is `false`. So is a Proxy over a real abort whose `name` is
+ * read through the proxy (no traps, or a `Reflect.get` forwarder that passes
+ * the receiver on): the platform's `name` getter rejects the proxy.
  */
 export function isAbortError(error: unknown): error is AbortError {
   // Wider than the class it narrows to, soundly: a platform abort is a plain

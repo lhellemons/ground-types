@@ -32,6 +32,14 @@ test('isAbortError answers false for a value whose checks throw', () => {
   expect(isAbortError(new Proxy(new DOMException('', 'AbortError'), {}))).toBe(
     false,
   )
+  // A `get` trap that forwards the read with the proxy as receiver throws
+  // the same way; only one that reads with the target as receiver answers.
+  const target = new DOMException('', 'AbortError')
+  expect(
+    isAbortError(
+      new Proxy(target, { get: (t, k, r) => Reflect.get(t, k, r) as unknown }),
+    ),
+  ).toBe(false)
   // A revoked proxy throws on `instanceof`.
   const { proxy, revoke } = Proxy.revocable({}, {})
   revoke()
