@@ -67,9 +67,10 @@ export function result<T, E extends Error = Error>(value: T | E): Result<T, E> {
  * far as the type says so: a union with an `Error` member, a `Result` or
  * a `Failure`, a type the empty object fits (`unknown`, `object`, `{}`,
  * an all-optional object, and any union of one with a primitive, `null`
- * or `undefined`), and a type a plain `Error` fits (`{ message: string
- * }`, a class whose members an `Error` has, an index-signature type). It cannot see past three things: `any` passes, as it passes every
- * constraint; so does an object type that only an `Error` subclass fits
+ * or `undefined`, and an index-signature type such as `Record<string,
+ * number>`), and a type a plain `Error` fits (`{ message: string }`, a class
+ * whose members an `Error` has). It cannot see past three things: `any`
+ * passes, as it passes every constraint; so does an object type that only an `Error` subclass fits
  * (a plain interface, a DTO, a class instance without private members);
  * and an unresolved type parameter is refused, so generic code casts
  * instead. See docs/adr/0001-unboxed-maybe-and-result.md.
@@ -523,7 +524,7 @@ export function orElse<T, E extends Error>(
     (value: Result<T, E>): Success<T, E> =>
       // `T` is unresolved here, so `success`'s guard cannot judge it. The
       // cast only skips the guard: `defaultValue` is typed `T`, and for
-      // `T = unknown` it may be an Error, as it could be on main.
+      // `T = unknown` it may be an Error, as it could be before the guard.
       isSuccess(value) ? value : (defaultValue as Success<T, E>),
     ...value,
   )

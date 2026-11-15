@@ -56,8 +56,8 @@ class ResultBox<R> {
    * value arm, and any member that may hide an Error keeps a plain `Error`
    * in the error arm. With explicit type arguments `from<T, E>` names both
    * arms. For a `Result` already in hand — a factory's output, say — use
-   * {@link box}: handed a whole object-valued `Result`, `from` lands it in
-   * the value arm and the result comes back nested.
+   * {@link box}: handed a whole object-valued `Result`, `from` lands its
+   * `Success` half in the value arm and the result comes back nested.
    */
   static from<V>(
     value: V,
@@ -77,10 +77,12 @@ class ResultBox<R> {
    * Boxes a `Result` already in hand — a factory's output, a combinator
    * chain's result — with both arms exact and no type arguments needed.
    * The way in {@link from} cannot be for a whole object-valued `Result`.
-   * A raw non-Result value cannot be rejected and takes `from`'s arms: for
-   * a primitive, `null` or `undefined` that is exactly `from`'s result,
-   * though not for an object. `Result` only: the other classes' `from` already takes the
-   * thing itself, so `box` there would be a mere alias.
+   * A raw non-Result value cannot be rejected: an object takes exactly
+   * `from`'s result; a primitive keeps `Error` in the error arm where
+   * `from` drops it; `null` and `undefined` do not compile through `box`.
+   * Which of these promises `box` keeps is open (#89). `Result` only: the
+   * other classes' `from` already takes the thing itself, so `box` there
+   * would be a mere alias.
    */
   static box<T, E extends Error>(
     value: ResultValue<T, E>,
@@ -96,7 +98,7 @@ class ResultBox<R> {
    * `result/success` does (docs/adr/0001-unboxed-maybe-and-result.md), so
    * a chain's error union holds exactly what its links contribute
    * (docs/adr/0005-box-classes.md). Takes no `NotPossiblyAnError` guard
-   * yet; whether it should is open (#66).
+   * yet; whether it should is open (#89).
    */
   static success<T, E extends Error = never>(
     value: T,

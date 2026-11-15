@@ -16,33 +16,40 @@ The **Breaking** entries below list each; TypeScript 5.4 or later is required.
   `(): Result<number, A | B> => failure(new A())` and `(x: number | Invalid):
 Result<number, Invalid> => result(x)` compile with no type arguments. A
   `Success` carries `E = never` and a `Failure` carries `T = never`, and both
-  flow into any `Result<T, E>`. A plain `Error` is still rejected where a
-  narrower class is expected, and `Result<Result<T>>` is still not assignable
-  to `Result<T>`. `Result.from` takes the same overload as `result`.
+  flow into any `Result<T, E>`. A plain `Error` is still rejected, through
+  `failure`, `result` and `success`, where a narrower class is expected, and
+  `Result<Result<T>>` is still not assignable to `Result<T>`. A raw `Error`
+  returned without `failure()` where `T` is `object` or a type a plain `Error`
+  fits still compiles, as before.
 - **Breaking:** TypeScript 5.4 or later is required, for `NoInfer` on the
   phantom position of `success` and `failure`.
 - **Breaking:** `success` rejects, at any site and with or without type
   arguments, a value whose type may be an `Error`, with a message naming
   `result()`: a union with an `Error` member, a `Result` or `Failure`, a type
   the empty object fits (`unknown`, `object`, `{}`, an all-optional object
-  such as `Partial<Config>`, or a union of one with a primitive, `null` or
-  `undefined`), a type a plain `Error` fits (`{ name: string }`, a class such
-  as `class Tag { constructor(readonly name: string) {} }`) and an
-  index-signature type (`Record<string, number>`, a dictionary, a JSON type).
+  such as `Partial<Config>`, an index-signature type such as
+  `Record<string, number>`, a dictionary or a JSON type, or a union of one
+  with a primitive, `null` or `undefined`) and a type a plain `Error` fits
+  (`{ name: string }`, a class such as
+  `class Tag { constructor(readonly name: string) {} }`).
   Wrap such a value with `result()`, or cast. Class instances, arrays, DTOs
   with a member no plain `Error` has, primitives, `undefined` and `void` pass.
   An object type that only an `Error` subclass fits, and `any`, also pass.
 - **Breaking:** `success` of an unresolved type parameter no longer compiles,
   constrained or not; cast, or wrap with `result()`.
 - **Breaking:** `success(x)` is now `Success<T, never>`, where it was
-  `Success<T, Error>`. A variable seeded by an unannotated `failure(e)` or
-  `result(primitive)` takes the narrower type and rejects a later wider
+  `Success<T, Error>`.
+- **Breaking:** a variable seeded by an unannotated `failure(e)`, `success(x)`
+  or `result(primitive)` takes the narrower type and rejects a later wider
   assignment: `let last = failure(new Invalid())` followed by `last = s` with
-  `s: Failure<number, Invalid>` no longer compiles; annotate the variable.
+  `s: Failure<number, Invalid>`, and `let s = success(1)` followed by `s = x`
+  with `x: Success<number, Invalid>`, no longer compile. Annotate the
+  variable.
 - **Breaking:** `failure<E>(e)` now has phantom `T = never`, where it had
   `unknown`.
 - **Breaking:** the one-type-argument form `result<X>(v)` binds the new
-  overload: `result<number>(5)` is `Result<number, never>` and
+  overload: `result<number>(5)` is `Result<number, never>`,
+  `result<number>(x)` with `x: any` is too, and
   `result<number | Invalid>(x)` is `Result<number, Invalid>`.
 - `Success` carries a third marker, `[_error]?: never`, so that no `Failure`
   can pass as a `Success`.

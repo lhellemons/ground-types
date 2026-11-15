@@ -51,6 +51,13 @@ describe('early returns without type arguments', () => {
     expectTypeOf(f).returns.toEqualTypeOf<Result<string, Invalid | Other>>()
   })
 
+  it('failure() of a narrowed failure nests it in the error arm (phantom-intersection)', () => {
+    const narrowed = null as unknown as Failure<number, Invalid>
+    expectTypeOf(failure(narrowed)).toEqualTypeOf<
+      Failure<never, Failure<number, Invalid>>
+    >()
+  })
+
   it('the narrowed success is usable as the value', () => {
     const r = step()
     if (isSuccess(r)) {
@@ -69,7 +76,7 @@ describe('ADR 0001 safety properties', () => {
     void g
   })
 
-  it('result() of an unknown or any value keeps its Error arm', () => {
+  it('result() of an unknown value keeps its Error arm, and of an any value stays any', () => {
     // `Extract<unknown, Error>` is `never`, which would collapse the Result
     // to its Success arm and let a caught plain Error pass where a narrower
     // class is required. The overload falls back to `Error` instead.
@@ -115,7 +122,7 @@ describe('ADR 0001 safety properties', () => {
     expectTypeOf(result(u)).toEqualTypeOf<Result<number, Invalid | Other>>()
   })
 
-  it('a plain Error is rejected where T admits an object (review round 3)', () => {
+  it('a plain Error is rejected where T admits an object ', () => {
     // With `failure`'s `T` defaulting to `never`, `Failure<never, Error>`
     // would fit `Success<unknown, Invalid>` structurally: its phantom
     // `never` passes and an Error object satisfies `unknown`. `Success`
@@ -137,9 +144,9 @@ describe('ADR 0001 safety properties', () => {
     void [a, b, c, d, e]
   })
 
-  it('result() of an object type that can hide an Error subclass keeps an Error arm (review round 4)', () => {
+  it('result() of an object type that can hide an Error subclass keeps an Error arm', () => {
     // `Other` is assignable to `{ code: string }`, so a value of that type
-    // may be an Error at runtime; the arm must say so, as on main.
+    // may be an Error at runtime; the arm must say so, as on 0.4.0.
     const hidden: { code: string } = new Other('x')
     expectTypeOf(result(hidden)).toEqualTypeOf<
       Result<{ code: string }, Error>
@@ -154,9 +161,14 @@ describe('ADR 0001 safety properties', () => {
     >()
     expectTypeOf(result(5 as number)).toEqualTypeOf<Result<number, never>>()
     expectTypeOf(result(null)).toEqualTypeOf<Result<null, never>>()
+    expectTypeOf(result(true as boolean)).toEqualTypeOf<
+      Result<boolean, never>
+    >()
+    expectTypeOf(result(1n as bigint)).toEqualTypeOf<Result<bigint, never>>()
+    expectTypeOf(result(Symbol('s'))).toEqualTypeOf<Result<symbol, never>>()
   })
 
-  it('success() rejects a value whose type may hold an Error (review round 4, part 2)', () => {
+  it('success() rejects a value whose type may hold an Error', () => {
     // With `E = never`, each of these would otherwise flow into a Result
     // typed to Invalid while holding an Error at runtime.
     const caught = null as unknown
@@ -176,8 +188,8 @@ describe('ADR 0001 safety properties', () => {
     const opt = null as unknown as { id?: string }
     // @ts-expect-error - may be an Error: an all-optional object admits one
     const f = (): Result<{ id?: string }, Invalid> => success(opt)
-    // Review round 6: a union of such a type with a primitive, null or
-    // undefined is still such a type, and a plain Error fits { message }.
+    // A union of such a type with a primitive, null or undefined is still
+    // such a type, and a plain Error fits { message }.
     const g = (x: object | undefined): Result<object | undefined, Invalid> =>
       // @ts-expect-error - may be an Error
       success(x)
@@ -215,8 +227,8 @@ describe('ADR 0001 safety properties', () => {
     >().toEqualTypeOf<'This value may be an Error — wrap it with result(), not success()'>()
   })
 
-  it('success() of an unresolved type parameter, or an explicit unknown, no longer compiles (Breaking, review round 5)', () => {
-    // An unresolved `T` cannot be judged; both compiled on main.
+  it('success() of an unresolved type parameter, or an explicit unknown, no longer compiles (Breaking)', () => {
+    // An unresolved `T` cannot be judged; both compiled on 0.4.0.
     function w<T>(x: T): Result<T> {
       // @ts-expect-error - T may be an Error: cast, or wrap with result()
       return success(x)
@@ -232,8 +244,8 @@ describe('ADR 0001 safety properties', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment -- `any` is the case under test
     const loose = null as any
     success(loose)
-    // Review round 6: the guard judges the value's type at any site, not
-    // only at a site typed to a narrower error class.
+    // The guard judges the value's type at any site, not only at a site
+    // typed to a narrower error class.
     interface Config {
       a: string
       b: number
@@ -251,19 +263,25 @@ describe('ADR 0001 safety properties', () => {
       Failure<never, Invalid>
     >()
     expectTypeOf(result<number>(5)).toEqualTypeOf<Result<number, never>>()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment -- `any` is the case under test
+    const anyValue = null as any
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- `any` is the case under test
+    expectTypeOf(result<number>(anyValue)).toEqualTypeOf<
+      Result<number, never>
+    >()
     const nx = null as unknown as number | Invalid
     expectTypeOf(result<number | Invalid>(nx)).toEqualTypeOf<
       Result<number, Invalid>
     >()
   })
 
-  it('result() of a nested Result flattens for primitive values and stays nested for objects (review round 6)', () => {
+  it('result() of a nested Result flattens for primitive values and stays nested for objects', () => {
     class Game {
       constructor(readonly id: string) {}
     }
     const nested = null as unknown as Result<Result<number, Invalid>, Invalid>
     // The conservative arm drops Error for a primitive Success value, so
-    // the overload's output fits the flat Result; main rejects this.
+    // the overload's output fits the flat Result; 0.4.0 rejects this.
     const flat: Result<number, Invalid> = result(nested)
     void flat
     const nestedObj = null as unknown as Result<Result<Game, Invalid>, Invalid>
@@ -322,7 +340,7 @@ describe('ADR 0001 safety properties', () => {
     void flatNarrow
   })
 
-  it("Success's phantom E is covariant, on main and under every arm", () => {
+  it("Success's phantom E is covariant, on 0.4.0 and now", () => {
     // What the 2026-08-04 amendment called invariance: only the widening
     // direction was ever allowed, and the narrowing one is what cost the
     // annotation when the default was `Error`.
@@ -365,7 +383,7 @@ describe('definePrimitiveValueObject', () => {
     >()
   })
 
-  it('a handler written with failure() or result() infers E too (fails on main)', () => {
+  it('a handler written with failure() or result() infers E too (fails on 0.4.0)', () => {
     const E2 = definePrimitiveValueObject(
       (value: string) => value as Email,
       () => failure(new InvalidEmail('x')),
@@ -428,11 +446,15 @@ describe('a variable seeded by an unannotated constructor call keeps the narrowe
     expectTypeOf(seeded).toEqualTypeOf<Result<number, never>>()
     // @ts-expect-error - Breaking: the seed has no error arm
     seeded = failure(new Invalid('x'))
+    let s = success(1)
+    expectTypeOf(s).toEqualTypeOf<Success<1, never>>()
+    // @ts-expect-error - Breaking: the seed carries no error
+    s = null as unknown as Success<number, Invalid>
     // Annotated, both are fine.
     let ok: Result<number, Invalid> = failure(new Invalid('x'))
     void ok
     ok = success(1)
-    void [last, seeded, ok]
+    void [last, seeded, s, ok]
   })
 })
 

@@ -203,7 +203,7 @@ three verified places:
   the 2026-11-14 amendment to ADR 0001 (it defaulted `E = Error` before,
   which made this default divergent). A known-good seed carries no error
   arm, so a Box chain's union holds exactly what its links contribute.
-  The Box's `success` takes no `NotPossiblyAnError` guard yet (#66).
+  The Box's `success` takes no `NotPossiblyAnError` guard yet (#89).
 
 The error-type union itself survives arbitrarily long chains in both
 styles — measured at 32 links against the real modules, every arm intact,
@@ -444,7 +444,7 @@ of shipping.
    `Result` the `Success` half lands in the value arm and the error arm
    keeps a plain `Error` beside the `Failure`, so the result stays a
    nested `Result<Success<…>, Failure<…>>`; for a primitive-valued one it
-   flattens (#66). Structurally uncloseable — the phantom markers are optional,
+   flattens (#89). Structurally uncloseable — the phantom markers are optional,
    so no overload can tell a Result from a raw value — hence soft-marked:
    `from`'s docblock steers Results-in-hand at `Result.box`, whose
    parameter is the Result union itself and infers both arms exactly.

@@ -104,7 +104,7 @@ describe('box: the way in for a Result in hand (#51)', () => {
     // keeps a plain Error beside the Failure, so the result stays nested —
     // the soft-marked trap box exists to close
     // (docs/adr/0005-box-classes.md). For a primitive-valued Result the
-    // overload flattens it; that split is #66's premise.
+    // overload flattens it; that split is #89's premise.
     expectTypeOf(
       Result.from(UserFactory.from({ id: 'u1' })).unbox(),
     ).toEqualTypeOf<
@@ -125,13 +125,23 @@ describe('box: the way in for a Result in hand (#51)', () => {
     >()
   })
 
-  it("a raw non-Result value cannot be rejected; it degrades to exactly from's behaviour", () => {
+  it("a raw non-Result value cannot be rejected; an object takes from's result, a primitive does not", () => {
     expectTypeOf(Result.box(rawUser).unbox()).toEqualTypeOf<
       ResultIndex<BoxUser, Error>
     >()
     expectTypeOf(Result.from(rawUser).unbox()).toEqualTypeOf<
       ResultIndex<BoxUser, Error>
     >()
+    // A primitive keeps Error through box where from drops it (#89).
+    expectTypeOf(Result.box(5).unbox()).toEqualTypeOf<ResultIndex<5, Error>>()
+    expectTypeOf(Result.from(5).unbox()).toEqualTypeOf<
+      ResultIndex<number, never>
+    >()
+    // `null` and `undefined` do not compile through box.
+    // @ts-expect-error - not a Result
+    Result.box(null)
+    // @ts-expect-error - not a Result
+    Result.box(undefined)
   })
 
   it('the poison overload catches a Box handed back in — soft, like the guard statics', () => {

@@ -60,7 +60,7 @@ export type ErrorOf<R> =
  * of `V` as itself, nothing for a member that provably holds no Error (a
  * primitive, branded or not, `null` or `undefined`), and `Error` for
  * every other member (see docs/adr/0001-unboxed-maybe-and-result.md).
- * Shared by `result` and the Result Box's `from`, so the two stay in step.
+ * Shared by `result` and the Result Box's `from`.
  */
 export type ErrorArmOf<V> = V extends Error
   ? V
