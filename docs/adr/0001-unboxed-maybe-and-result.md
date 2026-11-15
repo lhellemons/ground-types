@@ -773,8 +773,9 @@ Also decided:
   the encoding as any other Failure does; measured on Door, a nested
   object of parts nests its `Failures`, so flattening is a choice still open. As of
   2026-11-15 no consumer has asked for it. #65 (partially valid
-  aggregates) decides. **Update, 2026-11-16:** decided; see the
-  amendment below (#65).
+  aggregates) decides. **Update, 2026-11-16:** deferred to a ticket of
+  its own, after #115 and the best-effort prototype; see the amendment
+  below (#65).
 - **The names are `collect`, `attempt` and `take`**, and `collect` keeps
   all three input shapes (an object of parts, a tuple, a list) through one
   signature.
@@ -791,29 +792,46 @@ plus `map` factory.
 ### 2026-11-16 — Partially valid aggregates: best effort is a module, accumulation waits, no absent state (#65)
 
 The consumer feedback round (#56) found one consumer, slider, tolerating
-partially valid input: its world editor keeps a three-state reader result
-and a best-effort parse beside the library's `Result`. #65 asked whether
-that is fan-in with accumulation (which #59's `collectAll` measured), a
-different concept (a usable partial value with diagnostics), and whether
-an "absent" state belongs in the library. The owner decided, through the
-question tool, with the facts below read from slider at 55d9998 and from
+partially valid input: its world-format parser keeps a three-state reader
+result, and its editor a best-effort parse, beside the library's
+`Result`. #65 asked whether that is fan-in with accumulation (which #59's
+`collectAll` measured) or a different concept (a usable partial value
+with diagnostics), and the grilling asked whether an "absent" state
+belongs in the library. The owner decided, through the question tool,
+with the facts below read from slider at 55d9998 and from
 `prototypes/59/`.
 
-**What slider does.** `ReaderResult<T>` (`src/world-format/readers.ts`)
-is `{ status: 'ok', value: T } | { status: 'absent' } | { status: 'error'
-}`, and its `'error'` case carries no payload: the diagnostic was already
-pushed to a `ParseContext`'s positioned `WorldFormatError[]` before the
-reader returned. `parseWorldBestEffort` (`src/world-format/best-effort.ts`)
-returns `Result<BestEffortWorld, WorldFormatErrors>`, where
-`BestEffortWorld` is the parsed world plus `dropped` and `diagnostics`
-arrays: a partially valid world is a plain Success whose value carries its
-diagnostics, and only a world that cannot be built at all is a Failure. A
-diagnostic there (`WorldFormatError`) is a plain object with a message
-and a position, not an `Error`; `WorldFormatErrors` wraps the list in an
-`Error` only so a total failure fits `Result`'s error channel. Slider's
-factories themselves fail fast (its ADR 0016: aggregate where fan-in,
-through `tryCatch`), and the best-effort parse drops an invalid piece and
-keeps the board (`validateBoardEntry` filters `pieces` before `Board.from`).
+**What slider does.** `ReaderResult<T>` (`src/world-format/readers.ts`,
+used by the strict `parseWorld` that loads games as well as by the
+editor) is `{ status: 'ok', value: T } | { status: 'absent' } | { status:
+'error' }`, and its `'error'` case carries no payload: the diagnostic was
+already pushed to a `ParseContext`'s `WorldFormatError[]` before the
+reader returned. A `WorldFormatError` is a plain object with a message
+and usually a position, not an `Error`; `WorldFormatErrors` wraps the
+list in an `Error` so that a failed parse, strict or best-effort, fits
+`Result`'s error channel. The editor-only `parseWorldBestEffort`
+(`src/world-format/best-effort.ts`) returns `Result<BestEffortWorld,
+WorldFormatErrors>`, where `BestEffortWorld` is the parsed world plus two
+arrays: `diagnostics` holds the tagged `WorldFormatError`s the parse
+tolerated (wiring lints and entity-local Piece exclusions), and `dropped`
+holds a `BestEffortDrop` (kind, id, message, an optional position and the
+raw DTO) for every Stage and Link its retry loop dropped and for every
+excluded Piece. A partially valid world the parse knows how to recover is
+a Success carrying both arrays; anything outside that pinned policy (an
+untagged per-entry shape error, a missing world id, a `World.from`
+rejection it cannot pin on one entry, an exhausted drop budget) is the
+strict parse's Failure. A dangling Link comes back a Success with the
+Link in `dropped` and `diagnostics` empty, and slider's editor
+(`src/editor-document/rebuild.ts`) treats a Stage or Link drop as a
+blocking error and a diagnostic or a Piece drop as non-blocking. A known
+gap in that consumer: the best-effort parse is blind to the `format:
+world-v2` gate (its own test pins this), so a document that fails the
+gate but is otherwise recoverable comes back a Success; the prototype
+takes slider's behaviour as its measurement, not as the definition of
+`toResult`. Slider's factories themselves fail fast (its ADR 0016 keeps
+`tryCatch` over throwing code for multi-part constructors), and the
+best-effort parse drops an invalid Piece and keeps the Board
+(`validateBoardEntry` filters `pieces` before `Board.from`).
 
 **Decided:**
 
@@ -822,12 +840,14 @@ keeps the board (`validateBoardEntry` filters `pieces` before `Board.from`).
   Nothing, Failure; the fan-in prototype reads an optional part that way
   (`prototypes/59/arm-a.ts`: a Maybe of a Result, which the unboxed
   encoding reads as a Result of a Maybe). Slider's three-state reader is
-  a `Maybe<T>` plus a flag that a diagnostic was recorded elsewhere, a
-  side-channel shape the library does not model. A non-goal.
-- **Best effort is in scope, as its own module.** A **best-effort
-  value** is a value usable as it stands together with the diagnostics
-  gathered while it was built: `BestEffort<T, D>`, at a new `/best-effort`
-  subpath beside `maybe`, `result`, `fn` and `call`. It is boxed, since a
+  a `Maybe<T>` plus a flag that a diagnostic was recorded elsewhere. The
+  library adds no third case to `Result` or `Maybe`; whether
+  `BestEffort<Maybe<T>, D>` covers such a reader is the prototype's to
+  measure. A non-goal.
+- **Best effort is in scope, as its own module.** The concept is a value
+  usable as it stands together with the diagnostics gathered while it was
+  built: `BestEffort<T, D>`, at a new `/best-effort` subpath of its own.
+  It is boxed, since a
   value plus a list has no unboxed encoding (nothing distinguishes a `T`
   from a `T` with diagnostics), as State is boxed. A diagnostic `D` is any
   value: slider's are positioned plain objects, and an `Error` is admitted
@@ -839,15 +859,20 @@ fallback)` turns a Failure into the fallback value with the error
   `toResult` fails when any diagnostic exists, through a consumer-supplied
   `(diagnostics) => Error`, because the library cannot choose how a list
   of diagnostics becomes one `Error` (slider wraps its own in
-  `WorldFormatErrors`). The shape is measured first: a prototype ticket
-  builds the kit in `prototypes/` against slider's best-effort parse and
-  writes the module's own ADR and its CONTEXT.md entries from what it
+  `WorldFormatErrors`). The encoding above constrains both bridges:
+  `recover`'s fallback and `toResult`'s Success arm must be held to the
+  same guard as `success` (`NotPossiblyAnError`), or an `Error`-typed
+  value would read as a Failure. The shape is measured first: a prototype
+  ticket builds the kit in `prototypes/` against slider's best-effort
+  parse, measuring `D` against both of slider's arrays (a `toResult` that
+  read only `diagnostics` would let a dropped Link through as a Success),
+  and writes the module's own ADR and its CONTEXT.md entries from what it
   finds; this amendment records the rulings, not the shape. Whether the
   module gets a fifth Box is #89's question.
 - **Accumulation waits for a ticket of its own**, after #115 has shipped
   `collect` and after the best-effort prototype has measured the kit, so
-  that `collectAll`, a keep-the-valid-parts fan-in (the parts that passed
-  as the value, the failed ones as diagnostics) and the open question of
+  that `collectAll`, a fan-in that keeps the parts that passed and the
+  open question of
   whether nested `Failures` flatten are designed against the shipped
   `collect` and the measured `BestEffort`. `Failures<E>` as measured in
   `prototypes/59/fan-in.ts` is the recorded shape until then.
