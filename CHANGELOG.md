@@ -278,13 +278,13 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   called at once when `Promise.resolve` returned the delegate as it was: a
   native promise of this realm whose `constructor` is `Promise`. A delegate that
   passes only the new test (a native promise whose `constructor` was replaced,
-  an instance of a Promise subclass that does not override `then`) settles the
-  outer promise two turns sooner, and the species constructor of a subclass,
-  user code, runs before `resolve` returns. One that passes only the old test
-  (such a native promise with its own `then` replaced or spied on, or any
-  native promise once `Promise.prototype.then` has been patched after the
-  module loaded) settles it two turns later. Every other delegate takes the
-  turns it took: a plain thenable, an `AbortablePromise`, a subclass that
+  an instance of a Promise subclass that does not override `then`) is followed
+  sooner, without the job that was queued for it, and the species constructor
+  of a subclass, user code, runs before `resolve` returns. One that passes only
+  the old test (such a native promise with its own `then` replaced or spied on,
+  or any native promise once `Promise.prototype.then` has been patched after
+  the module loaded) is followed later, through a job. Every other delegate is
+  followed as it was: a plain thenable, an `AbortablePromise`, a subclass that
   overrides `then`, a promise from another realm, a thenable that wraps a
   native promise.
 - A delegate is followed before the upstream link to it is registered. Before,

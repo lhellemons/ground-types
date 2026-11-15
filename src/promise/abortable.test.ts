@@ -1275,6 +1275,16 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     expect(() => outer.abort()).not.toThrow()
 
     await expect(outer).rejects.toSatisfy(isAbortError)
+    await expect(
+      Promise.race([
+        Promise.prototype.then.call(
+          delegate,
+          () => 'fulfilled',
+          () => 'rejected',
+        ),
+        Promise.resolve('pending'),
+      ]),
+    ).resolves.toBe('pending')
   })
 
   it('follows a delegate in the turns its then allows', async () => {
@@ -1299,8 +1309,8 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     const turns = (make: () => unknown) =>
       turnsToSettle(() => new AbortablePromise((resolve) => resolve(make())))
 
-    // The `then` captured at load is called at once: two turns, where a
-    // subclass instance took four, and a native resolve takes three.
+    // The `then` captured at load is called at once, which a native resolve
+    // function does not.
     expect(await turns(() => Sub.resolve('value'))).toBe(2)
     expect(
       await turns(() =>
@@ -1342,6 +1352,28 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     expect(unhandled[0]).toSatisfy(isAbortError)
   })
 
+  it('chains the promise it follows a delegate with through the then captured at load', async () => {
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below
+    const original = Promise.prototype.then
+    Promise.prototype.then = function (): never {
+      throw new RangeError('patched')
+    }
+    let outer: AbortablePromise<string> | undefined
+    try {
+      outer = new AbortablePromise<string>((resolve) =>
+        resolve({
+          then(onFulfilled: (value: string) => void) {
+            onFulfilled('value')
+          },
+        } as PromiseLike<string>),
+      )
+    } finally {
+      Promise.prototype.then = original
+    }
+
+    await expect(outer).resolves.toBe('value')
+  })
+
   it('compares the then of a delegate with the Promise.prototype.then captured at load', async () => {
     // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below
     const original = Promise.prototype.then
@@ -1354,7 +1386,7 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     const delegate = Promise.resolve('value')
     Promise.prototype.then = patched as typeof original
     try {
-      // A native promise took two turns; its `then` is not the captured one.
+      // Its `then` is no longer the captured one, so it is called from a job.
       expect(
         await turnsToSettle(
           () => new AbortablePromise((resolve) => resolve(delegate)),
@@ -1426,10 +1458,13 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
       }
     }
 
+    let speciesInExecutor = -1
     void new AbortablePromise<string>((resolve) => {
       resolve(Sub.resolve('value'))
-      expect(species).toBe(1)
+      speciesInExecutor = species
     })
+
+    expect(speciesInExecutor).toBe(1)
   })
 
   it('reads the then of a thenable once, and calls it from a job', async () => {
