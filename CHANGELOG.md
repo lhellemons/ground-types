@@ -175,6 +175,26 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   throws), and `maybe/fromResult` keeps such a value as a `Just`. Before, the
   trap's error replaced the reason: `resultify(fail)(Promise.reject(proxy))`
   rejected with it.
+- `result/isSuccess`, `isFailure` and `assertSuccess`, and so `map`, `mapError`,
+  `fallback`, `orElse` and `andThen`, no longer throw when the Error check
+  itself throws (a Proxy whose `getPrototypeOf` trap throws, a revoked Proxy).
+  Such a value counts as not an `Error`, as `maybe/fromResult` already treats
+  it: `isSuccess` is true for it, `isFailure` false, `assertSuccess` returns it
+  rather than throwing, and the combinators treat it as a `Success`. Before,
+  the trap's error escaped: `map(x => x, proxy)` threw the trap's `RangeError`.
+- The shared Error check behind these, `catchOnly`, the default `tryCatch`
+  handler, `maybe/fromResult` and `promise/fail` now asks whether
+  `Error.prototype` is on the value's prototype chain (`isPrototypeOf`) instead
+  of using `instanceof`, so a defined `Error[Symbol.hasInstance]` is no longer
+  consulted. Otherwise a hook that throws made every real `Error` count as not
+  an `Error`. The answer is the same for every value without such a hook,
+  including an `Error` from another realm (not an `Error`, as before).
+- `abort/isAbortError` answers `false` for a value on which its check throws,
+  where it threw before: a Proxy whose `getPrototypeOf` trap throws, a revoked
+  Proxy, and a Proxy over a real abort whose `name` is read through the proxy
+  (no traps, or a `Reflect.get(target, key, receiver)` forwarder), as the
+  platform's `name` getter rejects the proxy. A `get` trap that reads `name`
+  with the target as receiver still answers `true`.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`
