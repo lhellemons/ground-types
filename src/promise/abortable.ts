@@ -211,7 +211,10 @@ class AbortState {
       onAbort()
       return
     }
-    this.#linked.push(onAbort)
+    // A settled promise never fires its links.
+    if (!this.#settled) {
+      this.#linked.push(onAbort)
+    }
   }
 
   abort(): void {
@@ -224,12 +227,15 @@ class AbortState {
     // Fire the platform signal before rejecting, so an executor watching it
     // can release resources before the rejection propagates. Re-entry through
     // watchController is harmless: #aborted is already set. A controller whose
-    // `abort()` throws does not stop the rejection, the links or the release;
-    // its error is the first one thrown, after the last.
+    // signal has aborted is not asked again. One whose `abort()` throws does
+    // not stop the rejection, the links or the release; its error is thrown
+    // after the last link, ahead of theirs.
     let failed = false
     let firstError: unknown
     try {
-      this.#controller?.abort()
+      if (this.#controller && !this.#controller.signal.aborted) {
+        this.#controller.abort()
+      }
     } catch (error) {
       failed = true
       firstError = error
@@ -248,11 +254,10 @@ class AbortState {
         failed = true
         firstError = error
       }
-    } finally {
-      // Last, so that a signal firing into this call has already been handled
-      // by the listener that is about to be removed.
-      this.#release()
     }
+    // Last, so that a signal firing into this call has already been handled
+    // by the listener that is about to be removed.
+    this.#release()
     if (failed) {
       throw firstError
     }
@@ -447,13 +452,19 @@ export class AbortablePromise<T> extends Promise<T> {
     }
 
     const combined = combine(members()) as AbortablePromise<unknown>
-    combined.#state.link(() => {
-      runAll(adopted, (member) => {
-        if (AbortablePromise.#isAbortablePromise(member)) {
-          member.abort()
-        }
+    try {
+      combined.#state.link(() => {
+        runAll(adopted, (member) => {
+          if (AbortablePromise.#isAbortablePromise(member)) {
+            member.abort()
+          }
+        })
       })
-    })
+    } catch {
+      // The combined promise was aborted while `values` was iterated, so the
+      // link fired at once and a member's `abort()` threw. It is aborted
+      // already, and has no caller to throw to.
+    }
     return combined
   }
 
@@ -541,16 +552,9 @@ export class AbortablePromise<T> extends Promise<T> {
     const state = new AbortState(controller)
     // The promise itself, once `super()` has returned, for the check a native
     // resolve function makes that it is not resolved with its own promise.
-    let owner: object | undefined
+    const owner: { promise?: object } = {}
     const isOwner = (value: unknown): boolean =>
-      owner !== undefined && value === owner
-    const claim = (): boolean => {
-      const claimed = state.claimSettlement()
-      if (claimed) {
-        owner = undefined
-      }
-      return claimed
-    }
+      owner.promise !== undefined && value === owner.promise
 
     super((resolve, reject) => {
       state.captureReject(reject)
@@ -575,7 +579,7 @@ export class AbortablePromise<T> extends Promise<T> {
 
         // A promise resolved with itself rejects, as a native one does.
         if (isOwner(value)) {
-          if (claim()) {
+          if (state.claimSettlement()) {
             reject(new TypeError(cycleMessage))
           }
           return
@@ -589,14 +593,14 @@ export class AbortablePromise<T> extends Promise<T> {
         try {
           then = thenOf(value)
         } catch (error) {
-          if (claim()) {
+          if (state.claimSettlement()) {
             reject(error)
           }
           return
         }
 
         if (then === undefined) {
-          if (claim()) {
+          if (state.claimSettlement()) {
             resolve(value)
           }
           return
@@ -614,12 +618,12 @@ export class AbortablePromise<T> extends Promise<T> {
             adopted,
             then,
             (settledValue: T) => {
-              if (claim()) {
+              if (state.claimSettlement()) {
                 resolve(settledValue)
               }
             },
             (reason: unknown) => {
-              if (claim()) {
+              if (state.claimSettlement()) {
                 reject(reason)
               }
             },
@@ -645,7 +649,7 @@ export class AbortablePromise<T> extends Promise<T> {
           // As a native resolve function rejects when following the thenable
           // throws (its `then` throws). Once the promise is settled, so also
           // when a late link throws, the error is dropped.
-          if (claim()) {
+          if (state.claimSettlement()) {
             reject(error)
           }
         }
@@ -656,7 +660,7 @@ export class AbortablePromise<T> extends Promise<T> {
           return
         }
         alreadyResolved = true
-        if (claim()) {
+        if (state.claimSettlement()) {
           reject(reason)
         }
       }
@@ -670,8 +674,7 @@ export class AbortablePromise<T> extends Promise<T> {
       }
     })
 
-    // eslint-disable-next-line @typescript-eslint/no-this-alias -- see `owner`
-    owner = this
+    owner.promise = this
     this.#state = state
   }
 
@@ -686,11 +689,11 @@ export class AbortablePromise<T> extends Promise<T> {
    * to the constructor throws from its `abort()`. In each case this promise is
    * rejected and its signals are released, and `abort()` is called on every
    * promise the abort reaches; the first error is thrown after the last, the
-   * controller's before the others. A controller that is already aborted when
-   * it is passed to the constructor has its error dropped: the promise rejects
-   * with the {@link AbortError}. Called
-   * through a signal that aborts later ({@link AbortablePromise.abortOn}, a
-   * controller passed to the constructor, {@link AbortablePromise.peer}), the
+   * controller's before the others. A controller whose signal has aborted
+   * already is not asked to abort again.
+   *
+   * Called through a signal that aborts later ({@link AbortablePromise.abortOn},
+   * a controller passed to the constructor, {@link AbortablePromise.peer}), the
    * error is thrown inside the signal's event listener, where the platform
    * reports it as an uncaught exception, and nothing returns it to a caller.
    * `abortOn` with a signal that has already aborted aborts at once and throws

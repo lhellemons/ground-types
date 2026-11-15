@@ -99,8 +99,8 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   and a guarded prototype check, not `instanceof`: the value carries the
   private field only this class's constructor sets, and
   `AbortablePromise.prototype` is on its chain (answering false when the walk
-  throws). The combinators abort the members they can subscribe to: the
-  members of that kind whose `then` is a function. A member whose `then` is no
+  throws). The combinators abort the members of that kind whose `then` is a
+  function when the combinator takes it. A member whose `then` is no
   function was taken as a plain value, and one whose `then` getter throws was
   taken as a member rejected with the getter's error; neither has a handler, so
   aborting it is an unhandled rejection. A `then` function that subscribes
@@ -115,6 +115,21 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   aborts later, the error is thrown inside the signal's event listener,
   which the platform reports as an uncaught exception; `abortOn` with a
   signal that has already aborted throws it to the caller of `abortOn`.
+
+  **Update, 2026-11-15:** the combinators iterate `values` lazily, as the
+  native ones do, through a generator that takes each member as the native
+  combinator asks for it. What `values` throws rejects the combined
+  promise, a member taken before that is subscribed to, and the iterator is
+  closed when the combinator stops early. A member that is an
+  `AbortablePromise` whose `then` is a function has that `then` read once, as
+  it is taken, and the native combinator is handed a thenable that calls it:
+  the members aborted are then the ones whose `then` is that function, and a
+  subclass's static `resolve` receives the thenable, not the member. A member
+  whose `then` is no function on that read is handed over as it is and is
+  not aborted, also when a getter returns a function on the combinator's own
+  read. Aborting the combined promise while `values` is still iterated fires
+  the link at once; a throw from a member's `abort()` there is dropped, as
+  it is for a delegate, since the combined promise is aborted already.
 
 - **Resolving with a promise is not settling.** The abort window closes
   when the promise actually settles, not when its executor calls
@@ -184,12 +199,11 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   fires at once, for a `resolve` after the abort, is dropped, since the
   promise is already settled. A Proxy over an `AbortablePromise` is a plain
   thenable to it, so abort does not travel through one. A controller passed
-  to the constructor whose `abort()` throws is the first link of that
-  loop: its error does not stop the rejection, the other links or the
-  release of the signal bindings, and is thrown first, after the last of
-  them. A controller that is already aborted when it is passed in has its
-  error dropped, since the promise is rejected inside its own constructor,
-  where there is no caller to throw to.
+  to the constructor whose `abort()` throws is aborted before the rejection
+  and the links, and its error does not stop them or the release of the
+  signal bindings: it is thrown after the last link, ahead of an error from
+  one. A controller whose signal has aborted already, because it was passed
+  in aborted or another holder aborted it, is not asked to abort again.
 
 - **A fresh `AbortError` per abort.** The imported implementation held a
   single `static readonly AbortError`, constructed once at module load.

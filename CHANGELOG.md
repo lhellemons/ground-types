@@ -9,7 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Upgrading from 0.4.0: `success`, `failure` and `result` no longer need type
 arguments in early-return code, and several calls that compiled now do not.
-The **Breaking** entries below list each; TypeScript 5.4 or later is required.
+The **Breaking** entries below list each, those that change behaviour at run
+time (the promise combinators, an executor's `resolve` and `reject`, and abort
+through a Proxy) among them; TypeScript 5.4 or later is required.
 
 - `success(x)`, `failure(e)` and `result(x)` now infer at a site typed to a
   narrower `Result`: `(n: number): Result<number, Invalid> => success(n)`,
@@ -304,9 +306,8 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   `Object.create(AbortablePromise.prototype)`, as a delegate or as a member
   below, is skipped, where `abort()` threw a `TypeError`.
 - Aborting the promise returned by `all`, `race`, `any` or `allSettled` aborts
-  every `AbortablePromise` member whose `then` is a function, which are the
-  members the combinator can subscribe to. A throw from one member's `abort()`
-  no longer stops the loop: `abort()` is called on every member, then the first
+  every `AbortablePromise` member whose `then` is a function when the
+  combinator takes it. A throw from one member's `abort()` no longer stops the loop: `abort()` is called on every member, then the first
   error is thrown. The same holds for the links of one promise (a promise
   derived by `then` whose handler returns an `AbortablePromise` has a link to
   its source and one to that delegate): `abort()` fires each link, then throws
@@ -370,13 +371,19 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   with `e`, and `r(slow); r('fast')` fulfilled with `'fast'`: each follows
   `slow` now, as `Promise` does, and the rejection of the thenable that is no
   longer followed is unhandled, which ends a Node process, where it was handled
-  before. The same holds after `reject`: `reject(e); resolve(Promise.reject(f))`
-  leaves `f` unhandled. The promise stays abortable until it settles.
+  before. The same holds after `reject` or `resolve` with a plain value:
+  `reject(e); resolve(Promise.reject(f))` leaves `f` unhandled. The promise
+  stays abortable until it settles. This reaches `fakeAbortablePromise()`,
+  whose `resolve` and `reject` are an executor's: a test that calls
+  `fake.resolve(pending); fake.reject(e)` now follows `pending`, and stays
+  pending until `pending` settles, where `reject(e)` rejected it.
+  `fakePromise()` is as before.
 - An executor that throws after `resolve(thenable)` no longer rejects: it
   follows the thenable, as with `Promise`, where it rejected with the throw
   (after `reject` or `resolve(plain)`, a throw never changed the outcome). An
-  executor that throws settles the promise like any other rejection, so
-  aborting it afterwards does nothing: it no longer aborts the controller passed
+  executor that throws settles the promise like any other rejection, and
+  aborting a settled promise has no effect, as the `AbortablePromise` docblock
+  documents. So aborting it afterwards no longer aborts the controller passed
   to the constructor, whose signal listener is released when the promise
   rejects, where it stayed until the signal aborted; a `peer` whose executor
   throws no longer aborts the source it shares a controller with; and a
@@ -389,17 +396,18 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   aborted, and an abort after the `TypeError` does nothing. A thenable that
   resolves the promise with a further thenable that resolves with the promise
   is not caught.
-- The `resolve` and `reject` of `fakeAbortablePromise()` are an executor's, so
-  the second call is ignored: `fake.resolve(pending); fake.reject(e)` follows
-  `pending`, where `reject(e)` rejected it. `fakePromise()` is as before.
-- `AbortablePromise.all`, `allSettled`, `race` and `any` return a rejected
-  `AbortablePromise` when `values` is not iterable (`null`, `undefined`, a
-  number, a plain object) or its iterator throws, as the `Promise` combinators
-  do, with a `TypeError` or what the iterator throws. They iterate `values`
+- **Breaking:** `AbortablePromise.all`, `allSettled`, `race` and `any` no
+  longer throw when `values` is not iterable (`null`, `undefined`, a number, a
+  plain object) or its iterator throws: they return a rejected
+  `AbortablePromise`, as the `Promise` combinators do, with a `TypeError` or
+  what the iterator throws. A `try`/`catch` around the call no longer catches
+  it, and a promise nothing awaits or catches is an unhandled rejection, which
+  ends a Node process: await it or attach a `catch`. They iterate `values`
   lazily, as `Promise`'s do: a member taken before the iterator throws is
   subscribed to, and the iterator is closed when a subclass's `resolve`
-  throws. They spread `values` first and threw from the spread, which left an
-  earlier member that rejects unhandled and the iterator open.
+  throws. They took every item first: an earlier member that rejects was left
+  unhandled when the iterator threw, and when a subclass's `resolve` threw, a
+  generator ran to its end.
 - A member of a combinator that is an `AbortablePromise` whose `then` is a
   function is handed to `resolve` as a thenable that calls that `then`, which
   is read once, so a subclass's static `resolve` receives the thenable, where
@@ -412,10 +420,11 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   error, which comes before an error from a later link. Before, the throw ended
   the abort at the controller, which left the promise pending forever, its
   delegate running and its listeners on the signal. A second `abort()` does
-  nothing, as before. A controller that is already aborted when it is passed to
-  the constructor is the exception: the promise rejects with the `AbortError`,
-  where it rejected with the error its `abort()` threw, and that error is
-  dropped.
+  nothing, as before. A controller whose signal has aborted already, because
+  it was passed in aborted or another holder aborted it, is no longer asked to
+  abort again: a promise made with one rejected with the error its `abort()`
+  threw, and one aborted by another holder threw it inside the signal's
+  listener, an uncaught exception.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`
