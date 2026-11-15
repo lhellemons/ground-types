@@ -112,14 +112,18 @@ export class ThrownError<T = unknown> extends Error {
 }
 
 /**
- * An error class as `catchOnly` and the `tryCatch` list take it: a function
- * whose `prototype` is an `Error`. Classes with a private constructor
- * qualify. Arrow functions, methods and plain objects do not.
+ * The class shape `catchOnly` and the `tryCatch` list accept beyond a public
+ * `abstract new` signature: a function whose `prototype` is an `Error`, which
+ * includes classes with a private constructor. {@link CheckedClasses}
+ * narrows it.
  */
-// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- `Function` is what admits private-constructor classes; see CheckedClasses for the `any` guard
+// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- admits private-constructor classes
 type ErrorClass = Function & { readonly prototype: Error }
 
-/** The instance type of an error class, read from its construct signature when it has a public one and from its `prototype` otherwise. */
+/**
+ * The instance type of an error class: read from its construct signature
+ * when it has a public one, otherwise from its `prototype`.
+ */
 type InstanceOfClass<K> = K extends abstract new (...args: never[]) => infer I
   ? I
   : K extends { readonly prototype: infer P }
@@ -127,12 +131,17 @@ type InstanceOfClass<K> = K extends abstract new (...args: never[]) => infer I
     : never
 
 /**
- * Maps every class in `C` to itself, or to `never` when its instance type is
- * `any`. Any function type has `prototype: any`, so this is what rejects
- * arrow functions, methods and `Function`-typed values at compile time.
+ * Maps each class in `C` to itself, or to `never` when its instance type is
+ * `any` or not an `Error`. Applied to the parameter of `catchOnly` and the
+ * `tryCatch` list, it rejects arrow functions, methods, `Function`-typed
+ * values and constructors of non-Error instances.
  */
 type CheckedClasses<C extends readonly unknown[]> = {
-  [K in keyof C]: 0 extends 1 & InstanceOfClass<C[K]> ? never : C[K]
+  [K in keyof C]: 0 extends 1 & InstanceOfClass<C[K]>
+    ? never
+    : InstanceOfClass<C[K]> extends Error
+      ? C[K]
+      : never
 }
 
 /**
@@ -159,6 +168,17 @@ type CheckedClasses<C extends readonly unknown[]> = {
  * `tryCatch(fn)` fixes `E = Error`, and no overload takes three type
  * arguments with one value argument.
  */
+export function tryCatch<
+  T extends NotAPromise<T>,
+  Args extends unknown[],
+  C extends readonly [
+    abstract new (...args: never[]) => Error,
+    ...(abstract new (...args: never[]) => Error)[],
+  ],
+>(
+  fn: (...args: Args) => T,
+  errors: C,
+): (...args: Args) => Result<T, InstanceType<C[number]>>
 export function tryCatch<
   T extends NotAPromise<T>,
   Args extends unknown[],
@@ -515,33 +535,69 @@ export function fromMaybe<T, E extends Error>(
  *
  * Use `tryCatch(construct, catchOnly(InvalidValue))` for domain code.
  */
+export function catchOnly<
+  C extends readonly [
+    abstract new (...args: never[]) => Error,
+    ...(abstract new (...args: never[]) => Error)[],
+  ],
+>(...classes: C): (error: unknown) => Failure<never, InstanceType<C[number]>>
 export function catchOnly<C extends readonly [ErrorClass, ...ErrorClass[]]>(
   ...classes: CheckedClasses<C>
-): (error: unknown) => Failure<never, InstanceOfClass<C[number]>> {
-  if (classes.length === 0 || !classes.every(canBeUsedWithInstanceof)) {
+): (error: unknown) => Failure<never, InstanceOfClass<C[number]>>
+export function catchOnly(
+  ...classes: readonly unknown[]
+): (error: unknown) => Failure<never, Error> {
+  if (classes.length === 0) {
     throw new TypeError('catchOnly requires a non-empty list of error classes')
   }
-  return (error: unknown): Failure<never, InstanceOfClass<C[number]>> => {
-    if (
-      error instanceof Error &&
-      classes.some(
-        (ErrorClass) =>
-          error instanceof
-          (ErrorClass as unknown as abstract new (...args: never[]) => Error),
+  classes.forEach((candidate, index) => {
+    if (!isUsableClass(candidate)) {
+      throw new TypeError(
+        `catchOnly entry ${index} is not an error class: it cannot be used with instanceof`,
       )
-    ) {
-      return failure<InstanceOfClass<C[number]>, never>(
-        error as InstanceOfClass<C[number]>,
-      )
+    }
+  })
+  return (error: unknown): Failure<never, Error> => {
+    if (error instanceof Error && isInstanceOfAny(error, classes)) {
+      return failure<Error, never>(error)
     }
     throw error
   }
 }
 
-function canBeUsedWithInstanceof(candidate: unknown): boolean {
+/* Checks the shape without calling anything the entry defines, so a custom
+   `Symbol.hasInstance` is not run at creation. A bound class has neither an
+   own object `prototype` nor a custom `hasInstance`, so it is recognised by
+   being a native function. */
+function isUsableClass(candidate: unknown): boolean {
+  if (typeof candidate !== 'function') return false
   try {
-    void ({} instanceof (candidate as abstract new () => unknown))
-    return true
+    const hasInstance = (candidate as { [Symbol.hasInstance]?: unknown })[
+      Symbol.hasInstance
+    ]
+    if (
+      typeof hasInstance === 'function' &&
+      hasInstance !== Function.prototype[Symbol.hasInstance]
+    ) {
+      return true
+    }
+    const prototype = (candidate as { prototype?: unknown }).prototype
+    if (typeof prototype === 'object' && prototype !== null) return true
+    return /\[native code\]/.test(Function.prototype.toString.call(candidate))
+  } catch {
+    return false
+  }
+}
+
+/* An entry that throws when used with `instanceof` (a revoked proxy, a
+   `prototype` reassigned after creation, a throwing `hasInstance`) counts as
+   not matching, so the caller rethrows the original error. */
+function isInstanceOfAny(error: Error, classes: readonly unknown[]): boolean {
+  try {
+    return classes.some(
+      (ErrorClass) =>
+        error instanceof (ErrorClass as abstract new () => unknown),
+    )
   } catch {
     return false
   }

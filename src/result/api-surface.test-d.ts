@@ -73,6 +73,9 @@ declare const Ctor: new (message: string) => Selected
 declare const AbsCtor: abstract new () => Other
 // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- the point of the pin
 declare const anyFunction: Function
+declare const StringCtor: new () => string
+declare const ObjectCtor: new () => { x: number }
+declare const NumberAbsCtor: abstract new () => number
 declare const construct: (value: string) => Branded<string, 'Selected'>
 describe('selective handler inference', () => {
   it('infers the selected union at each site', () => {
@@ -127,6 +130,14 @@ describe('selective handler inference', () => {
     tryCatch(() => 1, [Selected, () => 1])
     // @ts-expect-error `Function`-typed values are not error classes
     catchOnly(anyFunction)
+    // @ts-expect-error A constructor of a non-Error instance is rejected
+    catchOnly(StringCtor)
+    // @ts-expect-error A constructor of a non-Error instance is rejected
+    tryCatch(() => 1, [StringCtor])
+    // @ts-expect-error A constructor of a non-Error instance is rejected
+    catchOnly(ObjectCtor)
+    // @ts-expect-error A constructor of a non-Error instance is rejected
+    catchOnly(NumberAbsCtor)
     // @ts-expect-error A plain object is not an error class
     catchOnly({ prototype: new Selected() })
     // @ts-expect-error A plain object is not an error class
@@ -137,5 +148,44 @@ describe('selective handler inference', () => {
     catchOnly()
     // @ts-expect-error At least one class is required
     tryCatch(() => 1, [])
+  })
+})
+
+type ErrorConstructorLike = abstract new (...args: never[]) => Error
+
+describe('generic call sites', () => {
+  it('still accept a constrained type parameter', () => {
+    function one<C extends ErrorConstructorLike>(k: C) {
+      return catchOnly(k)
+    }
+    function oneT<T extends Error>(k: abstract new (...args: never[]) => T) {
+      return catchOnly(k)
+    }
+    function wrap<
+      C extends readonly [ErrorConstructorLike, ...ErrorConstructorLike[]],
+    >(...classes: C) {
+      return catchOnly(...classes)
+    }
+    function list<C extends typeof Error>(k: C) {
+      return tryCatch(() => 1, [k])
+    }
+    function listWrap<
+      C extends readonly [ErrorConstructorLike, ...ErrorConstructorLike[]],
+    >(...classes: C) {
+      return tryCatch(() => 1, classes)
+    }
+    expectTypeOf(one(Selected)).returns.toEqualTypeOf<
+      Failure<never, Selected>
+    >()
+    // Only compilation is pinned: the instantiated return type of `oneT`
+    // reduces to `any`.
+    oneT(Selected)
+    expectTypeOf(wrap(Selected, Other)).returns.toEqualTypeOf<
+      Failure<never, Selected | Other>
+    >()
+    expectTypeOf(list(Error)()).toEqualTypeOf<Result<number, Error>>()
+    expectTypeOf(listWrap(Selected, Other)()).toEqualTypeOf<
+      Result<number, Selected | Other>
+    >()
   })
 })

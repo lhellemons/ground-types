@@ -9,12 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `catchOnly` and the `tryCatch` class-list shorthand now accept error classes
   with a private constructor, such as a domain error with a static factory.
-  Arrow functions, methods and plain objects are still rejected at compile
-  time, and the inferred error type for existing calls is unchanged.
+  Arrow functions, methods, plain objects and constructors of non-`Error`
+  instances are rejected at compile time. Calls that compiled before keep
+  their inferred error type.
 - `catchOnly` (and so the `tryCatch` shorthand) now throws a `TypeError` when
-  the handler is created, if the class list is empty or holds anything that
-  is not a function. Before, a bad entry threw on the error path and
-  replaced the original error.
+  the handler is created, if the class list is empty or holds an entry that
+  cannot be used with `instanceof` (such as `undefined`, an arrow function or
+  a method). Before, a bad entry threw on the error path and replaced the
+  original error. An entry that only starts failing later, such as a revoked
+  proxy, now leaves the original error to be rethrown.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`

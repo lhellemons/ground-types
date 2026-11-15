@@ -63,6 +63,7 @@ describe('catchOnly list validation', () => {
       () => new A(),
       async () => new A(),
       { method(this: void) {} }.method,
+      { [Symbol.hasInstance]: () => true },
     ]
     for (const entry of unusable) {
       expect(() =>
@@ -78,6 +79,59 @@ describe('catchOnly list validation', () => {
         (catchOnly as (...classes: unknown[]) => unknown)(entry),
       ).not.toThrow()
     }
+  })
+})
+
+describe('catchOnly entries with custom behaviour', () => {
+  it('accepts a class with its own Symbol.hasInstance without calling it', () => {
+    let calls = 0
+    class Coded extends Error {
+      static [Symbol.hasInstance](value: unknown) {
+        calls++
+        return value instanceof Error && value.message.startsWith('coded')
+      }
+    }
+    const handler = catchOnly(Coded)
+    expect(calls).toBe(0)
+    const error = new Error('coded: x')
+    expect(handler(error)).toBe(error)
+    const other = new Error('plain')
+    expectThrow(() => handler(other), other)
+  })
+  it('rejects a revoked proxy at creation', () => {
+    const revocable = Proxy.revocable(class extends Error {}, {})
+    revocable.revoke()
+    expect(() =>
+      (catchOnly as (...classes: unknown[]) => unknown)(revocable.proxy),
+    ).toThrow(TypeError)
+  })
+  it('names the failing entry in the creation error', () => {
+    expect(() =>
+      (catchOnly as (...classes: unknown[]) => unknown)(A, undefined),
+    ).toThrow(/entry 1/)
+  })
+  it('rethrows the original error when an entry fails later', () => {
+    function Legacy() {}
+    const handler = (
+      catchOnly as (...classes: unknown[]) => (e: unknown) => unknown
+    )(Legacy)
+    ;(Legacy as unknown as { prototype: unknown }).prototype = 1
+    const error = new Error('original')
+    expectThrow(() => handler(error), error)
+
+    class Throwing extends Error {
+      static [Symbol.hasInstance](): boolean {
+        throw new RangeError('hasInstance')
+      }
+    }
+    expectThrow(() => catchOnly(Throwing)(error), error)
+
+    const revocable = Proxy.revocable(class extends Error {}, {})
+    const viaProxy = (
+      catchOnly as (...classes: unknown[]) => (e: unknown) => unknown
+    )(revocable.proxy)
+    revocable.revoke()
+    expectThrow(() => viaProxy(error), error)
   })
 })
 
