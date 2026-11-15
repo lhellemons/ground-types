@@ -1,3 +1,5 @@
+import { setFlagsFromString } from 'node:v8'
+import { runInNewContext } from 'node:vm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { InternRegistry, internByKey } from './index.js'
 import { isJust, isNothing } from '../maybe/index.js'
@@ -48,25 +50,31 @@ describe('InternRegistry', () => {
     expect(registry.getOrCreate('a', () => ({}))).not.toBe(replacement)
   })
 
-  it('retains object keys and their references to canonical instances in cleanup holdings', () => {
-    const holdings: { key: { value: object }; ref: WeakRef<object> }[] = []
-    vi.stubGlobal(
-      'FinalizationRegistry',
-      class {
-        register(_value: object, entry: (typeof holdings)[number]) {
-          holdings.push(entry)
-        }
-      },
-    )
-    const registry = new InternRegistry<{ value: object }, object>()
-    const value = {}
-    const key = { value }
-    registry.getOrCreate(key, () => value)
-    // Holdings remain strong even though the canonical value uses WeakRef.
-    expect(holdings[0].key).toBe(key)
-    expect(holdings[0].key.value).toBe(value)
-    expect(holdings[0].ref.deref()).toBe(value)
-    expect(registry.get(key)).toBe(value)
+  it('collects unheld values, but keeps a value its object key references', async () => {
+    setFlagsFromString('--expose-gc')
+    const gc = runInNewContext('gc') as () => void
+    const primitiveKeyed = new InternRegistry<string, object>()
+    const objectKeyed = new InternRegistry<{ value: object }, object>()
+    // Interned in a helper so no stack slot of this test holds the values.
+    const intern = () => {
+      const unheld = primitiveKeyed.getOrCreate('a', () => ({}))
+      const referenced = {}
+      objectKeyed.getOrCreate({ value: referenced }, () => referenced)
+      return {
+        unheld: new WeakRef(unheld),
+        referenced: new WeakRef(referenced),
+      }
+    }
+    const { unheld, referenced } = intern()
+    for (let i = 0; i < 5 && unheld.deref() !== undefined; i++) {
+      // A WeakRef target stays live until the end of the current job.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      gc()
+    }
+    expect(unheld.deref()).toBeUndefined()
+    expect(isNothing(primitiveKeyed.get('a'))).toBe(true)
+    // The registry holds the key strongly, and the key holds the value.
+    expect(referenced.deref()).toBeDefined()
   })
 
   it('creates a value on first access', () => {
