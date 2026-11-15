@@ -2962,6 +2962,40 @@ describe('AbortablePromise.abort order', () => {
 })
 
 describe('AbortablePromise fan-in aborted while its values are iterated', () => {
+  it('aborts an ordinary member when the combined promise was aborted while its values were iterated', async () => {
+    let combined: AbortablePromise<unknown> | undefined
+    class Exposing<T> extends AbortablePromise<T> {
+      constructor(
+        executor: ConstructorParameters<typeof AbortablePromise<T>>[0],
+        controller?: AbortController,
+      ) {
+        super(executor, controller)
+        // eslint-disable-next-line @typescript-eslint/no-this-alias -- exposed to the test
+        combined = this
+      }
+    }
+    const member = new AbortablePromise<string>(() => {})
+    function* values() {
+      yield member
+      combined?.abort()
+    }
+
+    const result = Exposing.all(values())
+
+    await expect(result).rejects.toSatisfy(isAbortError)
+    await expect(member).rejects.toSatisfy(isAbortError)
+  })
+
+  it('throws the brand-check error for a receiver that is not an AbortablePromise', () => {
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- called with `call`
+    const all = AbortablePromise.all as unknown as (
+      this: unknown,
+      values: unknown,
+    ) => unknown
+
+    expect(() => all.call(Promise, [1])).toThrow(TypeError)
+  })
+
   it('returns the combined promise, aborted, when a member’s abort() throws for the link that fires at once', async () => {
     let combined: AbortablePromise<unknown> | undefined
     class Exposing<T> extends AbortablePromise<T> {
@@ -2990,5 +3024,22 @@ describe('AbortablePromise fan-in aborted while its values are iterated', () => 
     }).not.toThrow()
 
     await expect(result).rejects.toSatisfy(isAbortError)
+  })
+})
+
+describe('AbortablePromise with an Object.prototype that has a promise property', () => {
+  it('does not take the inherited property for the promise it belongs to', async () => {
+    Object.defineProperty(Object.prototype, 'promise', {
+      value: true,
+      configurable: true,
+      writable: true,
+    })
+    try {
+      await expect(
+        new AbortablePromise<boolean>((resolve) => resolve(true)),
+      ).resolves.toBe(true)
+    } finally {
+      delete (Object.prototype as { promise?: unknown }).promise
+    }
   })
 })

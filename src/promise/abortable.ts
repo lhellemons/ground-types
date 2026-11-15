@@ -413,8 +413,10 @@ export class AbortablePromise<T> extends Promise<T> {
    * subscribed to, and the iterator is closed when the combinator stops early.
    * A member that is an AbortablePromise is handed to the combinator as a
    * thenable that calls the `then` that was read, and a subclass's `resolve`
-   * receives that thenable; one whose `then` is not a function is handed over
-   * as it is, read again by the combinator, and not aborted.
+   * receives that thenable; one whose `then` getter throws is handed over as a
+   * thenable whose `then` throws that error; one whose `then` is not a
+   * function is handed over as it is, read again by the combinator, and not
+   * aborted.
    */
   static #fanIn(
     values: Iterable<unknown>,
@@ -452,8 +454,9 @@ export class AbortablePromise<T> extends Promise<T> {
     }
 
     const combined = combine(members()) as AbortablePromise<unknown>
+    const combinedState = combined.#state
     try {
-      combined.#state.link(() => {
+      combinedState.link(() => {
         runAll(adopted, (member) => {
           if (AbortablePromise.#isAbortablePromise(member)) {
             member.abort()
@@ -529,8 +532,8 @@ export class AbortablePromise<T> extends Promise<T> {
    * its `resolve` or `reject` has an effect, as for a regular Promise's:
    * a thenable passed to a later `resolve` is not followed, and an executor
    * that throws rejects the promise unless `resolve` or `reject` was called
-   * already. Resolving with the promise itself, or calling the `resolve` of a
-   * thenable it was resolved with on it, rejects it with a `TypeError`.
+   * already. Resolving with the promise itself rejects it with a `TypeError`,
+   * as does a thenable it was resolved with that fulfils with the promise.
    * @param controller If given, this AbortablePromise is governed by that
    * controller rather than one of its own. Aborting the promise then aborts
    * the passed controller too, and so everything else it governs — which cuts
@@ -552,7 +555,7 @@ export class AbortablePromise<T> extends Promise<T> {
     const state = new AbortState(controller)
     // The promise itself, once `super()` has returned, for the check a native
     // resolve function makes that it is not resolved with its own promise.
-    const owner: { promise?: object } = {}
+    const owner = Object.create(null) as { promise?: object }
     const isOwner = (value: unknown): boolean =>
       owner.promise !== undefined && value === owner.promise
 

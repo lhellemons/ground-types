@@ -100,7 +100,8 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   private field only this class's constructor sets, and
   `AbortablePromise.prototype` is on its chain (answering false when the walk
   throws). The combinators abort the members of that kind whose `then` is a
-  function when the combinator takes it. A member whose `then` is no
+  function on the one read `AbortablePromise` makes as it takes the member.
+  A member whose `then` is no
   function was taken as a plain value, and one whose `then` getter throws was
   taken as a member rejected with the getter's error; neither has a handler, so
   aborting it is an unhandled rejection. A `then` function that subscribes
@@ -126,10 +127,13 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   the members aborted are then the ones whose `then` is that function, and a
   subclass's static `resolve` receives the thenable, not the member. A member
   whose `then` is no function on that read is handed over as it is and is
-  not aborted, also when a getter returns a function on the combinator's own
-  read. Aborting the combined promise while `values` is still iterated fires
-  the link at once; a throw from a member's `abort()` there is dropped, as
-  it is for a delegate, since the combined promise is aborted already.
+  not aborted, also when a getter returns a function on `Promise`'s own read
+  of it. The link to the members is registered once `values` has been
+  iterated. When the combined promise was aborted while `values` was
+  iterated, a late registration, it fires then, for every member taken,
+  including those taken after the abort; a throw from a member's `abort()`
+  there is dropped, as it is for a delegate, since the combined promise is
+  aborted already.
 
 - **Resolving with a promise is not settling.** The abort window closes
   when the promise actually settles, not when its executor calls
@@ -147,7 +151,9 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   ignored, whether the thenable handed to the first is still pending or has
   settled. While it is pending only `abort()` still acts on the promise. An
   executor that throws goes through the same `reject`, so a throw after
-  `resolve(work)` is ignored too, and a promise resolved with itself rejects
+  `resolve(work)` is ignored too. A late `resolve` hands over a delegate
+  for the first call only: a later call is ignored, whether the first
+  handed over a delegate or not. A promise resolved with itself rejects
   with a `TypeError`.
 
 - **Delegation is upstream, so abort travels it.** Keeping the abort
@@ -174,12 +180,9 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
     rather than being queued for an abort that is in the past. An
     executor may call `resolve` at any time, including long after its
     promise was aborted, and the delegate it hands over then is only
-    reached because late links still fire. That holds for the first
-    call only: a later call is ignored, whether the first handed over a
-    delegate or not. `AbortState.link` owns that
+    reached because late links still fire. `AbortState.link` owns that
     rule so every caller of it — the `then` override and the fan-in
-    combinators included — gets it, though only delegation can register
-    a link late enough to need it.
+    combinators included — gets it.
 
   The rejection this causes in the delegate is handled: the adoption is
   started before the upstream link to it is registered. A delegate whose
@@ -199,7 +202,7 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   fires at once, for a `resolve` after the abort, is dropped, since the
   promise is already settled. A Proxy over an `AbortablePromise` is a plain
   thenable to it, so abort does not travel through one. A controller passed
-  to the constructor whose `abort()` throws is aborted before the rejection
+  to the constructor whose `abort()` throws is asked to abort before the rejection
   and the links, and its error does not stop them or the release of the
   signal bindings: it is thrown after the last link, ahead of an error from
   one. A controller whose signal has aborted already, because it was passed
