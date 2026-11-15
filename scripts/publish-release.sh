@@ -11,9 +11,12 @@
 #
 # A tag with a hyphen before any `+` (v1.0.0-rc.1) is created and published as
 # a pre-release and is never Latest. A plain tag is Latest only when no higher
-# stable vX.Y.Z is published, among the newest 100 releases.
+# stable vX.Y.Z is published, among the newest 100 releases; build metadata
+# (`+build.1`) is ignored when versions are compared.
 #
-# Any step that fails leaves the release a draft, so a rerun completes it.
+# A step that fails while the release is absent or a draft leaves it a draft
+# (or not created), so a rerun completes it. The already-published path writes
+# nothing.
 # test/release/publish-release.test.ts drives this script with a stub `gh`.
 set -euo pipefail
 
@@ -71,8 +74,13 @@ if [ "$is_draft" = false ]; then
     echo "Release $RELEASE_TAG is already published with an identical $asset. Nothing to do."
     exit 0
   fi
-  # The same contents can compress to different bytes under another zlib.
-  if cmp -s <(gzip -dc "$tarball") <(gzip -dc "$published"); then
+  # The same contents can compress to different bytes under another zlib. Each
+  # side is decompressed to a file so its exit status counts: gzip streams the
+  # payload before it reports a bad trailer, so a truncated or corrupt asset
+  # would otherwise compare equal.
+  if gzip -dc "$tarball" >"$work/built.tar" 2>/dev/null &&
+    gzip -dc "$published" >"$work/published.tar" 2>/dev/null &&
+    cmp -s "$work/built.tar" "$work/published.tar"; then
     echo "Release $RELEASE_TAG is already published with the same contents in $asset, compressed differently. Nothing to do."
     exit 0
   fi
@@ -102,7 +110,7 @@ else
     echo "::error::Could not list releases to decide Latest. The release stays a draft; rerun to complete it."
     exit 1
   }
-  highest=$(printf '%s\n' "$tags" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+  highest=$(printf '%s\n' "$tags" | sed 's/+.*//' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
   if [ -n "$highest" ] &&
     [ "$(printf '%s\n%s\n' "$highest" "$core" | sort -V | tail -n 1)" != "$core" ]; then
     latest=false

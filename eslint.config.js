@@ -93,7 +93,9 @@ export default defineConfig(
   /* The release-script and declaration-emit tests are real TypeScript
      (annotations, `as`), unlike the api-surface tests above, which only
      import and assert names. They need the TypeScript parser, but no type
-     information, which `test/` has no project for. */
+     information, which `test/` has no project for. Nothing typechecks them
+     (`tsc --noEmit` covers only `src/`, vitest's typecheck only
+     `*.test-d.ts`), so their annotations are not enforced. */
   {
     files: ['test/release/**/*.ts', 'test/declaration-emit/**/*.ts'],
     extends: [tseslint.configs.recommended],

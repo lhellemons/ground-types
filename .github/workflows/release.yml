@@ -14,11 +14,14 @@ jobs:
   release:
     needs: check
     runs-on: ubuntu-latest
+    # One global concurrency group below: a hung run blocks every later release.
+    timeout-minutes: 15
     permissions:
       contents: write
     concurrency:
       # One group for every tag, so two tags pushed together cannot race to be
-      # Latest. GitHub keeps one pending run per group: rerun a cancelled one.
+      # Latest. GitHub keeps one waiting run per group and cancels the older
+      # waiting run when a newer one queues: rerun a run cancelled while waiting.
       group: release
       cancel-in-progress: false
     steps:
