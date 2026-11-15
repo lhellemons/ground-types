@@ -1,8 +1,7 @@
-/* Drives scripts/publish-release.sh, the only guard on the write-scoped
-   release job, against a stub `gh` that records every call. Nothing here
-   touches GitHub: the stub is first on PATH and the script runs in a temp
-   directory holding fake tarballs. Needs bash, sort -V, gzip, cmp and
-   sha256sum, which ubuntu-latest has. */
+/* Drives scripts/publish-release.sh against a stub `gh` that records every
+   call. Nothing here touches GitHub: the stub is first on PATH and the script
+   runs in a temp directory holding fake tarballs, with an environment that
+   inherits only PATH. Runs with `pnpm test`, locally and in CI. */
 import { spawnSync } from 'node:child_process'
 import {
   mkdirSync,
@@ -16,7 +15,7 @@ import { join } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const script = fileURLToPath(
   new URL('../../scripts/publish-release.sh', import.meta.url),
@@ -27,9 +26,11 @@ const script = fileURLToPath(
    STUB_ASSET    file served by `release download`; unset fails the download
    STUB_LIST     newline-separated tags printed by `release list`
    STUB_LIST_FAIL  set to make `release list` fail
-   Every call is appended to STUB_LOG, one line each. */
+   Every call is appended to STUB_LOG, one line each, and the GH_TOKEN,
+   GH_REPO and HOME it saw to STUB_LOG.env. */
 const stub = `#!/usr/bin/env bash
 echo "$*" >> "$STUB_LOG"
+echo "GH_TOKEN=\${GH_TOKEN-unset} GH_REPO=\${GH_REPO-unset} HOME=\${HOME-unset}" >> "$STUB_LOG.env"
 case "$1 $2" in
   "release view")
     case "$STUB_VIEW" in
@@ -54,8 +55,15 @@ esac
 exit 0
 `
 
+/* A `gzip` that writes nothing to stdout and exits 1. */
+const failingGzip = `#!/usr/bin/env bash
+echo "gzip: stub failure" >&2
+exit 1
+`
+
 const dirs: string[] = []
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const dir of dirs.splice(0))
     rmSync(dir, { recursive: true, force: true })
 })
@@ -70,6 +78,8 @@ interface Options {
   /** Tags `gh release list` returns. */
   list?: string[]
   listFails?: boolean
+  /** Put a `gzip` that always fails first on PATH. */
+  gzipFails?: boolean
 }
 
 const run = (options: Options) => {
@@ -82,32 +92,46 @@ const run = (options: Options) => {
   for (const [name, bytes] of Object.entries(tarballs)) {
     writeFileSync(join(dir, 'release-artifacts', name), bytes)
   }
-  const env: Record<string, string> = {
-    ...(process.env as Record<string, string>),
+  if (options.gzipFails) {
+    writeFileSync(join(dir, 'bin', 'gzip'), failingGzip, { mode: 0o755 })
+  }
+  // Only PATH is inherited, after the stub's bin, for bash and the coreutils.
+  // The rest is set here: HOME is the temp directory, which keeps a real gh's
+  // stored login (hosts.yml) out; GH_REPO points nowhere real and no token
+  // is set. Nothing else of the caller's shell (an exported function,
+  // BASH_ENV, GH_TOKEN) reaches the script.
+  const env = {
     PATH: `${join(dir, 'bin')}:${process.env.PATH ?? ''}`,
+    HOME: dir,
+    TMPDIR: dir,
+    LANG: 'C',
+    GH_REPO: 'invalid/invalid',
     RELEASE_TAG: options.tag ?? 'v0.5.0',
     STUB_LOG: join(dir, 'log'),
     STUB_VIEW: options.view ?? 'none',
     STUB_LIST: (options.list ?? []).join('\n'),
+    ...(options.published && { STUB_ASSET: join(dir, 'published') }),
+    ...(options.listFails && { STUB_LIST_FAIL: '1' }),
   }
   if (options.published) {
     writeFileSync(join(dir, 'published'), options.published)
-    env.STUB_ASSET = join(dir, 'published')
   }
-  if (options.listFails) env.STUB_LIST_FAIL = '1'
   const result = spawnSync('bash', [script], {
     cwd: dir,
     env,
     encoding: 'utf8',
   })
-  let log = ''
-  try {
-    log = readFileSync(join(dir, 'log'), 'utf8')
-  } catch {
-    // no gh call was made
+  const read = (name: string) => {
+    try {
+      return readFileSync(join(dir, name), 'utf8')
+    } catch {
+      return '' // no gh call was made
+    }
   }
-  const calls = log.split('\n').filter(Boolean)
+  const calls = read('log').split('\n').filter(Boolean)
   return {
+    dir,
+    envSeen: read('log.env').split('\n').filter(Boolean),
     status: result.status,
     output: `${result.stdout}${result.stderr}`,
     calls,
@@ -173,6 +197,37 @@ describe('a release that does not exist yet', () => {
     )
   })
 
+  it('compares versions in numeric order, not text order', () => {
+    // As text v0.10.0 sorts before v0.9.0, and v0.9.1 after both.
+    const result = run({
+      tag: 'v0.9.1',
+      view: 'none',
+      list: ['v0.10.0', 'v0.9.0'],
+    })
+    expect(result.writes.at(-1)).toBe(
+      'release edit v0.9.1 --draft=false --prerelease=false --latest=false',
+    )
+  })
+
+  it('reads a listed tag with build metadata as its version', () => {
+    const result = run({
+      tag: 'v0.9.1',
+      view: 'none',
+      list: ['v1.0.0+build.1', 'v0.9.0'],
+    })
+    expect(result.writes.at(-1)).toBe(
+      'release edit v0.9.1 --draft=false --prerelease=false --latest=false',
+    )
+  })
+
+  it.each(['v9.0.0+/../x', 'v2.0.0+', 'v2.0.0+a+b', 'v2.0.0+a.'])(
+    'ignores a listed tag with malformed build metadata (%s)',
+    (listed) => {
+      const result = run({ tag: 'v1.0.0', view: 'none', list: [listed] })
+      expect(result.writes.at(-1)).toContain('--latest=true')
+    },
+  )
+
   it('ignores listed tags that are not plain versions', () => {
     const result = run({ tag: 'v0.5.0', view: 'none', list: ['nightly', 'v9'] })
     expect(result.writes.at(-1)).toContain('--latest=true')
@@ -224,7 +279,8 @@ describe('an already published release', () => {
     const result = run({ view: 'published', published: built })
     expect(result.status).toBe(0)
     expect(result.writes).toEqual([])
-    expect(result.output).toContain('Nothing to do')
+    expect(result.output).toContain('already published with an identical')
+    expect(result.output).not.toContain('compressed differently')
   })
 
   it('succeeds without changes when only the compression differs', () => {
@@ -259,6 +315,64 @@ describe('an already published release', () => {
     expect(result.writes).toEqual([])
   })
 
+  describe('when the published asset has the same contents but is damaged', () => {
+    const contents = 'the same contents '.repeat(500)
+    const built = gzipSync(contents, { level: 1 })
+    const intact = gzipSync(contents, { level: 9 })
+    const trailer = intact.length - 8
+    const corruptCrc = Buffer.from(intact)
+    corruptCrc[trailer] ^= 0xff
+
+    it.each([
+      ['is truncated inside the trailer', intact.subarray(0, trailer + 4)],
+      ['is truncated before the trailer', intact.subarray(0, trailer)],
+      ['has a bad CRC', corruptCrc],
+      [
+        'has trailing garbage',
+        Buffer.concat([intact, Buffer.from('not gzip')]),
+      ],
+    ])('fails without changes when it %s', (_name, published) => {
+      const result = run({
+        view: 'published',
+        tarballs: { 'a.tgz': built },
+        published,
+      })
+      expect(result.status).toBe(1)
+      expect(result.writes).toEqual([])
+      expect(result.output).toContain('does not decompress cleanly')
+      expect(result.output).toContain('convert the release back to a draft')
+      expect(result.output).toContain('the published a.tgz')
+      // gzip's own reason is kept.
+      expect(result.output).toMatch(/gzip: /)
+      expect(result.output).not.toContain('differs from this build')
+    })
+
+    it('fails without changes when the built tarball is damaged', () => {
+      const result = run({
+        view: 'published',
+        tarballs: { 'a.tgz': intact.subarray(0, trailer) },
+        published: built,
+      })
+      expect(result.status).toBe(1)
+      expect(result.writes).toEqual([])
+      expect(result.output).toContain('the built a.tgz does not decompress')
+      expect(result.output).not.toContain('the published a.tgz')
+    })
+  })
+
+  it('fails without changes when gzip fails on both sides', () => {
+    const result = run({
+      view: 'published',
+      tarballs: { 'a.tgz': gzipSync('built', { level: 1 }) },
+      published: gzipSync('other', { level: 9 }),
+      gzipFails: true,
+    })
+    expect(result.status).toBe(1)
+    expect(result.writes).toEqual([])
+    expect(result.output).toContain('does not decompress cleanly')
+    expect(result.output).toContain('gzip: stub failure')
+  })
+
   it('fails without changes when the asset is missing or cannot be downloaded', () => {
     const result = run({ view: 'published' })
     expect(result.status).toBe(1)
@@ -287,6 +401,29 @@ describe('an unusable lookup', () => {
       expect(result.output).toContain('Unexpected isDraft value')
     },
   )
+})
+
+describe("the script's environment", () => {
+  it("passes nothing of the caller's shell or credentials to the script", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'publish-release-env-'))
+    dirs.push(dir)
+    // Sourced by every non-interactive bash that BASH_ENV reaches: it would
+    // shadow the stub with a function that records a bypass.
+    writeFileSync(
+      join(dir, 'bash-env'),
+      'gh() { echo "BYPASS $*" >> "$STUB_LOG"; }\n',
+    )
+    vi.stubEnv('BASH_ENV', join(dir, 'bash-env'))
+    vi.stubEnv('GH_TOKEN', 'caller-token')
+    vi.stubEnv('GH_REPO', 'caller/repo')
+    const result = run({ view: 'none' })
+    expect(result.status).toBe(0)
+    expect(result.calls.join('\n')).not.toContain('BYPASS')
+    expect(result.calls).toHaveLength(5)
+    expect(new Set(result.envSeen)).toEqual(
+      new Set([`GH_TOKEN=unset GH_REPO=invalid/invalid HOME=${result.dir}`]),
+    )
+  })
 })
 
 describe('the packed tarball', () => {
