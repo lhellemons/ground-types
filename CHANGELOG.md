@@ -437,11 +437,11 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   widens `E` to `Error`; pass no type arguments, or all three.
 - The release workflow no longer replaces the asset of a release that is already
   public: a rerun succeeds when the published tarball is byte-identical or both
-  decompress without error to the same contents, and fails otherwise, so a
+  decompress cleanly to the same contents, and fails otherwise, so a
   truncated or corrupt published tarball fails. Only drafts are replaced and
   then published.
 - Pre-release tags (`v1.0.0-rc.1`) are published as pre-releases, and only the
-  highest plain version is marked Latest; build metadata (`v1.0.0+build.1`) is
+  highest version without a pre-release part is marked Latest; build metadata (`v1.0.0+build.1`) is
   ignored when versions are compared. Release runs for different tags now run
   one at a time, and the release job is stopped after 15 minutes.
 - The write-scoped release job no longer restores the pnpm cache.

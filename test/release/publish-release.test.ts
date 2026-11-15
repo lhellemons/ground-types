@@ -1,7 +1,7 @@
 /* Drives scripts/publish-release.sh against a stub `gh` that records every
    call. Nothing here touches GitHub: the stub is first on PATH and the script
-   runs in a temp directory holding fake tarballs, with an environment built
-   from scratch. Runs with `pnpm test`, locally and in CI. */
+   runs in a temp directory holding fake tarballs, with an environment that
+   inherits only PATH. Runs with `pnpm test`, locally and in CI. */
 import { spawnSync } from 'node:child_process'
 import {
   mkdirSync,
@@ -26,11 +26,11 @@ const script = fileURLToPath(
    STUB_ASSET    file served by `release download`; unset fails the download
    STUB_LIST     newline-separated tags printed by `release list`
    STUB_LIST_FAIL  set to make `release list` fail
-   Every call is appended to STUB_LOG, one line each, and the GH_TOKEN and
-   GH_REPO it saw to STUB_LOG.env. */
+   Every call is appended to STUB_LOG, one line each, and the GH_TOKEN,
+   GH_REPO and HOME it saw to STUB_LOG.env. */
 const stub = `#!/usr/bin/env bash
 echo "$*" >> "$STUB_LOG"
-echo "GH_TOKEN=\${GH_TOKEN-unset} GH_REPO=\${GH_REPO-unset}" >> "$STUB_LOG.env"
+echo "GH_TOKEN=\${GH_TOKEN-unset} GH_REPO=\${GH_REPO-unset} HOME=\${HOME-unset}" >> "$STUB_LOG.env"
 case "$1 $2" in
   "release view")
     case "$STUB_VIEW" in
@@ -55,7 +55,7 @@ esac
 exit 0
 `
 
-/* A `gzip` that fails after printing nothing. */
+/* A `gzip` that writes nothing to stdout and exits 1. */
 const failingGzip = `#!/usr/bin/env bash
 echo "gzip: stub failure" >&2
 exit 1
@@ -95,9 +95,11 @@ const run = (options: Options) => {
   if (options.gzipFails) {
     writeFileSync(join(dir, 'bin', 'gzip'), failingGzip, { mode: 0o755 })
   }
-  // Built from scratch: nothing of the caller's shell (an exported function,
-  // BASH_ENV, GH_TOKEN) reaches the script. GH_REPO points nowhere real and no
-  // token is set, so a call that got past the stub could not write.
+  // Only PATH is inherited, after the stub's bin, for bash and the coreutils.
+  // The rest is set here: HOME is the temp directory, which keeps a real gh's
+  // stored login (hosts.yml) out; GH_REPO points nowhere real and no token
+  // is set. Nothing else of the caller's shell (an exported function,
+  // BASH_ENV, GH_TOKEN) reaches the script.
   const env = {
     PATH: `${join(dir, 'bin')}:${process.env.PATH ?? ''}`,
     HOME: dir,
@@ -128,6 +130,7 @@ const run = (options: Options) => {
   }
   const calls = read('log').split('\n').filter(Boolean)
   return {
+    dir,
     envSeen: read('log.env').split('\n').filter(Boolean),
     status: result.status,
     output: `${result.stdout}${result.stderr}`,
@@ -216,6 +219,14 @@ describe('a release that does not exist yet', () => {
       'release edit v0.9.1 --draft=false --prerelease=false --latest=false',
     )
   })
+
+  it.each(['v9.0.0+/../x', 'v2.0.0+', 'v2.0.0+a+b', 'v2.0.0+a.'])(
+    'ignores a listed tag with malformed build metadata (%s)',
+    (listed) => {
+      const result = run({ tag: 'v1.0.0', view: 'none', list: [listed] })
+      expect(result.writes.at(-1)).toContain('--latest=true')
+    },
+  )
 
   it('ignores listed tags that are not plain versions', () => {
     const result = run({ tag: 'v0.5.0', view: 'none', list: ['nightly', 'v9'] })
@@ -328,16 +339,24 @@ describe('an already published release', () => {
       })
       expect(result.status).toBe(1)
       expect(result.writes).toEqual([])
-      expect(result.output).toContain('differs from this build')
+      expect(result.output).toContain('does not decompress cleanly')
+      expect(result.output).toContain('convert the release back to a draft')
+      expect(result.output).toContain('the published a.tgz')
+      // gzip's own reason is kept.
+      expect(result.output).toMatch(/gzip: /)
+      expect(result.output).not.toContain('differs from this build')
     })
 
-    it('succeeds for the same asset when intact', () => {
+    it('fails without changes when the built tarball is damaged', () => {
       const result = run({
         view: 'published',
-        tarballs: { 'a.tgz': built },
-        published: intact,
+        tarballs: { 'a.tgz': intact.subarray(0, trailer) },
+        published: built,
       })
-      expect(result.status).toBe(0)
+      expect(result.status).toBe(1)
+      expect(result.writes).toEqual([])
+      expect(result.output).toContain('the built a.tgz does not decompress')
+      expect(result.output).not.toContain('the published a.tgz')
     })
   })
 
@@ -350,7 +369,8 @@ describe('an already published release', () => {
     })
     expect(result.status).toBe(1)
     expect(result.writes).toEqual([])
-    expect(result.output).toContain('differs from this build')
+    expect(result.output).toContain('does not decompress cleanly')
+    expect(result.output).toContain('gzip: stub failure')
   })
 
   it('fails without changes when the asset is missing or cannot be downloaded', () => {
@@ -401,7 +421,7 @@ describe("the script's environment", () => {
     expect(result.calls.join('\n')).not.toContain('BYPASS')
     expect(result.calls).toHaveLength(5)
     expect(new Set(result.envSeen)).toEqual(
-      new Set(['GH_TOKEN=unset GH_REPO=invalid/invalid']),
+      new Set([`GH_TOKEN=unset GH_REPO=invalid/invalid HOME=${result.dir}`]),
     )
   })
 })

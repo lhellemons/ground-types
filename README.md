@@ -58,13 +58,13 @@ attaches the tarball to the GitHub Release:
 - Rerunning the workflow completes a draft left behind by a failed upload.
 - A release that is already public is never modified. A rerun succeeds without
   changes when the published tarball is byte-identical to the new build, or
-  both decompress without error to the same contents (the compression may
-  differ), and fails otherwise, so a truncated or corrupt published tarball
-  fails. To change a published release, ship a new version. A published
-  release that lacks the tarball also fails: convert it back to a draft and
-  rerun.
+  both decompress cleanly to the same contents (the compression may
+  differ), and fails otherwise. To change a published release, ship a new
+  version. A published release that lacks the tarball, or whose tarball does
+  not decompress cleanly, also fails: convert it back to a draft and rerun.
 - A version with a hyphen (`v1.0.0-rc.1`) is published as a pre-release. Only the
-  highest plain `vX.Y.Z` release is marked Latest, so a pre-release or a
+  highest release without a pre-release part (`vX.Y.Z`, with or without
+  `+build` metadata) is marked Latest, so a pre-release or a
   back-port tag never takes that mark. Build metadata (`v1.0.0+build.1`) is
   ignored when versions are compared. The check looks at the newest 100
   releases.
