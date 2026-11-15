@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   andThen,
   assertSuccess,
+  catchOnly,
   failure,
   fallback,
   fromMaybe,
@@ -17,6 +18,7 @@ import {
 } from './index.js'
 import type { Failure, Result, Success } from './index.js'
 import { maybe, nothing } from '../maybe/index.js'
+import { fail } from '../promise/index.js'
 
 // Tuple-wrapped so the checks don't distribute over union types.
 type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
@@ -151,6 +153,7 @@ describe('isSuccess / isFailure', () => {
     // The guard asks about the prototype chain, never `instanceof`, so a
     // hook (a polyfill, instrumentation) can neither throw away a real
     // Error nor make a non-Error one.
+    const prior = Object.getOwnPropertyDescriptor(Error, Symbol.hasInstance)
     for (const hook of [
       (): boolean => true,
       (): never => {
@@ -179,10 +182,118 @@ describe('isSuccess / isFailure', () => {
           thrown = caught
         }
       } finally {
-        delete (Error as { [Symbol.hasInstance]?: unknown })[Symbol.hasInstance]
+        if (prior === undefined) {
+          delete (Error as { [Symbol.hasInstance]?: unknown })[
+            Symbol.hasInstance
+          ]
+        } else {
+          Object.defineProperty(Error, Symbol.hasInstance, prior)
+        }
       }
       expect(answers).toEqual([true, false, true, false])
       expect(thrown).toBe(error)
+    }
+  })
+})
+
+describe('the Error guard and the handler checks are not fooled by patched intrinsics', () => {
+  it('read the intrinsics once, at load', () => {
+    const abort = new DOMException('', 'AbortError')
+    const error = new Error('x')
+    const boom = (): never => {
+      throw error
+    }
+    const handler = catchOnly(Error)
+    const plain = function (e: unknown) {
+      return e as Error
+    }
+    const creates = (handler: unknown): boolean => {
+      try {
+        tryCatch(boom, handler as never)
+        return true
+      } catch {
+        return false
+      }
+    }
+    const listsTypeError = (): boolean => {
+      try {
+        catchOnly(TypeError)
+        return true
+      } catch {
+        return false
+      }
+    }
+    /* eslint-disable @typescript-eslint/unbound-method -- restored below */
+    const original = {
+      call: Function.prototype.call,
+      toString: Function.prototype.toString,
+      isPrototypeOf: Object.prototype.isPrototypeOf,
+      getOwnPropertyDescriptor: Object.getOwnPropertyDescriptor,
+      Error: globalThis.Error,
+    }
+    /* eslint-enable @typescript-eslint/unbound-method */
+    const restore = () => {
+      Function.prototype.call = original.call
+      Function.prototype.toString = original.toString
+      Object.prototype.isPrototypeOf = original.isPrototypeOf
+      Object.getOwnPropertyDescriptor = original.getOwnPropertyDescriptor
+      globalThis.Error = original.Error
+    }
+    const patches = [
+      () => {
+        Function.prototype.call = function (): never {
+          throw new RangeError('call')
+        } as typeof original.call
+      },
+      () => {
+        // What an anti-fingerprinting patch does: every function looks native.
+        Function.prototype.toString = () => 'function () { [native code] }'
+      },
+      () => {
+        Object.prototype.isPrototypeOf = (): boolean => false
+      },
+      () => {
+        Object.getOwnPropertyDescriptor = () => undefined
+      },
+      () => {
+        globalThis.Error = class Other {} as ErrorConstructor
+      },
+    ]
+    const answers: unknown[][] = []
+    try {
+      for (const patch of patches) {
+        patch()
+        answers.push([
+          isFailure(error),
+          isSuccess(error),
+          isFailure(abort),
+          tryCatch(boom)(),
+          handler(error),
+          fail(abort),
+          creates(Map),
+          creates(TypeError),
+          creates(plain),
+          listsTypeError(),
+        ])
+        restore()
+      }
+    } finally {
+      restore()
+    }
+    expect(answers).toHaveLength(patches.length)
+    for (const row of answers) {
+      expect(row).toEqual([
+        true,
+        false,
+        true,
+        error,
+        error,
+        abort,
+        false,
+        false,
+        true,
+        true,
+      ])
     }
   })
 })
