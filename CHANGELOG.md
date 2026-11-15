@@ -15,6 +15,9 @@ returns a frozen factory.
 
 - **Breaking:** `InternRegistry<K, V>` now requires `V extends object` and holds
   canonical instances weakly, so instances nothing else holds can be collected.
+  Behaviour change: `create` can now run more than once for the same key, and
+  `get` can return Nothing for a key that was interned earlier, once its
+  instance has been collected.
 - **Breaking:** `definePrimitiveValueObject` now returns a frozen factory.
   Its properties, including `.from`, can no longer be replaced or extended.
 - Add `result/catchOnly(...ErrorClasses)` and a non-empty class-list shorthand
