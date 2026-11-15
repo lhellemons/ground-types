@@ -288,8 +288,8 @@ describe('tryCatch handler dispatch', () => {
         return e as A
       },
       (e: unknown) => {
-        class Inner {}
-        return Inner.name === '' ? undefined : (e as A)
+        class Inner extends A {}
+        return Inner.name === '' ? new Inner() : (e as A)
       },
       methods.class,
       methods.classify,
