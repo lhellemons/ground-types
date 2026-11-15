@@ -39,16 +39,11 @@ It reads as `Result<T | undefined, E>`, matching the runtime, where
   guarantee that a `Success` can never be an `Error`. Fan-in
   constructors are expected to use `tryCatch` over throwing code
   instead, not a Maybe/Result combinator kit.
-  **Update, 2026-11-15:** amended by the 2026-11-15 fan-in amendment
-  below (#59). The ban on a container-based `all`/`sequence` stands.
-  Fan-in over the unboxed `Result` is `collect`, which takes a struct, a
-  tuple or a list of parts and returns the first `Failure` among them or
-  the parts themselves, already unboxed, with no container and no cast
-  the other combinators do not already make; and `attempt`/`take`, the
-  imperative form, which leaves on the first `Failure` through a token
-  private to the call and catches nothing else. `tryCatch` over
-  `assertSuccess` is no longer the expected fan-in idiom: it widens `E`
-  to `Error` and turns bugs into Failures.
+  **Update, 2026-11-15:** the ban on a container-based `all`/`sequence`
+  stands; fan-in over the unboxed `Result` is `collect` and
+  `attempt`/`take`, which need no container, and `tryCatch` over
+  `assertSuccess` is no longer the expected idiom. See the 2026-11-15
+  amendment below (#59).
 - **No Maybe analogue of `tryCatch`.** `tryCatch` exists to lift a
   _throwing_ function into a `Result`. A `Maybe`-producing operation
   doesn't throw to signal absence — it returns `undefined`, which is
@@ -670,10 +665,11 @@ TS4058.
 ### 2026-11-15 — Typed fan-in over the unboxed Result: `collect` and `attempt`/`take` (#59)
 
 The consumer feedback round (#56) found fan-in, not propagation, to be the
-pain: slider's 23 factories all use `tryCatch((dto) => { const x =
-assertSuccess(X.from(dto.x)); … })(dto)`, about 180 `assertSuccess` calls
-to 0 `andThen` callers, and that idiom widens every factory's `E` to
-`Error` and turns a bug inside a part into a Failure. The "No
+pain: slider's 22 `tryCatch` factories and 2 parsers (at slider 55d9998)
+all use `tryCatch((dto) => { const x = assertSuccess(X.from(dto.x)); …
+})(dto)`, about 180 `assertSuccess` calls to 0 `andThen` callers, and that
+idiom widens every factory's `E` to `Error` and turns a bug inside a part
+into a Failure. The "No
 `all`/`sequence`" bullet's premise was that a fan-in needs a container; it
 does not, because the parts are already unboxed.
 
@@ -686,23 +682,29 @@ readability and fit with the Result Box. The owner chose **A + B**:
 
 - **`collect(parts)`**: a struct, a tuple or a list whose members are
   `Result`s (a plain member passes through). It returns the first
-  `Failure` among the parts, or the parts themselves: on success nothing
-  is allocated, and nothing is caught. Its value type is the parts with
+  `Failure` among the parts, or the parts themselves: on success no result
+  object is built, and nothing is caught. Its value type is the parts with
   each member unboxed; its error type is the union of the members' error
-  types, read through `ErrorOf`, inferred with no annotation (`collect({
-id: PieceId.from(dto.id), at: Position.from(dto.at) })` is
+  types, read through `ErrorOf`, inferred with no annotation: with
+  `Position.from` annotated `Result<Position, InvalidCoordinate>`,
+  `collect({ id: PieceId.from(dto.id), at: Position.from(dto.at) })` is
   `Result<{ id: PieceId; at: Position }, InvalidPieceId | InvalidCoordinate>`,
   and `collect(dto.path.map(Position.from))` is `Result<Position[],
-InvalidCoordinate>`). The parts are evaluated by the caller, eagerly, so
+InvalidCoordinate>`. The parts are evaluated by the caller, eagerly, so
   a part cannot depend on another part: the construction step follows,
-  through `map`, `andThen` or an early return. The early-return form
-  re-wraps the Failure (`if (isFailure(parts)) return failure(parts)`),
-  which leaks the nested `Failure` into an un-annotated return type, and
-  an un-annotated factory that mixes early returns with a combinator
-  returns a union of Results that `isFailure` cannot take; a return
-  annotation, which every slider factory writes, resolves both. An
-  un-annotated factory also cannot be emitted into a declaration file
-  (TS4050, the private markers).
+  through `map`, `andThen` or an early return. The pure `map`/`andThen`
+  form is the one that carries a typed union across a factory boundary
+  with nothing written by hand. The early-return form re-wraps the
+  Failure (`if (isFailure(parts)) return failure(parts)`), which leaks the
+  nested `Failure` into an un-annotated return type; an un-annotated
+  factory that mixes early returns with a combinator returns a union of
+  Results that `isFailure` cannot take; and a factory whose inferred type
+  uses such a leaked type cannot be emitted into a declaration file
+  (TS4050: it names the private markers), while the leaking factory
+  itself and `map`/`andThen` factories over annotated parts emit. A
+  return annotation resolves all three, and it must spell the union by
+  hand: slider's factories are annotated `Result<X, Error>` (at slider
+  55d9998), and under that annotation the union widens to `Error`.
 - **`attempt((take) => …)`**: the imperative form, slider's shape with
   `assertSuccess` renamed. `take(part)` unboxes the part or leaves the
   `attempt` with its Failure, by throwing a token private to that call,
@@ -714,9 +716,18 @@ InvalidCoordinate>`). The parts are evaluated by the caller, eagerly, so
   falls to `Error` (not `never`, as the ticket's first probe had it); from
   the enclosing return annotation it is found, and `take` then rejects a
   part whose error is outside it (`take` is `<R extends Result<unknown,
-E>>(part: R) => ValueOf<R>`). An explicit `attempt<T, E>` serves where
-  there is no annotation. A factory's own failure is a `take(failure(…))`
-  or an early return ahead of the `attempt`, never a throw.
+E>>(part: R) => ValueOf<R>`). So a typed union at the boundary is the
+  annotation's, written by hand; under slider's own `Result<X, Error>`
+  annotation `E` is `Error`, no better than today. An explicit
+  `attempt<T, E>` serves where there is no annotation. A factory's own
+  failure is a `take(failure(…))` or an early return ahead of the
+  `attempt`, never a throw. Its costs, measured: whatever in the body
+  catches, or runs after a throw, sees the token, so a `try`/`catch` or a
+  `return` inside `finally` swallows the leave and a `tryCatch` inside the
+  body turns it into a `ThrownError` Failure; an `async` body compiles, as
+  a Result of a Promise whose rejection is the token; and a plain `return
+failure(…)` in the body lands in `T`, with `E` still `Error`, unless the
+  factory is annotated. The guards and docblocks for these are #115's.
 
 The third candidate, `gen`/`yield* take` (generator do-notation), infers
 the exact union with no annotation and catches nothing, but a `yield*`
@@ -730,15 +741,16 @@ Also decided:
   `collectAll` keeps every failed part as one `Failures<E>`, an
   `AggregateError` subclass with `errors: E[]` in part order, which fits
   the encoding as any other Failure does; measured on Door, a nested
-  struct nests its `Failures`, so flattening is a choice still open. No
-  consumer has asked for it. #65 (partially valid aggregates) decides.
+  struct nests its `Failures`, so flattening is a choice still open. As of
+  2026-11-15 no consumer has asked for it. #65 (partially valid
+  aggregates) decides.
 - **The names are `collect`, `attempt` and `take`**, and `collect` keeps
   all three input shapes (struct, tuple, list) through one signature.
 - **The Box statics are #89's.** `Result.collect({ … }).map(…)` and
-  `Result.attempt((take) => …)` are natural static entries on the Result
+  `Result.attempt((take) => …)` are candidate static entries on the Result
   Box; whether the Box carries them is decided with its other questions.
 
-Implementation is a task of its own (filed from #59's resolution): the two
-functions in `/result`, their docblocks, CONTEXT.md entries, the README's
-module table and the `/result` surface test, with a declaration-emit
-check for a `collect`-built factory with an annotated return type.
+Implementation is #115: the two functions in `/result`, their docblocks,
+CONTEXT.md entries, the README's module table, the `/result` surface test,
+the CHANGELOG entry, and a declaration-emit check for a `collect`-built
+factory with an annotated return type.

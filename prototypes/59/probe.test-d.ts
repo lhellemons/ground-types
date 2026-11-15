@@ -1,19 +1,18 @@
 /* PROTOTYPE #59 — throwaway type probes. What each candidate infers, and
    what it rejects, measured against src/ on main. */
 import { describe, expectTypeOf, it } from 'vitest'
-import { isFailure } from '../../src/result/index.js'
+import { failure, isFailure } from '../../src/result/index.js'
 import type { Failure, Result } from '../../src/result/index.js'
 import type { ErrorOf, ValueOf } from '../../src/result/internal.js'
 import { attempt, collect, collectAll, gen, take } from './fan-in.js'
 import type { Failures } from './fan-in.js'
-import { Coordinate, PieceId } from './slider.js'
+import { Coordinate, InvalidPieceId, PieceId } from './slider.js'
 import type {
   BothGateForms,
   DoorDTO,
   DoorError,
   InvalidCollectibleGroup,
   InvalidCoordinate,
-  InvalidPieceId,
   InvalidUnlockCount,
   OpenWhenSyntaxError,
   PositionError,
@@ -52,6 +51,21 @@ describe('A. collect', () => {
     >()
   })
 
+  it('the ADR examples, with Position.from annotated (arm B)', () => {
+    const s = collect({
+      id: PieceId.from('a'),
+      at: B.Position.from({ x: 1, y: 2 }),
+    })
+    expectTypeOf(s).toEqualTypeOf<
+      Result<
+        { id: PieceId; at: B.Position },
+        InvalidPieceId | InvalidCoordinate
+      >
+    >()
+    const l = collect([{ x: 1, y: 2 }].map(B.Position.from))
+    expectTypeOf(l).toEqualTypeOf<Result<B.Position[], InvalidCoordinate>>()
+  })
+
   it('infers a tuple and a list', () => {
     const t = collect([PieceId.from('a'), Coordinate.from(1)])
     expectTypeOf(t).toEqualTypeOf<
@@ -65,12 +79,20 @@ describe('A. collect', () => {
     expectTypeOf<
       ValueOf<Returned<typeof A.Door.from>>
     >().toEqualTypeOf<A.Door>()
+    // Every member of the union is present (the Exclude), and nothing
+    // outside it (the toExtend)...
     expectTypeOf<ErrorOf<Returned<typeof A.Door.from>>>().toExtend<DoorError>()
+    expectTypeOf<
+      Exclude<DoorError, ErrorOf<Returned<typeof A.Door.from>>>
+    >().toEqualTypeOf<never>()
     expectTypeOf<
       ErrorOf<Returned<typeof A.Slide.from>>
     >().toExtend<SlideError>()
-    // The leak from Position.from's un-annotated early return (below)
-    // travels up: the union holds `InvalidCoordinate & { markers }`.
+    expectTypeOf<
+      Exclude<SlideError, ErrorOf<Returned<typeof A.Slide.from>>>
+    >().toEqualTypeOf<never>()
+    // ...but the leak from Position.from's un-annotated early return
+    // (below) travels up: the union holds `InvalidCoordinate & { markers }`.
     expectTypeOf<
       ErrorOf<Returned<typeof A.Door.from>>
     >().not.toEqualTypeOf<DoorError>()
@@ -98,6 +120,9 @@ describe('A. collect', () => {
     expectTypeOf<
       ErrorOf<Returned<typeof A.Position.from>>
     >().toExtend<PositionError>()
+    expectTypeOf<
+      Exclude<PositionError, ErrorOf<Returned<typeof A.Position.from>>>
+    >().toEqualTypeOf<never>()
     // Annotated, the early return reads as intended.
     const from = (dto: {
       x: number
@@ -160,11 +185,29 @@ describe('B. attempt/take', () => {
     expectTypeOf(r).toEqualTypeOf<Result<PieceId, InvalidPieceId>>()
   })
 
-  it('the annotated factories hold their unions', () => {
-    expectTypeOf(B.Door.from).returns.toEqualTypeOf<Result<B.Door, DoorError>>()
-    expectTypeOf(B.Slide.from).returns.toEqualTypeOf<
-      Result<B.Slide, SlideError>
-    >()
+  it("with slider's own annotation, Result<X, Error>, E is Error and every take passes", () => {
+    const from = (dto: DoorDTO): Result<B.Door, Error> =>
+      attempt((take) => {
+        take(Coordinate.from(dto.at.x))
+        return take(B.Door.from(dto))
+      })
+    expectTypeOf(from).returns.toEqualTypeOf<Result<B.Door, Error>>()
+  })
+
+  it('cost: a plain return failure() in the body lands in T, and E stays Error', () => {
+    const r = attempt((take) => {
+      if (Math.random() > 2) return failure(new InvalidPieceId('x'))
+      return take(Coordinate.from(1))
+    })
+    expectTypeOf<Extract<ValueOf<typeof r>, Error>>().not.toEqualTypeOf<never>()
+    expectTypeOf<ErrorOf<typeof r>>().toEqualTypeOf<Error>()
+  })
+
+  it('cost: an async body compiles, as a Result of a Promise', () => {
+    const r = attempt<Promise<PieceId>, InvalidPieceId>(async (take) =>
+      take(PieceId.from('a')),
+    )
+    expectTypeOf(r).toEqualTypeOf<Result<Promise<PieceId>, InvalidPieceId>>()
   })
 })
 

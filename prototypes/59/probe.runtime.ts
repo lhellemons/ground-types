@@ -1,8 +1,17 @@
 /* PROTOTYPE #59 — throwaway runtime probes: the same DTOs through every
-   arm, the failure each returns, and what happens to a bug. */
+   arm, the failure each returns, and what happens to a bug. Named outside
+   vitest's default `*.test.ts` pattern so the root suite never runs it;
+   prototypes/59/vitest.config.ts includes it by name. */
 import { afterEach, describe, expect, it } from 'vitest'
-import { failure, isFailure, isSuccess } from '../../src/result/index.js'
+import {
+  ThrownError,
+  failure,
+  isFailure,
+  isSuccess,
+  tryCatch,
+} from '../../src/result/index.js'
 import type { Result } from '../../src/result/index.js'
+import { map as mapMaybe } from '../../src/maybe/index.js'
 import { attempt, collect, collectAll, Failures, gen, take } from './fan-in.js'
 import type { Take } from './fan-in.js'
 import {
@@ -105,19 +114,24 @@ describe.each(arms)('%s', (_name, arm) => {
 })
 
 describe('a bug inside a part', () => {
-  it('slider today: the bug becomes a Failure', () => {
+  it('slider today: an Error bug becomes a Failure, a bare string a ThrownError', () => {
     plantBug(() => {
       throw new TypeError('bug')
     })
+    expect(Current.Position.from({ x: 1, y: 1 })).toBeInstanceOf(TypeError)
+    plantBug(() => {
+      throw 'not even an Error'
+    })
     const r = Current.Position.from({ x: 1, y: 1 })
-    expect(r).toBeInstanceOf(TypeError)
+    expect(r).toBeInstanceOf(ThrownError)
+    expect((r as ThrownError).thrown).toBe('not even an Error')
   })
 
   it.each([
     ['A', A],
     ['B', B],
     ['C', C],
-  ] as const)('%s: the bug propagates', (_name, arm) => {
+  ] as const)('%s: the bug propagates from the factory', (_name, arm) => {
     plantBug(() => {
       throw new TypeError('bug')
     })
@@ -127,10 +141,22 @@ describe('a bug inside a part', () => {
     })
     expect(() => arm.Position.from({ x: 1, y: 1 })).toThrow('not even an Error')
   })
+
+  it('A: a bug raised while collect reads a part propagates (collect catches nothing)', () => {
+    // The arms' parts are evaluated before `collect` runs; a getter makes
+    // the throw happen inside `collect`'s own loop.
+    const parts = {
+      get x(): Result<Coordinate, InvalidCoordinate> {
+        throw new TypeError('bug')
+      },
+    }
+    expect(() => collect(parts)).toThrow(TypeError)
+    expect(() => collectAll(parts)).toThrow(TypeError)
+  })
 })
 
 describe('A. collect', () => {
-  it('returns its argument on success, so nothing is allocated', () => {
+  it('returns its argument on success: no result object is built', () => {
     const parts = { id: PieceId.from('a'), x: Coordinate.from(1) }
     expect(collect(parts)).toBe(parts)
     const list = [PieceId.from('a'), PieceId.from('b')]
@@ -170,7 +196,17 @@ describe('A. collect', () => {
 })
 
 describe('B. attempt/take', () => {
-  it("a take from another attempt is not this attempt's leave: it propagates", () => {
+  it('a nested attempt: the inner take leaves the inner attempt only', () => {
+    const r = attempt<string, InvalidPieceId>((outer) => {
+      const inner = attempt<number, InvalidPieceId>(
+        (take) => take(PieceId.from('BAD')).length,
+      )
+      return `${outer(PieceId.from('ok'))}:${inner instanceof InvalidPieceId}`
+    })
+    expect(r).toBe('ok:true')
+  })
+
+  it("a take from another, finished attempt is not this attempt's leave: it propagates", () => {
     let foreign: Take<InvalidPieceId> | undefined
     attempt((take) => {
       foreign = take
@@ -191,11 +227,70 @@ describe('B. attempt/take', () => {
     expect(thrown).not.toBeInstanceOf(Error)
   })
 
-  it('a take inside a .map callback and a Maybe map callback leaves the attempt', () => {
+  it('a take inside a .map callback leaves the attempt', () => {
     const r = attempt<PieceId[], InvalidPieceId>((take) =>
       ['a', 'BAD', 'c'].map((s) => take(PieceId.from(s))),
     )
     expect(r).toBeInstanceOf(InvalidPieceId)
+  })
+
+  it('a take inside a Maybe map callback leaves the attempt', () => {
+    const r = attempt<PieceId | undefined, InvalidPieceId>((take) =>
+      mapMaybe((s: string) => take(PieceId.from(s)), 'BAD'),
+    )
+    expect(r).toBeInstanceOf(InvalidPieceId)
+    const absent = attempt<PieceId | undefined, InvalidPieceId>((take) =>
+      mapMaybe((s: string) => take(PieceId.from(s)), undefined),
+    )
+    expect(absent).toBeUndefined()
+  })
+
+  /* B's costs: anything in the body that catches, or that runs after a
+     throw, sees the token. */
+  it('cost: a try/catch in the body swallows the leave', () => {
+    const r = attempt<number, InvalidPieceId>((take) => {
+      try {
+        take(PieceId.from('BAD'))
+        return 1
+      } catch {
+        return 2
+      }
+    })
+    expect(r).toBe(2)
+  })
+
+  it('cost: a return inside finally swallows the leave', () => {
+    const r = attempt<number, InvalidPieceId>((take) => {
+      try {
+        take(PieceId.from('BAD'))
+        return 1
+      } finally {
+        // eslint-disable-next-line no-unsafe-finally -- the cost under probe
+        return 3
+      }
+    })
+    expect(r).toBe(3)
+  })
+
+  it('cost: a tryCatch inside the body turns the leave into a ThrownError Failure', () => {
+    const r = attempt<Result<number, Error>, InvalidPieceId>((take) =>
+      tryCatch(() => take(PieceId.from('BAD')).length)(),
+    )
+    expect(r).toBeInstanceOf(ThrownError)
+  })
+
+  it('cost: an async body compiles, and its promise rejects with the token', async () => {
+    const p = attempt<Promise<PieceId>, InvalidPieceId>(async (take) =>
+      take(PieceId.from('BAD')),
+    )
+    let thrown: unknown
+    try {
+      await p
+    } catch (e) {
+      thrown = e
+    }
+    expect(thrown).toBeDefined()
+    expect(thrown).not.toBeInstanceOf(Error)
   })
 })
 
