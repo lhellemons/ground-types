@@ -207,7 +207,7 @@ describe('B. attempt/take', () => {
     expect(r).toBe('ok:true')
   })
 
-  it("a take from another, finished attempt is not this attempt's leave: it propagates", () => {
+  it('a take called after its own attempt has returned throws the token, a non-Error, to its caller', () => {
     let foreign: Take<InvalidPieceId> | undefined
     attempt((take) => {
       foreign = take
@@ -280,7 +280,7 @@ describe('B. attempt/take', () => {
     expect(reached).toBe(false)
   })
 
-  it('cost: a tryCatch with the default handler inside the body turns the leave into a ThrownError Failure; catchOnly lets it through', () => {
+  it('cost: a tryCatch inside the body sees the leave: the default handler makes a ThrownError, a function handler whatever it returns, catchOnly lets it through', () => {
     const r = attempt<Result<number, Error>, InvalidPieceId>((take) =>
       tryCatch(() => take(PieceId.from('BAD')).length)(),
     )
@@ -293,6 +293,22 @@ describe('B. attempt/take', () => {
         )(),
     )
     expect(through).toBeInstanceOf(InvalidPieceId)
+    const seven = attempt<Result<number, Error>, InvalidPieceId>((take) =>
+      tryCatch(
+        () => take(PieceId.from('BAD')).length,
+        () => 7,
+      )(),
+    )
+    expect(seven).toBe(7)
+    const own = attempt<Result<number, InvalidPieceId>, InvalidPieceId>(
+      (take) =>
+        tryCatch(
+          () => take(PieceId.from('BAD')).length,
+          (thrown) => failure(new InvalidPieceId(String(thrown))),
+        )(),
+    )
+    expect(own).toBeInstanceOf(InvalidPieceId)
+    expect((own as InvalidPieceId).message).toBe('[object Object]')
   })
 
   it('a live outer take called inside an inner attempt leaves the outer one', () => {

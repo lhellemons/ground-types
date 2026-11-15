@@ -665,9 +665,10 @@ TS4058.
 ### 2026-11-15 — Typed fan-in over the unboxed Result: `collect` and `attempt`/`take` (#59)
 
 The consumer feedback round (#56) found fan-in, not propagation, to be the
-pain: slider's 22 `tryCatch` factories (at slider 55d9998) all use
-`tryCatch((dto) => { const x = assertSuccess(X.from(dto.x)); … })(dto)`,
-about 180 `assertSuccess` calls to 0 `andThen` callers, and that idiom
+pain: 21 of slider's 22 `tryCatch` factories (at slider 55d9998) use
+`tryCatch((dto) => { const x = assertSuccess(X.from(dto.x)); … })(dto)`
+(`DialogueEntry.from`'s parts are throwing helpers), 180 `assertSuccess`
+calls across slider's src to 0 `andThen` callers, and that idiom
 widens every factory's `E` to `Error` and turns a bug inside a part into a
 Failure. Its two parsers differ: `parseBoard` is `tryCatch(() => …)()` with
 `assertSuccess` calls, widened the same way; `parseOpenWhen` is `tryCatch(()
@@ -678,7 +679,7 @@ does not, because the parts are already unboxed.
 
 A prototype (`prototypes/59/`, measured on TypeScript 5.9.3) rewrote three
 slider factories (Position, Door and Slide: a precondition on the DTO, a
-nested struct, an optional part, a list, and a step that depends on built
+nested object of parts, an optional part, a list, and a step that depends on built
 parts) with three candidates and scored them on error-union inference,
 bugs staying separate from Failures, dependent steps, use inside callbacks,
 readability and fit with the Result Box. The owner chose **A + B**:
@@ -691,7 +692,9 @@ readability and fit with the Result Box. The owner chose **A + B**:
   types, read through `ErrorOf`, inferred with no annotation: with
   `Position.from` annotated `Result<Position, InvalidCoordinate>`,
   `collect({ id: PieceId.from(dto.id), at: Position.from(dto.at) })` is
-  `Result<{ id: PieceId; at: Position }, InvalidPieceId | InvalidCoordinate>`,
+  `Result<{ id: PieceId; at: Position }, InvalidPieceId | InvalidCoordinate>`
+  (the prototype's type; #115 keeps `readonly`, so there the value reads
+  `{ readonly id: PieceId; readonly at: Position }`),
   and `collect(dto.path.map(Position.from))` is `Result<Position[],
 InvalidCoordinate>`. The parts are evaluated by the caller, eagerly, so
   a part cannot depend on another part: the construction step follows,
@@ -728,8 +731,10 @@ InvalidCoordinate>`. The parts are evaluated by the caller, eagerly, so
   `assertSuccess` renamed. `take(part)` unboxes the part or leaves the
   `attempt` with its Failure, by throwing a token private to that call,
   compared by identity; `attempt` catches that token and nothing else, so
-  a bug propagates (an `Error` or a bare string alike), and a `take` from
-  another `attempt` propagates to its own. `take` works inside `.map`
+  a bug propagates (an `Error` or a bare string alike); a `take` from an
+  enclosing `attempt` that is still running leaves that one, and a `take`
+  called after its own `attempt` has returned throws the token, a
+  non-`Error`, to its caller. `take` works inside `.map`
   and inside a Maybe `map` callback, and a step can depend on an earlier
   one. `E` has no inference site in the body: with no contextual type it
   falls to `Error` (not `never`, as the ticket's first probe had it); from
@@ -743,10 +748,12 @@ E>>(part: R) => ValueOf<R>`). So a typed union at the boundary is the
   `attempt`, never a throw. Its costs, measured: whatever in the body
   catches, or a `finally` that returns, sees the token, so a `try`/`catch`
   or a `return` inside `finally` swallows the leave, and a `tryCatch`
-  inside the body with the default handler, or one that catches
-  everything, turns it into a `ThrownError` Failure (one with `catchOnly`
-  lets it through); an `async` body compiles, as a Result of a Promise
-  whose rejection is the token; and a plain `return failure(…)` in the
+  inside the body sees it too: with the default handler the leave becomes
+  a `ThrownError` Failure, with a function handler it becomes whatever
+  that handler returns, its own Failure or even a Success, and `catchOnly`
+  or a class list lets it through; an `async` body compiles, as a Result
+  of a Promise whose rejection is the token, since its `take`s run after
+  the `attempt` has returned; and a plain `return failure(…)` in the
   body lands in `T`, with `E` still `Error`, where under an annotation it
   is a type error. The guards and docblocks for these are #115's.
 
@@ -762,7 +769,7 @@ Also decided:
   `collectAll` keeps every failed part as one `Failures<E>`, an
   `AggregateError` subclass with `errors: E[]` in part order, which fits
   the encoding as any other Failure does; measured on Door, a nested
-  struct nests its `Failures`, so flattening is a choice still open. As of
+  object of parts nests its `Failures`, so flattening is a choice still open. As of
   2026-11-15 no consumer has asked for it. #65 (partially valid
   aggregates) decides.
 - **The names are `collect`, `attempt` and `take`**, and `collect` keeps
@@ -774,5 +781,6 @@ Also decided:
 
 Implementation is #115: the two functions in `/result`, their docblocks,
 CONTEXT.md entries, the README's module table, the `/result` surface test,
-the CHANGELOG entry, and a declaration-emit check for a `collect`-built
-factory with an annotated return type.
+the CHANGELOG entry, and declaration-emit checks for a `collect`-built
+factory with an annotated return type and for an un-annotated `collect`
+plus `map` factory.

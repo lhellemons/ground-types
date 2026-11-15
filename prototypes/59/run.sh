@@ -21,6 +21,14 @@ set -e
 TS_LINES=$(printf '%s\n' "$EMIT" | grep -c 'error TS' || true)
 TS4050_LINES=$(printf '%s\n' "$EMIT" | grep -c 'error TS4050' || true)
 COUNTED_LINES=$(printf '%s\n' "$EMIT" | grep 'error TS4050' | grep -c 'prototypes/59/[a-z-]*\.ts' || true)
+case "$CODE" in
+  0 | 1 | 2) ;;
+  *)
+    printf '%s\n' "$EMIT" >&2
+    echo "declaration emit: tsc exited $CODE" >&2
+    exit 1
+    ;;
+esac
 if [ "$CODE" -ne 0 ] && [ "$TS_LINES" -eq 0 ]; then
   printf '%s\n' "$EMIT" >&2
   echo "declaration emit: tsc exited $CODE with no diagnostics" >&2

@@ -20,8 +20,8 @@ export type Failed<P> = ErrorOf<P[keyof P]>
 
 /**
  * The first Failure among the parts, or the parts themselves. The parts are
- * already unboxed, so on success `collect` returns its argument: no object
- * is built and nothing is caught. The parts are evaluated by the caller,
+ * already unboxed, so on success `collect` returns its argument: no result
+ * object is built and nothing is caught. The parts are evaluated by the caller,
  * eagerly, before `collect` runs, so a part cannot depend on another part.
  */
 export function collect<
@@ -68,10 +68,11 @@ export type Take<E extends Error> = <R extends Result<unknown, E>>(
   part: R,
 ) => ValueOf<R>
 
-/* One token per `attempt` call, compared by identity: a `take` that belongs
-   to another `attempt` throws a token this one does not recognise, so it
-   propagates to its own `attempt`, and every other throw is a bug and
-   propagates as one. */
+/* One token per `attempt` call, compared by identity: a `take` from an
+   enclosing `attempt` that is still running throws a token this one does
+   not recognise, so it leaves that one; a `take` called after its own
+   `attempt` has returned throws the token to its caller; every other throw
+   is a bug and propagates as one. */
 class Bail {
   failure: Error | undefined
 }
