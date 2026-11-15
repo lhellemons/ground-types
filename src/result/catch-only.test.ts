@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { catchOnly, isFailure, tryCatch } from './index.js'
+import { catchOnly, isFailure, ThrownError, tryCatch } from './index.js'
 import { resultify } from '../promise/index.js'
 import { resultify as callResultify } from '../call/index.js'
 import { definePrimitiveValueObject } from '../value-object/index.js'
@@ -64,6 +64,9 @@ describe('catchOnly list validation', () => {
       async () => new A(),
       { method(this: void) {} }.method,
       { [Symbol.hasInstance]: () => true },
+      Object.assign(function () {}, { prototype: 1 }),
+      Object.defineProperty(() => {}, Symbol.hasInstance, { value: 1 }),
+      Object.assign(function () {}, { prototype: null }),
     ]
     for (const entry of unusable) {
       expect(() =>
@@ -81,6 +84,23 @@ describe('catchOnly list validation', () => {
     }
   })
 })
+
+const guardThrowing = new Proxy(
+  {},
+  {
+    getPrototypeOf(): never {
+      throw new RangeError('trap')
+    },
+  },
+)
+const unrenderable = new Proxy(
+  {},
+  {
+    get(): never {
+      throw new RangeError('trap')
+    },
+  },
+)
 
 describe('catchOnly entries with custom behaviour', () => {
   it('accepts a class with its own Symbol.hasInstance without calling it', () => {
@@ -103,7 +123,59 @@ describe('catchOnly entries with custom behaviour', () => {
     revocable.revoke()
     expect(() =>
       (catchOnly as (...classes: unknown[]) => unknown)(revocable.proxy),
-    ).toThrow(TypeError)
+    ).toThrow(/catchOnly entry 0 is not an error class/)
+  })
+  it('rejects an entry whose Symbol.hasInstance getter throws', () => {
+    class Getter extends Error {
+      static get [Symbol.hasInstance](): never {
+        throw new RangeError('getter')
+      }
+    }
+    const create = () =>
+      (catchOnly as (...classes: unknown[]) => unknown)(Getter)
+    expect(create).toThrow(TypeError)
+    expect(create).toThrow(/catchOnly entry 0 is not an error class/)
+  })
+  it('accepts a function without an object prototype that has an own or inherited hasInstance', () => {
+    const bare = (): void => {}
+    Object.defineProperty(bare, Symbol.hasInstance, {
+      value: (value: unknown) =>
+        value instanceof Error && value.message === 'bare',
+    })
+    const primitivePrototype = Object.assign(function () {}, { prototype: 1 })
+    Object.defineProperty(primitivePrototype, Symbol.hasInstance, {
+      value: (value: unknown) =>
+        value instanceof Error && value.message === 'primitive',
+    })
+    const inheritedFrom = Object.create(Function.prototype, {
+      [Symbol.hasInstance]: {
+        value: (value: unknown) =>
+          value instanceof Error && value.message === 'inherited',
+      },
+    }) as object
+    const inherited = Object.setPrototypeOf(() => {}, inheritedFrom) as object
+    for (const [entry, message] of [
+      [bare, 'bare'],
+      [primitivePrototype, 'primitive'],
+      [inherited, 'inherited'],
+    ] as const) {
+      const handler = (
+        catchOnly as (...classes: unknown[]) => (e: unknown) => unknown
+      )(entry)
+      const error = new Error(message)
+      expect(handler(error)).toBe(error)
+      const other = new Error('other')
+      expectThrow(() => handler(other), other)
+    }
+  })
+  it('accepts native functions and counts them as not matching', () => {
+    for (const entry of [Math.max, parseInt, Symbol]) {
+      const handler = (
+        catchOnly as (...classes: unknown[]) => (e: unknown) => unknown
+      )(entry)
+      const error = new Error('x')
+      expectThrow(() => handler(error), error)
+    }
   })
   it('names the failing entry in the creation error', () => {
     expect(() =>
@@ -133,6 +205,138 @@ describe('catchOnly entries with custom behaviour', () => {
     revocable.revoke()
     expectThrow(() => viaProxy(error), error)
   })
+  it('does not depend on the order of the entries', () => {
+    class Throwing extends Error {
+      static [Symbol.hasInstance](value: { code: string }): boolean {
+        return value.code.startsWith('X')
+      }
+    }
+    const error = new A()
+    for (const classes of [
+      [Throwing, A],
+      [A, Throwing],
+    ]) {
+      const handler = (
+        catchOnly as (...classes: unknown[]) => (e: unknown) => unknown
+      )(...classes)
+      expect(handler(error)).toBe(error)
+    }
+    const other = new Other()
+    expectThrow(
+      () =>
+        (catchOnly as (...classes: unknown[]) => (e: unknown) => unknown)(
+          Throwing,
+          A,
+        )(other),
+      other,
+    )
+  })
+  it('rethrows the original value when the Error guard throws', () => {
+    expectThrow(() => catchOnly(A)(guardThrowing), guardThrowing)
+    expectThrow(
+      () => tryCatch(() => throws(guardThrowing), [A])(),
+      guardThrowing,
+    )
+  })
+})
+
+describe('tryCatch default handler', () => {
+  it('wraps a value whose Error guard throws in a ThrownError', () => {
+    const result = tryCatch(() => throws(guardThrowing))()
+    expect(isFailure(result)).toBe(true)
+    expect(result).toBeInstanceOf(ThrownError)
+    expect((result as ThrownError).thrown).toBe(guardThrowing)
+  })
+  it('wraps a value that cannot be rendered in a ThrownError', () => {
+    const result = tryCatch(() => throws(unrenderable))()
+    expect(isFailure(result)).toBe(true)
+    expect(result).toBeInstanceOf(ThrownError)
+    expect((result as ThrownError).thrown).toBe(unrenderable)
+    expect((result as ThrownError).message).toBe('threw [object Unknown]')
+  })
+})
+
+describe('tryCatch handler dispatch', () => {
+  it('throws a TypeError at creation for a handler that is neither an array nor a function', () => {
+    class Bare extends Error {}
+    for (const handler of [
+      Bare,
+      class {},
+      class Named extends Error {},
+      TypeError,
+      Error,
+      SyntaxError,
+      AggregateError,
+      new Proxy(A, {}),
+      new Proxy(() => {}, {
+        get(): never {
+          throw new RangeError('trap')
+        },
+      }),
+      new Set([A]),
+      {},
+      'handler',
+      1,
+      null,
+    ]) {
+      expect(() => tryCatch(() => 1, handler as never)).toThrow(
+        /tryCatch requires an error handler function/,
+      )
+    }
+  })
+  it('accepts function handlers, including methods named like a class', () => {
+    const error = new A()
+    const methods = {
+      class(this: void, e: unknown) {
+        return e as A
+      },
+      classify(this: void, e: unknown) {
+        return e as A
+      },
+      async(this: void, e: unknown) {
+        return e as A
+      },
+      class$(this: void, e: unknown) {
+        return e as A
+      },
+      classé(this: void, e: unknown) {
+        return e as A
+      },
+    }
+    // Built with `Function` so prettier cannot remove the space in `class (e)`.
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const spaced = new Function(
+      'return { class (e) { return e } }.class',
+    )() as (e: unknown) => A
+    const handlers = [
+      (e: unknown) => e as A,
+      function (e: unknown) {
+        return e as A
+      },
+      (e: unknown) => {
+        class Inner extends A {}
+        return Inner.name === '' ? new Inner() : (e as A)
+      },
+      methods.class,
+      methods.classify,
+      methods.async,
+      methods.class$,
+      methods.classé,
+      spaced,
+    ]
+    for (const handler of handlers) {
+      expect(tryCatch(() => throws(error), handler)()).toBe(error)
+    }
+  })
+  /* `Array.isArray` throws for a revoked proxy before the handler check runs;
+     this pins that native behaviour, not `checkedHandler`. */
+  it('throws a TypeError at creation for a revoked proxy handler (via Array.isArray)', () => {
+    const revocable = Proxy.revocable(() => new A(), {})
+    revocable.revoke()
+    expect(() => tryCatch(() => 1, revocable.proxy as never)).toThrow(TypeError)
+  })
+  /* Known limitation: a bound class has `[native code]` source and no
+     `prototype`, so it passes creation and fails on the error path. */
 })
 
 describe('error classes with a private constructor', () => {
