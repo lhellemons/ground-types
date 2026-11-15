@@ -252,7 +252,15 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   synchronously; for a revoked Proxy it returns a promise rejected with a
   `TypeError`, as `Promise.resolve` does. An executor that resolves an
   AbortablePromise with a hostile thenable adopts it, as `new Promise` does,
-  where it rejected with the trap's error. Aborting the
+  where it rejected with the trap's error. Resolving with a value whose
+  `then` cannot be read (a revoked Proxy, a getter that throws) now rejects
+  the promise with the error, as `new Promise` does, wherever `resolve` is
+  called; called after the executor had returned, it threw the error to the
+  caller of `resolve` and left the promise pending. A Proxy over a Promise
+  or an AbortablePromise is a thenable whose `then` throws a `TypeError`
+  when called on the Proxy, so `of`, `resolve` and an executor's `resolve`
+  all reject with that `TypeError`, as `Promise.resolve` and `new Promise`
+  do. Aborting the
   promise returned by `all`, `race`, `any` or `allSettled` aborts every
   AbortablePromise member whatever else is in the list; before, a hostile
   member made `abort()` throw the trap's error and left every member after it

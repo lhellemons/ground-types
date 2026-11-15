@@ -406,17 +406,31 @@ export class AbortablePromise<T> extends Promise<T> {
 
       executor(
         (value) => {
-          if (isThenable(value)) {
+          // Reading `then` can throw (a revoked Proxy, a throwing getter). As
+          // with a native Promise's resolve function, that rejects the promise
+          // rather than throwing to whoever called `resolve`, which would
+          // otherwise leave it pending when called after the executor returned.
+          let thenable: boolean
+          try {
+            thenable = isThenable(value)
+          } catch (error) {
+            if (state.claimSettlement()) {
+              reject(error)
+            }
+            return
+          }
+
+          if (thenable) {
+            const adopted = value as PromiseLike<T>
             // Resolving with a thenable is not settling: the outcome has been
             // handed to that thenable, which may not settle for a long time or
             // at all. Claiming settlement here would make `abort()` a silent
             // no-op for the delegating shape this class exists for —
             // `new AbortablePromise((resolve) => resolve(fetchThing()))`. Adopt
             // it instead, and claim only when it really settles.
-            // Bound to its own const because the brand check below narrows
+            // `adopted` is its own const because the brand check below narrows
             // `value`, and the narrowed type would leak out through the
             // adopted value's type.
-            const adopted: PromiseLike<T> = value
             if (AbortablePromise.#isAbortable(value)) {
               // Delegation is upstream, so abort travels it like any other
               // upstream link: the delegate is where the work actually is, and

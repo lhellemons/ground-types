@@ -326,8 +326,11 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     const revoked = revokedProxy()
 
     await expect(Promise.resolve(revoked)).rejects.toBeInstanceOf(TypeError)
-    expect(() => AbortablePromise.of(revoked)).not.toThrow()
-    await expect(AbortablePromise.of(revoked)).rejects.toBeInstanceOf(TypeError)
+    let ap: AbortablePromise<unknown> | undefined
+    expect(() => {
+      ap = AbortablePromise.of(revoked)
+    }).not.toThrow()
+    await expect(ap).rejects.toBeInstanceOf(TypeError)
   })
 
   it('an executor resolving with a hostile thenable adopts it, as new Promise does', async () => {
@@ -346,6 +349,47 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
       ),
     ).resolves.toBe('adopted')
   })
+
+  it.each([
+    ['a revoked Proxy', revokedProxy(), TypeError],
+    [
+      'a thenable whose then getter throws',
+      {
+        get then(): never {
+          throw new RangeError('getter')
+        },
+      },
+      RangeError,
+    ],
+  ])(
+    'a late resolve(%s) rejects the promise rather than throwing, as new Promise does',
+    async (_name, value, errorClass) => {
+      let thrown: unknown = 'did not throw'
+      const nativePromise = new Promise((resolve) => {
+        setTimeout(() => {
+          try {
+            resolve(value)
+          } catch (error) {
+            thrown = error
+          }
+        }, 0)
+      })
+      await expect(nativePromise).rejects.toBeInstanceOf(errorClass)
+      expect(thrown).toBe('did not throw')
+
+      const ap = new AbortablePromise((resolve) => {
+        setTimeout(() => {
+          try {
+            resolve(value)
+          } catch (error) {
+            thrown = error
+          }
+        }, 0)
+      })
+      await expect(ap).rejects.toBeInstanceOf(errorClass)
+      expect(thrown).toBe('did not throw')
+    },
+  )
 
   it('an executor resolving with a hostile thenable is still abortable', async () => {
     const hostileThenable = hostileProxy({ then() {} })
@@ -411,9 +455,11 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     const inner = new AbortablePromise<string>(() => {})
     const proxy = new Proxy(inner, {})
 
-    expect(AbortablePromise.of(proxy)).not.toBe(proxy)
+    const wrapped = AbortablePromise.of(proxy)
+
+    expect(wrapped).not.toBe(proxy)
     await expect(Promise.resolve(proxy)).rejects.toBeInstanceOf(TypeError)
-    await expect(AbortablePromise.of(proxy)).rejects.toBeInstanceOf(TypeError)
+    await expect(wrapped).rejects.toBeInstanceOf(TypeError)
     inner.abort()
     await expect(inner).rejects.toSatisfy(isAbortError)
   })
