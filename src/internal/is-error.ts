@@ -1,18 +1,39 @@
-/* Module-private, shared by `/result`, `/maybe` and `/promise`. Absent from
-   the package's exports map: it ships in `dist` but a consumer cannot import
-   it. It is a module of its own so that `/maybe` can use it without importing
-   `/result` at runtime (see docs/adr/0001-unboxed-maybe-and-result.md). */
+/* Module-private, shared by `/result`, `/maybe`, `/promise` and `/abort`.
+   Absent from the package's exports map: it ships in `dist` but a consumer
+   cannot import it. It is a module of its own so that `/maybe` can use it
+   without importing `/result` at runtime (see
+   docs/adr/0001-unboxed-maybe-and-result.md). */
+
+/* Captured when the module loads, so code that patches `Function.prototype.call`
+   or `Object.prototype.isPrototypeOf` later cannot change an answer. */
+const errorPrototype = Error.prototype
+const isPrototypeOf: (prototype: object, value: unknown) => boolean =
+  // eslint-disable-next-line @typescript-eslint/unbound-method -- bound at once
+  Function.prototype.call.bind(Object.prototype.isPrototypeOf)
+
+/* Whether `prototype` is on `value`'s prototype chain, by `isPrototypeOf` and
+   never `instanceof`, so no `Symbol.hasInstance` is consulted. Throws for a
+   value whose chain walk throws (a Proxy whose `getPrototypeOf` trap throws,
+   a revoked Proxy); a caller that must not throw guards it. */
+export function hasPrototype(prototype: object, value: unknown): boolean {
+  return isPrototypeOf(prototype, value)
+}
+
+/* Whether `prototype` is `Error.prototype` or inherits from it. Throws like
+   `hasPrototype`. */
+export function isErrorPrototype(prototype: object): boolean {
+  return (
+    prototype === errorPrototype || isPrototypeOf(errorPrototype, prototype)
+  )
+}
 
 /* Whether `Error.prototype` is on `value`'s prototype chain: the answer of
    `value instanceof Error`, but by `isPrototypeOf` and never `instanceof`, so
-   `Error[Symbol.hasInstance]` is not consulted (a hook that throws would
-   otherwise turn every real `Error` into a non-Error). A value on which the
-   chain walk throws (a Proxy whose `getPrototypeOf` trap throws, a revoked
-   Proxy) answers false instead, so the guard's own error never replaces the
-   value being classified. */
+   `Error[Symbol.hasInstance]` is not consulted. A value on which the chain
+   walk throws answers false instead. */
 export function isError(value: unknown): value is Error {
   try {
-    return Object.prototype.isPrototypeOf.call(Error.prototype, value as object)
+    return isPrototypeOf(errorPrototype, value)
   } catch {
     return false
   }

@@ -334,6 +334,20 @@ describe('catchOnly entries with custom behaviour', () => {
     revocable.revoke()
     expectThrow(() => viaProxy(error), error)
   })
+  it('checks an entry once: a prototype reassigned later is matched as it then stands', () => {
+    function Legacy() {}
+    Legacy.prototype = Object.create(Error.prototype) as object
+    const handler = (
+      catchOnly as (...classes: unknown[]) => (e: unknown) => unknown
+    )(Legacy)
+    const bug = new TypeError('programming bug')
+    expectThrow(() => handler(bug), bug)
+    // Not rechecked: the entry now matches every `TypeError`.
+    ;(Legacy as unknown as { prototype: unknown }).prototype =
+      TypeError.prototype
+    expect(handler(bug)).toBe(bug)
+    expect(isFailure(handler(bug) as Error)).toBe(true)
+  })
   it('does not depend on the order of the entries', () => {
     class Throwing extends Error {
       static [Symbol.hasInstance](value: { code: string }): boolean {
@@ -526,6 +540,79 @@ describe('tryCatch handler dispatch', () => {
     const result = tryCatch(() => throws(original), Error.bind(null) as never)()
     expect(result).toBeInstanceOf(Error)
     expect(result).not.toBe(original)
+  })
+  it('refuses a built-in constructor, which would replace the error or return a Success', () => {
+    const boom = () => throws(new RangeError('boom'))
+    // Each one has native source and an own `prototype` of type object.
+    for (const builtin of [
+      Map,
+      Set,
+      WeakMap,
+      WeakSet,
+      Promise,
+      WeakRef,
+      BigInt,
+      Number,
+      String,
+      Boolean,
+      Array,
+      Date,
+      RegExp,
+      Symbol,
+      Function,
+      Object,
+      ArrayBuffer,
+      Uint8Array,
+      URL,
+    ]) {
+      expect(() => tryCatch(boom, builtin as never), builtin.name).toThrow(
+        /tryCatch requires an error handler function/,
+      )
+    }
+    // A Proxy over a function that has an own `prototype` has native source.
+    const proxied: unknown = new Proxy(function () {}, {})
+    expect(() => tryCatch(boom, proxied as never)).toThrow(TypeError)
+  })
+  it('accepts a function whose own text merely mentions [native code]', () => {
+    const error = new A()
+    // Built with `Function` so the comment survives the transform.
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval -- source text under test
+    const handler = new Function('e', '/* [native code] */ return e') as (
+      e: unknown,
+    ) => A
+    expect(Function.prototype.toString.call(handler)).toContain('[native code]')
+    expect(tryCatch(() => throws(error), handler)()).toBe(error)
+  })
+  it('accepts native functions with no own prototype, and bound ones', () => {
+    const boom = () => throws(new RangeError('boom'))
+    class Derived extends Map {}
+    for (const handler of [
+      // A bound derived class inherits its parent's `prototype`, not its own.
+      Derived.bind(null),
+      parseInt,
+      Math.max,
+      Array.isArray,
+      String.raw,
+      Map.bind(null),
+      Number.bind(null),
+      Object.bind(null),
+    ]) {
+      expect(() => tryCatch(boom, handler as never)).not.toThrow()
+    }
+  })
+  it('does not detect a bound built-in constructor or a bound ES5-style error constructor', () => {
+    const boom = () => throws(new RangeError('boom'))
+    // The bound `Map` throws on the error path in place of the original error.
+    expect(() => tryCatch(boom, Map.bind(null) as never)()).toThrow(
+      /requires 'new'/,
+    )
+    // A bound `Number` returns a Success. A bound ES5-style error constructor
+    // inherits `Function.prototype`, so it reaches no `prototype` either, and
+    // returns `undefined` as a Success.
+    expect(tryCatch(boom, Number.bind(null) as never)()).toBeNaN()
+    function Legacy() {}
+    Legacy.prototype = Object.create(Error.prototype) as object
+    expect(tryCatch(boom, Legacy.bind(null) as never)()).toBeUndefined()
   })
   it('accepts a bound handler', () => {
     const error = new A()

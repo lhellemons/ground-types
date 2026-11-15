@@ -139,7 +139,9 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   realm, and a function with no `prototype` of type object whose source says
   `[native code]`, such as `Math.max`, `parseInt`, `Function`, or a bound
   `Error`, `Object` or base class (one declared without `extends`): a bound
-  `Object` still matches every `Error`. An entry is checked once, at creation. An entry that
+  `Object` still matches every `Error`. An entry is checked once, at creation: one changed afterwards (a
+  reassigned `prototype`, a Proxy whose `prototype` read changes) is matched
+  by `instanceof` as it then stands. An entry that
   fails inside `instanceof` later, such as a proxy revoked after the handler is
   created, counts as not matching: the original error is rethrown unless a
   later entry matches.
@@ -149,19 +151,33 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   starts with `class`, an error class or not, so `class {}` and
   `class Foo extends Map {}` too), or whose `prototype` is `Error.prototype` or
   inherits from it (`Error`, `TypeError` and the other built-ins, an ES5-style
-  error constructor, a bound subclass of `Error`), or whose inspection throws.
-  Before, one was accepted and replaced the original error on the error path.
-  TypeScript already rejected all of these. Not detected, though TypeScript
-  rejects them: a bound `Error`, which returns a fresh `Error` as the Failure;
-  a bound class that is not an `Error` subclass, which throws "cannot be
-  invoked without 'new'" on the error path in place of the original error; and
-  a built-in or ES5-style error constructor from another realm, which returns
-  a foreign error, or `undefined`, as a Success (a foreign
-  `class ... extends Error` is refused). A handler bound with
-  `handler.bind(ctx)` is accepted.
-- When the `instanceof Error` check itself throws, such as for a Proxy whose
-  `getPrototypeOf` trap throws, `catchOnly` rethrows the original value and
-  the default `tryCatch` handler wraps it in a `ThrownError`. `ThrownError`
+  error constructor, a bound subclass of `Error`), or whose source ends
+  `{ [native code] }` and that has an own `prototype` that is an object (a
+  built-in constructor: `Map`, `Set`, `Promise`, `WeakRef`, `BigInt`, `Number`,
+  `String`, `Boolean`, `Array`, `Date`, `RegExp`, `Symbol`, `Function`,
+  `Object`, and one from another realm; also a Proxy over a function that has
+  an own `prototype`), or whose inspection throws. Before, one was accepted and
+  replaced the original error on the error path: `tryCatch(fn, Map)` threw
+  "Constructor Map requires 'new'" there, and `Number`, `String`, `Boolean`,
+  `Array`, `Date`, `RegExp`, `Symbol`, `Function` and `Object` turned the throw
+  into a Success such as `NaN` or a string. TypeScript already rejected all of
+  these but `Number` and `Object`. Not detected: a bound `Error`, which
+  returns a fresh `Error` as the Failure; a bound built-in constructor
+  (`Map.bind(null)`, which throws "requires 'new'" on the error path, and
+  `Number.bind(null)`, which returns a Success); a bound class that is not an
+  `Error` subclass, which throws "cannot be invoked without 'new'" there; a
+  bound ES5-style error constructor, which returns `undefined` as a Success
+  because a bound function inherits `Function.prototype` and reaches no
+  `prototype`; and an ES5-style error constructor from another realm, which
+  returns `undefined` as a Success. TypeScript rejects the bound `Error`,
+  `Map` and class, and accepts `Number.bind(null)` and the bound ES5-style
+  constructor. A foreign `class ... extends Error` is refused. A function
+  declaration or method whose text merely mentions `[native code]`, a native function with no
+  own `prototype` (`parseInt`, `Math.max`) and a handler bound with
+  `handler.bind(ctx)` are accepted.
+- When a value's prototype chain cannot be read (a Proxy whose
+  `getPrototypeOf` trap throws, a revoked Proxy), `catchOnly` rethrows the
+  original value and the default `tryCatch` handler wraps it in a `ThrownError`. `ThrownError`
   no longer throws while rendering a Proxy whose `get` trap throws.
 - **Breaking:** `tryCatch(fn, undefined)` and
   `definePrimitiveValueObject(construct, undefined)` now throw a `TypeError`,
@@ -171,25 +187,38 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   CommonJS import still became catch-everything. Omit the argument, or pass a
   handler. TypeScript already rejected these.
 - `promise/fail` wraps a rejection reason in a `RejectionError` when its
-  `instanceof Error` check throws (a Proxy whose `getPrototypeOf` trap
+  prototype chain cannot be read (a Proxy whose `getPrototypeOf` trap
   throws), and `maybe/fromResult` keeps such a value as a `Just`. Before, the
   trap's error replaced the reason: `resultify(fail)(Promise.reject(proxy))`
   rejected with it.
 - `result/isSuccess`, `isFailure` and `assertSuccess`, and so `map`, `mapError`,
-  `fallback`, `orElse` and `andThen`, no longer throw when the Error check
-  itself throws (a Proxy whose `getPrototypeOf` trap throws, a revoked Proxy).
+  `fallback`, `orElse` and `andThen`, no longer throw when the value's prototype
+  chain cannot be read (a Proxy whose `getPrototypeOf` trap throws, a revoked
+  Proxy).
   Such a value counts as not an `Error`, as `maybe/fromResult` already treats
   it: `isSuccess` is true for it, `isFailure` false, `assertSuccess` returns it
   rather than throwing, and the combinators treat it as a `Success`. Before,
   the trap's error escaped: `map(x => x, proxy)` threw the trap's `RangeError`.
-- The shared Error check behind these, `catchOnly`, the default `tryCatch`
-  handler, `maybe/fromResult` and `promise/fail` now asks whether
-  `Error.prototype` is on the value's prototype chain (`isPrototypeOf`) instead
-  of using `instanceof`, so a defined `Error[Symbol.hasInstance]` is no longer
-  consulted. Otherwise a hook that throws made every real `Error` count as not
-  an `Error`. The answer is the same for every value without such a hook,
-  including an `Error` from another realm (not an `Error`, as before).
-- `abort/isAbortError` answers `false` for a value on which its check throws,
+- The shared Error check used by `catchOnly`, the default `tryCatch` handler,
+  `isSuccess`, `isFailure`, `assertSuccess`, `maybe/fromResult` and
+  `promise/fail` now asks whether `Error.prototype` is on the value's
+  prototype chain (`isPrototypeOf`) instead of using `instanceof`, so a defined
+  `Error[Symbol.hasInstance]` is no longer consulted. Before, a hook that
+  threw made every real `Error` count as not an `Error`, and a hook that
+  returned `true` made a non-`Error` count as one, so the default `tryCatch`
+  handler and `promise/fail` passed a thrown or rejected non-`Error` through
+  unwrapped. The answer is the same for every value without such a hook,
+  including an `Error` from another realm (not an `Error`, as before). The
+  check reads `Error.prototype`, `Function.prototype.call` and
+  `Object.prototype.isPrototypeOf` once, when the module loads, so patching
+  any of them afterwards, or replacing the global `Error`, no longer changes
+  the answer. `catchOnly` still matches a class by `instanceof`, so an entry
+  inherits `Error`'s `Symbol.hasInstance` hook, if one is defined, like any
+  other `instanceof` use.
+- `abort/isAbortError` asks whether `DOMException.prototype` is on the value's
+  prototype chain (`isPrototypeOf`) instead of using `instanceof`, so a defined
+  `DOMException[Symbol.hasInstance]` is no longer consulted. It answers `false`
+  for a value on which its check throws,
   where it threw before: a Proxy whose `getPrototypeOf` trap throws, a revoked
   Proxy, and a Proxy over a real abort whose `name` is read through the proxy
   (no traps, or a `Reflect.get(target, key, receiver)` forwarder), as the

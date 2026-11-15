@@ -188,15 +188,16 @@ export function assertJust<T>(value: Maybe<T>, message?: string): Just<T> {
  * Bridges from `Result` to `Maybe`, discarding the error: a `Success`
  * becomes `Just`, a `Failure` becomes `Nothing`. Reach for this when a
  * caller only cares whether a fallible operation produced a value, not why
- * it didn't. A value whose `instanceof Error` check throws (a Proxy whose
- * `getPrototypeOf` trap throws) counts as not an `Error`: it stays a `Just`.
+ * it didn't. A value whose prototype chain cannot be read (a Proxy whose
+ * `getPrototypeOf` trap throws, a revoked Proxy) counts as not an `Error`: it
+ * stays a `Just`.
  */
 export function fromResult<T, E extends Error = Error>(
   value: Result<T, E>,
 ): Maybe<T> {
-  // Inlined rather than calling `isFailure` from ../result: that guard is a
-  // runtime import, and this bridge must stay type-only across the
-  // maybe/result boundary or the two modules form a real import cycle
-  // (see docs/adr/0001-unboxed-maybe-and-result.md).
+  // Calls the shared `isError` from ../internal, not `isFailure` from
+  // ../result: that guard is a runtime import, and this bridge must stay
+  // type-only across the maybe/result boundary or the two modules form a real
+  // import cycle (see docs/adr/0001-unboxed-maybe-and-result.md).
   return (isError(value) ? undefined : value) as Maybe<T>
 }

@@ -1,3 +1,5 @@
+import { hasPrototype } from '../internal/is-error.js'
+
 /**
  * The `name` the platform gives a `DOMException` raised by aborting an
  * `AbortSignal` — what {@link isAbortError} matches on.
@@ -29,6 +31,10 @@ export class AbortError extends DOMException {
  * aborts are plain `DOMException`s that were never instances of our
  * subclass at all.
  *
+ * The check asks whether `DOMException.prototype` is on the prototype chain
+ * (`isPrototypeOf`) and never uses `instanceof`, so a defined
+ * `DOMException[Symbol.hasInstance]` is not consulted.
+ *
  * Never throws: a value on which the check itself throws (a Proxy whose
  * `getPrototypeOf` or `get` trap throws, a revoked Proxy) is not an abort,
  * so the answer is `false`. So is a Proxy over a real abort whose `name` is
@@ -40,7 +46,10 @@ export function isAbortError(error: unknown): error is AbortError {
   // DOMException, and AbortError adds nothing beyond the fixed name, so the
   // narrowing promises no member it cannot deliver.
   try {
-    return error instanceof DOMException && error.name === ABORT_ERROR_NAME
+    return (
+      hasPrototype(DOMException.prototype, error) &&
+      (error as DOMException).name === ABORT_ERROR_NAME
+    )
   } catch {
     return false
   }

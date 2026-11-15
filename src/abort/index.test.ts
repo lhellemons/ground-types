@@ -45,3 +45,45 @@ test('isAbortError answers false for a value whose checks throw', () => {
   revoke()
   expect(isAbortError(proxy)).toBe(false)
 })
+
+test('isAbortError answers true for a Proxy that reads with the target as receiver', () => {
+  const abort = new DOMException('', 'AbortError')
+  expect(
+    isAbortError(
+      new Proxy(abort, { get: (t, k) => Reflect.get(t, k) as unknown }),
+    ),
+  ).toBe(true)
+})
+
+test('isAbortError does not consult DOMException[Symbol.hasInstance]', () => {
+  const abort = new DOMException('', 'AbortError')
+  const other = new DOMException('', 'SomethingElse')
+  const prior = Object.getOwnPropertyDescriptor(
+    DOMException,
+    Symbol.hasInstance,
+  )
+  const answers: boolean[] = []
+  try {
+    for (const hook of [
+      (): boolean => false,
+      (): never => {
+        throw new RangeError('hook')
+      },
+    ]) {
+      Object.defineProperty(DOMException, Symbol.hasInstance, {
+        configurable: true,
+        value: hook,
+      })
+      answers.push(isAbortError(abort), isAbortError(other))
+    }
+  } finally {
+    if (prior === undefined) {
+      delete (DOMException as { [Symbol.hasInstance]?: unknown })[
+        Symbol.hasInstance
+      ]
+    } else {
+      Object.defineProperty(DOMException, Symbol.hasInstance, prior)
+    }
+  }
+  expect(answers).toEqual([true, false, true, false])
+})

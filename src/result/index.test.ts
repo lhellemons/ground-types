@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   andThen,
   assertSuccess,
+  catchOnly,
   failure,
   fallback,
   fromMaybe,
@@ -17,6 +18,7 @@ import {
 } from './index.js'
 import type { Failure, Result, Success } from './index.js'
 import { maybe, nothing } from '../maybe/index.js'
+import { fail } from '../promise/index.js'
 
 // Tuple-wrapped so the checks don't distribute over union types.
 type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
@@ -151,6 +153,7 @@ describe('isSuccess / isFailure', () => {
     // The guard asks about the prototype chain, never `instanceof`, so a
     // hook (a polyfill, instrumentation) can neither throw away a real
     // Error nor make a non-Error one.
+    const prior = Object.getOwnPropertyDescriptor(Error, Symbol.hasInstance)
     for (const hook of [
       (): boolean => true,
       (): never => {
@@ -179,10 +182,75 @@ describe('isSuccess / isFailure', () => {
           thrown = caught
         }
       } finally {
-        delete (Error as { [Symbol.hasInstance]?: unknown })[Symbol.hasInstance]
+        if (prior === undefined) {
+          delete (Error as { [Symbol.hasInstance]?: unknown })[
+            Symbol.hasInstance
+          ]
+        } else {
+          Object.defineProperty(Error, Symbol.hasInstance, prior)
+        }
       }
       expect(answers).toEqual([true, false, true, false])
       expect(thrown).toBe(error)
+    }
+  })
+})
+
+describe('the Error guard is not fooled by patched intrinsics', () => {
+  it('reads Function.prototype.call, Object.prototype.isPrototypeOf and Error once, at load', () => {
+    const abort = new DOMException('', 'AbortError')
+    const error = new Error('x')
+    const boom = (): never => {
+      throw error
+    }
+    const handler = catchOnly(Error)
+    /* eslint-disable @typescript-eslint/unbound-method -- restored below */
+    const { call } = Function.prototype
+    const { isPrototypeOf } = Object.prototype
+    /* eslint-enable @typescript-eslint/unbound-method */
+    const OriginalError = globalThis.Error
+    const patches = [
+      () => {
+        Function.prototype.call = function (): never {
+          throw new RangeError('call')
+        } as typeof call
+      },
+      () => {
+        Object.prototype.isPrototypeOf = (): boolean => false
+      },
+      () => {
+        globalThis.Error = class Other {} as ErrorConstructor
+      },
+    ]
+    const answers: unknown[][] = []
+    try {
+      for (const patch of patches) {
+        patch()
+        answers.push([
+          isFailure(error),
+          isSuccess(error),
+          isFailure(abort),
+          tryCatch(boom)(),
+          handler(error),
+          fail(abort),
+        ])
+        Function.prototype.call = call
+        Object.prototype.isPrototypeOf = isPrototypeOf
+        globalThis.Error = OriginalError
+      }
+    } finally {
+      Function.prototype.call = call
+      Object.prototype.isPrototypeOf = isPrototypeOf
+      globalThis.Error = OriginalError
+    }
+    expect(answers).toHaveLength(patches.length)
+    for (const row of answers) {
+      expect(row[0]).toBe(true)
+      expect(row[1]).toBe(false)
+      expect(row[2]).toBe(true)
+      expect(row[3]).toBe(error)
+      expect(row[4]).toBe(error)
+      expect(row[5]).toBe(abort)
     }
   })
 })

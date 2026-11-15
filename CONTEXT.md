@@ -46,8 +46,8 @@ _Avoid_: Option, Some, None, nullable.
 The outcome of a fallible operation: either a **Success** carrying the
 value, or a **Failure** carrying an `Error`. Unboxed — a Success _is_
 the value and a Failure _is_ the Error, discriminated by
-`instanceof Error` (a value on which that check throws, such as a hostile
-Proxy, is a Success). Because the encoding is unboxed, a Result of a
+`Error.prototype` being on the value's prototype chain (a value whose chain
+cannot be read, such as a hostile Proxy, is a Success). Because the encoding is unboxed, a Result of a
 Result cannot be represented; chaining a second fallible step is
 `andThen`, never nested `map`.
 

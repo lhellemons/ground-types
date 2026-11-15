@@ -58,8 +58,9 @@ export function resultify<O, E extends Error>(
  * Failure directly, keeping its concrete subclass — which is what lets an
  * abort survive as an `AbortError` rather than being flattened. Anything else
  * is wrapped in a {@link RejectionError}, since a Failure must carry an Error,
- * and so is a reason whose `instanceof Error` check throws (a Proxy whose
- * `getPrototypeOf` trap throws): the guard's own error never replaces it.
+ * and so is a reason whose prototype chain cannot be read (a Proxy whose
+ * `getPrototypeOf` trap throws, a revoked Proxy): the guard's own error never
+ * replaces it.
  *
  * Generic in the success type it never produces, so that it can be handed to
  * `resultify` for a promise of any `O`.
