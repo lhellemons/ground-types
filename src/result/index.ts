@@ -19,20 +19,26 @@ declare const _phantom: unique symbol
  * The value-carrying case of a {@link Result}, unboxed — a `Success<T>`
  * *is* the `T`. A `Success` can never itself be an `Error`: an `Error`
  * member of `T` is dropped (see docs/adr/0001-unboxed-maybe-and-result.md).
- * A `null`, `undefined` or `void` member of `T` stays a bare arm of its
- * own, with no phantom markers, since no marker can be intersected with it
- * without reducing to `never`; so `Success<undefined, E>` is `undefined`
- * for every `E`.
+ * A `null`, `undefined` or `void` member of `T` is a bare arm of its own,
+ * with no phantom markers, so `Success<undefined, E>` is `undefined` for
+ * every `E`.
  */
 export type Success<T, E extends Error = Error> =
-  | (Exclude<T, Error | null | undefined | void> & {
-      readonly [_phantom]?: E
-      readonly [_value]?: T
-      readonly [_error]?: never
-    })
-  // NoInfer: this arm names `T` in a conditional's true branch, where
-  // inference would take a `Failure` for a `T`.
-  | NoInfer<Extract<T, null | undefined | void>>
+  SuccessArm<T, E> | NoInfer<Extract<T, null | undefined | void>>
+
+/**
+ * The non-nullish part of a {@link Success}: the value type carrying the
+ * `Success` phantom markers. A named alias of its own so that inference
+ * and declaration emit can see it through a {@link Result}.
+ */
+export type SuccessArm<T, E extends Error> = Exclude<
+  T,
+  Error | null | undefined | void
+> & {
+  readonly [_phantom]?: E
+  readonly [_value]?: T
+  readonly [_error]?: never
+}
 
 /**
  * The `Error`-carrying case of a {@link Result}, unboxed — a `Failure` *is*

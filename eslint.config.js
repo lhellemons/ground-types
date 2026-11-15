@@ -90,12 +90,12 @@ export default defineConfig(
     extends: [tseslint.configs.disableTypeChecked],
   },
 
-  /* The release-script test is real TypeScript (annotations, `as`), unlike the
-     api-surface tests above, which only import and assert names. It needs the
-     TypeScript parser, but no type information, which `test/` has no project
-     for. */
+  /* The release-script and declaration-emit tests are real TypeScript
+     (annotations, `as`), unlike the api-surface tests above, which only
+     import and assert names. They need the TypeScript parser, but no type
+     information, which `test/` has no project for. */
   {
-    files: ['test/release/**/*.ts'],
+    files: ['test/release/**/*.ts', 'test/declaration-emit/**/*.ts'],
     extends: [tseslint.configs.recommended],
   },
 )

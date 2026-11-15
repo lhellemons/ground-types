@@ -11,6 +11,7 @@ import type {
   NotPossiblyAnError,
   Result,
   Success,
+  SuccessArm,
 } from './index.js'
 
 /**
@@ -33,6 +34,13 @@ declare const r: Result<number, RangeError>
 describe('/result type exports', () => {
   it('Success<T> is usable as T — the unboxed encoding', () => {
     expectTypeOf(s).toExtend<number>()
+  })
+
+  it('SuccessArm is the marked part of a Success, and a Success is it or a nullish value', () => {
+    expectTypeOf<SuccessArm<number, RangeError>>().toExtend<typeof s>()
+    expectTypeOf<Success<string | undefined, RangeError>>().toEqualTypeOf<
+      SuccessArm<string, RangeError> | undefined
+    >()
   })
 
   it('Failure is usable as an Error — the unboxed encoding', () => {

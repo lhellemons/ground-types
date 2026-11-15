@@ -2,8 +2,7 @@
    maybe-and-result.md, the 2026-11-15 amendment). On 0.4.0 and the
    2026-11-14 signatures `Success<undefined>` and `Success<null>` reduced to
    `never`, so `success(undefined)` fitted any `Result` and the Success arm
-   of `Result<number | undefined, E>` lost its `undefined`; the first commit
-   of this file pinned both effects on those signatures. */
+   of `Result<number | undefined, E>` lost its `undefined`. */
 import { describe, expectTypeOf, it } from 'vitest'
 import {
   andThen,
@@ -17,6 +16,7 @@ import {
   tryCatch,
 } from './index.js'
 import type { Failure, Result, Success } from './index.js'
+import { act } from './act.js'
 import { fromResult } from '../maybe/index.js'
 import type { Maybe } from '../maybe/index.js'
 
@@ -34,6 +34,8 @@ interface User {
 declare const maybeNumber: Result<number | undefined, Invalid>
 declare const nullableNumber: Result<number | null, Invalid>
 declare const nothing: Result<undefined, Invalid>
+declare const maybe: Maybe<number>
+declare function step(): Result<number, Invalid>
 
 describe('a nullish value keeps its own Success arm', () => {
   it('success(undefined), success(null) and success(void) are the bare value', () => {
@@ -96,19 +98,17 @@ describe('success(undefined) fits only a Result that admits undefined', () => {
     const h = (): Result<void, Invalid> => success(undefined)
     const i = (): Result<number | null, Invalid> => success(null)
     const j = (): Result<void, Invalid | Other> => success(undefined)
-    expectTypeOf(f).returns.toEqualTypeOf<Result<User | undefined, Invalid>>()
-    expectTypeOf(g).returns.toEqualTypeOf<Result<undefined, Invalid>>()
-    void [h, i, j]
+    void [f, g, h, i, j]
   })
 
   it('and a value-carrying success still fits a Result with a nullish arm', () => {
     const f = (n: number): Result<number | undefined, Invalid> => success(n)
-    expectTypeOf(f).returns.toEqualTypeOf<Result<number | undefined, Invalid>>()
+    void f
   })
 
   it('an optional value passes through success without losing undefined', () => {
     const f = (n?: number): Result<number | undefined, Invalid> => success(n)
-    expectTypeOf(f).returns.toEqualTypeOf<Result<number | undefined, Invalid>>()
+    void f
   })
 
   it('a Failure is still not a Success of a nullish T', () => {
@@ -175,7 +175,7 @@ describe('the combinators carry a nullish value', () => {
     const f = andThen((n: number): Result<number | undefined, Other> =>
       n > 0 ? success(n) : success(undefined),
     )
-    expectTypeOf(f(success(1) as Result<number, Invalid>)).toEqualTypeOf<
+    expectTypeOf(f(step())).toEqualTypeOf<
       Result<number | undefined, Invalid | Other>
     >()
   })
@@ -227,5 +227,87 @@ describe('ADR 0001 guarantees hold with a nullish arm', () => {
   it('a plain Error is still not a Result<number | undefined, Invalid>', () => {
     expectTypeOf<Error>().not.toExtend<Result<number | undefined, Invalid>>()
     expectTypeOf<Error>().not.toExtend<Result<undefined, Invalid>>()
+  })
+})
+
+describe('success(x) still seeds E = never through a generic', () => {
+  class Rejected extends Error {
+    readonly reason = 'rejected' as const
+  }
+  const validate = (n: number): Result<string, Rejected> =>
+    n > 0 ? success(String(n)) : failure(new Rejected())
+
+  it('andThen and map take a bare success into a narrower Result', () => {
+    const a: Result<string, Rejected> = andThen(validate, success(1))
+    const b: Result<number, Rejected> = map((n: number) => n + 1, success(1))
+    const c: Result<string, Rejected> = andThen(validate)(success(1))
+    void [a, b, c]
+  })
+
+  it('a chain over a bare success keeps the exact error arm', () => {
+    const r = andThen(validate, success(1))
+    expectTypeOf(r).toEqualTypeOf<Result<string, Rejected>>()
+    if (!isSuccess(r)) {
+      expectTypeOf(r.reason).toEqualTypeOf<'rejected'>()
+    }
+  })
+
+  it('an early return of a chain over a bare success needs no annotation', () => {
+    const early = (n: number): Result<string, Rejected> => {
+      const r = andThen(validate, success(n))
+      if (isSuccess(r)) return r
+      return r
+    }
+    void early
+  })
+
+  it('a function taking a Result infers E = never from a bare success', () => {
+    const plain = <T, E extends Error = Error>(value: Result<T, E>): [T, E] => [
+      value as T,
+      undefined as unknown as E,
+    ]
+    expectTypeOf(plain(success(1))).toEqualTypeOf<[1, never]>()
+  })
+})
+
+describe('a nullish value now reaches a callback that cannot take it', () => {
+  it('map and andThen over a Result<number | undefined, E> reject a (n: number) callback', () => {
+    // @ts-expect-error - the undefined value reaches a callback that takes a number
+    map((n: number) => n * 2, maybeNumber)
+    // @ts-expect-error - the undefined value reaches a callback that takes a number
+    andThen((n: number) => success(n), maybeNumber)
+  })
+
+  it('a callback that takes the undefined is accepted', () => {
+    map((n: number | undefined) => (n ?? 0) * 2, maybeNumber)
+    andThen((n: number | undefined) => success(n ?? 0), maybeNumber)
+  })
+})
+
+describe('costs of a nullish arm that has no phantom', () => {
+  it('Result<unknown, E> gets no nullish arm: success(undefined) no longer fits it', () => {
+    // @ts-expect-error - unknown has no nullish arm to take the bare undefined
+    const f = (): Result<unknown, Invalid> => success(undefined)
+    // @ts-expect-error - unknown has no nullish arm to take the bare null
+    const g = (): Result<unknown, Invalid> => success(null)
+    void [f, g]
+  })
+
+  it('a chain over success(undefined) widens E to Error', () => {
+    // @ts-expect-error - success(undefined) carries no E = never to seed the chain
+    const c: Result<number, Invalid> = map(
+      (_x: undefined) => 1,
+      success(undefined),
+    )
+    expectTypeOf(map((_x: undefined) => 1, success(undefined))).toExtend<
+      Result<number, Error>
+    >()
+    void c
+  })
+})
+
+describe('the curried act family still takes a Maybe<Result> shaped argument', () => {
+  it('act with a Result<Maybe<number>, E> callback applies to a Maybe<number>', () => {
+    act((_x: Result<Maybe<number>, Invalid>) => 1)(maybe)
   })
 })

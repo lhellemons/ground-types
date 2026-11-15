@@ -34,8 +34,19 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   `undefined` was typed unreachable), and `Result<undefined, E>` is
   `undefined | Failure<undefined, E>` where it was the `Failure` alone.
   `Result.box(null)` and `Result.box(undefined)` now compile, as
-  `Result<null, Error>` and `Result<undefined, Error>`. Checked on TypeScript
-  5.4, 5.9 and 7.0.
+  `Result<null, Error>` and `Result<undefined, Error>`.
+  With `r: Result<number | undefined, E>`, `map((n: number) => n * 2, r)` and
+  `andThen((n: number) => success(n), r)` are now errors, since the
+  `undefined` reaches a callback that takes a number: annotate it
+  `(n: number | undefined)` or handle the `undefined` first. A nullish arm has
+  no error phantom, so `map(f, success(undefined))` is `Result<number, Error>`
+  where a value-carrying `success(x)` seeds `E = never`: a chain over
+  `success(undefined)` needs an annotation to reach a narrower `Result`.
+  `unknown` gets no nullish arm, so `(): Result<unknown, E> =>
+success(undefined)` and `success(null)` no longer compile. Checked on
+  TypeScript 5.4, 5.9 and 7.0.
+- Add `SuccessArm`, the marked part of a `Success`, exported from `/result`:
+  consumers whose declarations mention a `Success` need a name to emit.
 - **Breaking:** TypeScript 5.4 or later is required, for `NoInfer` on the
   phantom position of `success` and `failure`.
 - **Breaking:** `success` rejects, at any site and with or without type
