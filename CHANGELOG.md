@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- The release workflow no longer replaces the asset of a release that is already
+  public: a rerun succeeds when the published tarball has the same contents and
+  fails when it differs. Only drafts are replaced and then published.
+- Pre-release tags (`v1.0.0-rc.1`) are published as pre-releases, and only the
+  highest plain version is marked Latest. Release runs for different tags now
+  run one at a time.
+- The write-scoped release job no longer restores the pnpm cache.
+- The README documents the draft release flow, and its Renovate example now
+  uses the `github-releases` datasource.
+
 ## [0.4.0] - 2026-11-14
 
 Upgrading from 0.3.x: there are two breaking changes, both small.

@@ -27,7 +27,9 @@ tracks compatible tags, but runs `prepare` to build during installation. On pnpm
 before installing; review the resolved source before approving it.
 
 Renovate updates the `github:` semver form automatically. A pinned release URL
-needs a custom manager, for example in `renovate.json`:
+needs a custom manager, for example in `renovate.json`. It uses the
+`github-releases` datasource, which lists only published releases, so Renovate
+never proposes a version whose tarball is not attached yet:
 
 ```json
 {
@@ -38,7 +40,7 @@ needs a custom manager, for example in `renovate.json`:
       "matchStrings": [
         "https://github\\.com/lhellemons/ground-types/releases/download/v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)/lhellemons-ground-types-[0-9.]+\\.tgz"
       ],
-      "datasourceTemplate": "github-tags",
+      "datasourceTemplate": "github-releases",
       "depNameTemplate": "lhellemons/ground-types",
       "extractVersionTemplate": "^v(?<version>.*)$",
       "autoReplaceStringTemplate": "https://github.com/lhellemons/ground-types/releases/download/v{{{newValue}}}/lhellemons-ground-types-{{{newValue}}}.tgz"
@@ -49,7 +51,23 @@ needs a custom manager, for example in `renovate.json`:
 
 Maintainers: update `package.json`'s version and the changelog, merge to `main`,
 then push the matching `v<version>` tag. CI runs the checks, packs the build and
-creates or updates the release asset. Rerunning the workflow replaces that asset.
+attaches the tarball to the GitHub Release:
+
+- A new release starts as a draft and becomes public only after the upload
+  succeeds, so a failed run never leaves a public release without its tarball.
+- Rerunning the workflow completes a draft left behind by a failed upload.
+- A release that is already public is never modified. A rerun succeeds without
+  changes when the published tarball has the same contents as the new build
+  (the compression may differ), and fails when it differs. To change a
+  published release, ship a new version. A published release that lacks the
+  tarball also fails: convert it back to a draft and rerun.
+- A version with a hyphen (`v1.0.0-rc.1`) is published as a pre-release. Only the
+  highest plain `vX.Y.Z` release is marked Latest, so a pre-release or a
+  back-port tag never takes that mark. The check looks at the newest 100 releases.
+- Release runs share one concurrency group, so tags pushed together run one at
+  a time. GitHub keeps only one waiting run per group: if a third tag's run is
+  cancelled, rerun it.
+
 Registry publishing remains out of scope.
 
 ## Modules
