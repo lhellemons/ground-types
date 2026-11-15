@@ -427,3 +427,72 @@ Two things were ruled out on the way:
   and infers under the new ones (probed). The 0.4.0 docblock tells users
   to name `T, P, E` for handwritten handlers; the implementation of this
   amendment drops that instruction and corrects the diagnosis.
+
+### 2026-11-15 — `Success` keeps `null`, `undefined` and `void` as arms of its own (#93)
+
+`Success<T, E>` was `(T extends Error ? never : T) & { markers }`, and an
+object type intersected with `undefined` or `null` is `never`. So
+`Success<undefined, E>` and `Success<null, E>` were `never`, and two
+things followed that the 2026-11-14 amendment's guarantees did not cover,
+because neither is a way for an `Error` into a `Success`; the review of
+#88 found them, and both exist on 0.4.0 as well:
+
+- `success(undefined)` and `success(null)` were typed `never`, which
+  assigns to anything: `(): Result<User, Invalid> => success(undefined)`
+  compiled.
+- The Success arm of `Result<number | undefined, E>` lost its
+  `undefined`: `!isFailure(r)` narrowed to `number`, and the branch that
+  handles the `undefined` value was typed unreachable.
+
+`Result<undefined, E>` was likewise its `Failure` arm alone.
+
+**Decision: distribute the markers over the non-nullish part of `T`, and
+let the nullish part stand for itself.**
+
+```ts
+type Success<T, E extends Error = Error> =
+  | (Exclude<T, Error | null | undefined | void> & {
+      readonly [_phantom]?: E
+      readonly [_value]?: T
+      readonly [_error]?: never
+    })
+  | NoInfer<Extract<T, null | undefined | void>>
+```
+
+Markers keep the whole `T` in `[_value]`, so `ValueOf` and the
+combinators read `number | undefined` as before. `void` joins the nullish
+set so that `Result<void, E>`, a common return type, accepts
+`success(undefined)`: `undefined` is not assignable to `void & { … }`
+(measured; with `void` left out that line failed to compile). The second arm needs `NoInfer`: written plainly, `T` sits in the
+true branch of a conditional, and TypeScript infers a `Failure` into it,
+so `resultify(catchOnly(A, B), promise)` bound `O` to the error class
+(measured; the first form of this change broke several existing
+expectations that way). `NoInfer` is already required (5.4).
+
+Cost, on record: a nullish arm carries no phantom, so `Success<undefined,
+Invalid>` and `Success<undefined, Other>` are the same type, `undefined`.
+No information is lost that was ever there (the old arm was `never`), and
+the error arm of a `Result<undefined, E>` is still its `Failure<_, E>`,
+which the phantom `E` keeps distinct. Measured against the ADR's two
+guarantees and the standing probes, on TypeScript 5.4.5, 5.9.3 and 7.0.2:
+
+- A `Success` can never be an `Error`: `Success<Invalid | undefined,
+Other>` is `undefined`, `Success<Invalid, Other>` is `never`, no `Error`
+  and no `Failure` is assignable to `Success<number | undefined, E>`, and
+  the `success` guard (`NotPossiblyAnError`) is untouched.
+- `Result<Result<T>>` is still not assignable to `Result<T>`, for a `T`
+  with and without a nullish member.
+- Every earlier type test passes unchanged except two Box pins, below.
+
+New behaviour, each pinned in `src/result/nullish-success.test-d.ts`:
+`success(undefined)` is `undefined`, `success(null)` is `null`, and neither
+fits `Result<User, E>`, `Result<null, E>` (for `undefined`) or
+`Result<undefined, E>` (for `null`); each fits a `Result` whose value type
+admits it (`Result<User | undefined, E>`, `Result<void, E>`);
+`!isFailure(r)` on a `Result<number | undefined, E>` narrows to `number |
+undefined`; `Result<undefined, E>` is `undefined | Failure<undefined, E>`.
+The Result Box's `box(null)` and `box(undefined)` pins moved with it: the
+two lines that said they do not compile now compile, as `Result<null,
+Error>` and `Result<undefined, Error>`, the primitive rule of #89 (a
+primitive keeps `Error` through `box`). That decision stays #89's; the
+docblock on `ResultBox.box` is corrected to say what compiles.

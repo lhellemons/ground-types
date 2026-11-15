@@ -17,16 +17,22 @@ declare const _phantom: unique symbol
 
 /**
  * The value-carrying case of a {@link Result}, unboxed — a `Success<T>`
- * *is* the `T`. A `Success` can never itself be an `Error`: `T extends
- * Error` collapses to `never` (see docs/adr/0001-unboxed-maybe-and-result.md).
+ * *is* the `T`. A `Success` can never itself be an `Error`: an `Error`
+ * member of `T` is dropped (see docs/adr/0001-unboxed-maybe-and-result.md).
+ * A `null`, `undefined` or `void` member of `T` stays a bare arm of its
+ * own, with no phantom markers, since no marker can be intersected with it
+ * without reducing to `never`; so `Success<undefined, E>` is `undefined`
+ * for every `E`.
  */
-export type Success<T, E extends Error = Error> = (T extends Error
-  ? never
-  : T) & {
-  readonly [_phantom]?: E
-  readonly [_value]?: T
-  readonly [_error]?: never
-}
+export type Success<T, E extends Error = Error> =
+  | (Exclude<T, Error | null | undefined | void> & {
+      readonly [_phantom]?: E
+      readonly [_value]?: T
+      readonly [_error]?: never
+    })
+  // NoInfer: this arm names `T` in a conditional's true branch, where
+  // inference would take a `Failure` for a `T`.
+  | NoInfer<Extract<T, null | undefined | void>>
 
 /**
  * The `Error`-carrying case of a {@link Result}, unboxed — a `Failure` *is*

@@ -22,6 +22,20 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   returned without `failure()` still compiles where `T` is `object`, a union
   with `object`, or an object type whose required members a plain `Error` has
   (`{ name: string }`), as before.
+- **Breaking:** `Success<undefined>`, `Success<null>` and `Success<void>` no
+  longer reduce to `never`; each is the bare `undefined`, `null` or `void`,
+  with no error phantom, and a nullish member of `T` is a Success arm of its
+  own. So `success(undefined)` and `success(null)` are no longer assignable to
+  every `Result`: `(): Result<User, Invalid> => success(undefined)` is now an
+  error, while `Result<User | undefined, Invalid>`, `Result<void, Invalid>`
+  and `Result<undefined, Invalid>` accept it. Narrowing a
+  `Result<number | undefined, E>` with `!isFailure` or `isSuccess` keeps the
+  `undefined` (it narrowed to `number` before, so the branch handling
+  `undefined` was typed unreachable), and `Result<undefined, E>` is
+  `undefined | Failure<undefined, E>` where it was the `Failure` alone.
+  `Result.box(null)` and `Result.box(undefined)` now compile, as
+  `Result<null, Error>` and `Result<undefined, Error>`. Checked on TypeScript
+  5.4, 5.9 and 7.0.
 - **Breaking:** TypeScript 5.4 or later is required, for `NoInfer` on the
   phantom position of `success` and `failure`.
 - **Breaking:** `success` rejects, at any site and with or without type

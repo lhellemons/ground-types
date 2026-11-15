@@ -78,8 +78,8 @@ class ResultBox<R> {
    * chain's result — with both arms exact and no type arguments needed.
    * The way in {@link from} cannot be for a whole object-valued `Result`.
    * A raw object or primitive cannot be rejected: an object takes exactly
-   * `from`'s result; a primitive keeps `Error` in the error arm where
-   * `from` drops it; `null` and `undefined` do not compile through `box`.
+   * `from`'s result; a primitive, `null` and `undefined` included, keeps
+   * `Error` in the error arm where `from` drops it.
    * Which of these promises `box` keeps is open (#89). `Result` only: the
    * other classes' `from` already takes the thing itself, so `box` there
    * would be a mere alias.
