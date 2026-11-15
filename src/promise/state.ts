@@ -1,6 +1,5 @@
 import { nothing } from '../maybe/index.js'
 import type { Maybe } from '../maybe/index.js'
-import { success } from '../result/index.js'
 import type { Result } from '../result/index.js'
 import { fail } from './resultify.js'
 
@@ -104,9 +103,11 @@ export function settledResult<O>(state: State<O>): Maybe<Result<O, Error>> {
   // Cast for the same reason `maybe/fromResult` casts: `Maybe<T>` is a
   // conditional type, and with `O` still an unresolved type parameter it
   // cannot be evaluated, so assignment into it is checked conservatively.
-  return (
-    isFulfilled(state) ? success<O, Error>(state.value) : fail<O>(state.reason)
-  ) as Maybe<Result<O, Error>>
+  // The same `O` is why the value is passed bare rather than through
+  // `success`, whose guard cannot judge it: the cast claims the whole Result.
+  return (isFulfilled(state) ? state.value : fail<O>(state.reason)) as Maybe<
+    Result<O, Error>
+  >
 }
 
 /** A live view of a promise's {@link State}, as produced by {@link stateOf}. */

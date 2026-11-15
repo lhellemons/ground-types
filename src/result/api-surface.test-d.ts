@@ -8,6 +8,7 @@ import type {
   Failure,
   NotAPromise,
   NotAResult,
+  NotPossiblyAnError,
   Result,
   Success,
 } from './index.js'
@@ -46,6 +47,13 @@ describe('/result type exports', () => {
     expectTypeOf<
       NotAResult<Result<number, Error>>
     >().toEqualTypeOf<'This callback returns a Result — use andThen, not map'>()
+  })
+
+  it('NotPossiblyAnError names result() for a value that may be an Error', () => {
+    expectTypeOf<
+      NotPossiblyAnError<unknown>
+    >().toEqualTypeOf<'This value may be an Error — wrap it with result(), not success()'>()
+    expectTypeOf<NotPossiblyAnError<number>>().toEqualTypeOf<unknown>()
   })
 
   it('NotAPromise names the sanctioned lift for a callback returning a Promise', () => {

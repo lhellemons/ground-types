@@ -44,8 +44,9 @@ export type PrimitiveValueObject<
  * instead. For domain errors, use
  * `definePrimitiveValueObject(construct, catchOnly(InvalidValue))`;
  * the error type is inferred from the listed classes when type arguments
- * are omitted (all or none; see above). For handwritten handlers returning
- * `Result<T, E>`, name `T, P, E` explicitly (see docs/adr/0001, 2026-08-04 amendment).
+ * are omitted (all or none; see above). A handwritten handler written with
+ * `failure()` or `result()` infers its error type the same way, with no type
+ * arguments; name `T, P, E` only to override what is inferred.
  * Without a handler, the Failure type is `Error`.
  */
 export function definePrimitiveValueObject<

@@ -95,7 +95,8 @@ failure(new Error())` compiled. No Failure can satisfy `[_error]?: never`.
 | `if (isFailure(r)) return r` into a `Result<string, …>` (Arm B's goal)                                                                                                                                      | error                                       | error                                                         |
 
 Full suite under Arm A: 478 passed, 4 failed, identically on TypeScript
-5.9.3, 6.0.3 and 7.0.2. The four:
+5.9.3, 6.0.3 and 7.0.2 (on 0.4.0, when measured; on main after #84 and #90
+it is 515 passed, 4 failed). The four:
 
 - `index.test-d.ts` "binds failure's single explicit type argument": now
   `Failure<never, Invalid>`, was `Failure<unknown, Invalid>`. Expectation
@@ -116,14 +117,15 @@ Failure<BoxUser, InvalidUser>>`, not assignable to the flat type, so
   overload's output flattens: `result(nested)` with `nested:
 Result<Result<number, Invalid>, Invalid>` is `Result<number, Invalid>`,
   where main rejects it (the nesting invariant on the types is untouched).
-  `Result.success` has no guard; handed to the implementation task and #66.
+  `Result.success` has no guard; handed to the implementation task and #89.
   The raw object case at `:126` does not move (an object keeps `Error`
   under the conservative arm). Four expectations move in all. The
   overload breaks `box`'s promise that a raw value "degrades to exactly
-  `from`'s behaviour" for primitive, `null` and `undefined` raw values
-  only: `Result.from(5)` is `Result<number, never>` while `Result.box(5)`
-  is `Result<number, Error>`. Which promise `box` keeps is for the
-  implementation task and #66.
+  `from`'s behaviour" for a primitive: `Result.from(5)` is
+  `Result<number, never>` while `Result.box(5)` is `Result<5, Error>`
+  (superseded by ADR 0001's amendment as corrected in #88: an object
+  still matches, and `Result.box(null)` and `Result.box(undefined)` do not
+  compile). Which promise `box` keeps is for #89.
 - Note for the implementation task's tests: `failure(narrowed)` with
   `narrowed: Failure<number, Invalid>` is `Failure<never, Failure<number,
 Invalid>>`, which flows into a different `Result<X, Invalid | …>` only

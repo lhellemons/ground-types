@@ -199,11 +199,11 @@ three verified places:
   functional style resurrects the dead arms from the Success phantom at
   the next `pipe` link — recorded here as a wart of the functional style,
   not of the Box.
-- **`Result.success` seeds `E = never`** — the one deliberately divergent
-  default (`result.success` defaults `E = Error`). A known-good seed
-  carries no error arm, so a Box chain's union holds exactly what its
-  links contribute. The functional seed's riding `Error` arm is the
-  corresponding margin note below.
+- **`Result.success` seeds `E = never`**, as `result/success` does since
+  the 2026-11-14 amendment to ADR 0001 (it defaulted `E = Error` before,
+  which made this default divergent). A known-good seed carries no error
+  arm, so a Box chain's union holds exactly what its links contribute.
+  The Box's `success` takes no `NotPossiblyAnError` guard yet (#89).
 
 The error-type union itself survives arbitrarily long chains in both
 styles — measured at 32 links against the real modules, every arm intact,
@@ -425,10 +425,11 @@ of shipping.
    but the diagnostic reads oddly at the call site.
 5. **The functional style resurrects dead error arms** at the link after
    a mid-chain `fallback`, from the Success phantom; the Box does not.
-   Two margin notes travel with this: an unannotated mid-chain `fallback`
-   handler fails to compile in the functional style, and a plain
-   `success(0)` seed rides an `Error` arm the whole functional chain —
-   both absent at the Box boundary (`E = never` seed).
+   A margin note travels with this: an unannotated mid-chain `fallback`
+   handler fails to compile in the functional style, and is absent at the
+   Box boundary. (A second note, that a plain `success(0)` seed rides an
+   `Error` arm the whole functional chain, no longer holds: since the
+   2026-11-14 amendment to ADR 0001 it seeds `E = never`, as the Box does.)
 6. **Structurally identical error classes cannot be told apart** by
    `ifFailure` — lib.d.ts's `RangeError` vs `SyntaxError` — exactly as
    true of `mapError` today; structurally distinct classes reject
@@ -438,9 +439,12 @@ of shipping.
 8. **A dangling Box is accepted.** Nothing forces a terminal; the
    transience rule confines the waste to one function body.
 9. **`Result.from(resultInHand)` typechecks and silently degrades.**
-   Handed a whole `Result` without explicit type arguments, `from` lands
-   the union in the value arm and the error arm becomes a phantom
-   `Error`. Structurally uncloseable — the phantom markers are optional,
+   Handed a whole `Result` without explicit type arguments, `from` takes
+   the same splitting overload as `result()`: for an object-valued
+   `Result` the `Success` half lands in the value arm and the error arm
+   keeps a plain `Error` beside the `Failure`, so the result stays a
+   nested `Result<Success<…>, Failure<…>>`; for a primitive-valued one it
+   flattens (#89). Structurally uncloseable — the phantom markers are optional,
    so no overload can tell a Result from a raw value — hence soft-marked:
    `from`'s docblock steers Results-in-hand at `Result.box`, whose
    parameter is the Result union itself and infers both arms exactly.

@@ -54,3 +54,16 @@ export type ErrorOf<R> =
         : S
       : never
     : never
+
+/**
+ * The error arm `result` infers from a value's type: each `Error` member
+ * of `V` as itself, nothing for a member that provably holds no Error (a
+ * primitive, branded or not, `null` or `undefined`), and `Error` for
+ * every other member (see docs/adr/0001-unboxed-maybe-and-result.md).
+ * Shared by `result` and the Result Box's `from`.
+ */
+export type ErrorArmOf<V> = V extends Error
+  ? V
+  : V extends string | number | boolean | bigint | symbol | null | undefined
+    ? never
+    : Error
