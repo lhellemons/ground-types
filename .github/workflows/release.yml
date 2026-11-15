@@ -27,7 +27,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-          cache: pnpm
       - name: Validate tag version
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -42,9 +41,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          if ! gh release view "$RELEASE_TAG"; then
-            gh release create "$RELEASE_TAG" --verify-tag --generate-notes --draft
-          fi
-          gh release upload "$RELEASE_TAG" release-artifacts/*.tgz --clobber
-          gh release edit "$RELEASE_TAG" --draft=false
+        run: bash scripts/publish-release.sh
