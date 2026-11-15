@@ -11,6 +11,8 @@ const ForeignError = runInNewContext(
   'class ForeignError extends Error {}; ForeignError',
 )
 
+const ForeignTypeError = runInNewContext('TypeError')
+
 function expectThrown(invoke, value) {
   let caught = false
   try {
@@ -64,5 +66,18 @@ describe('foreign-realm errors with a listed class', () => {
     await expect(
       callResultify(catchOnly(ForeignError), () => Promise.reject(error))(),
     ).rejects.toBe(error)
+  })
+})
+
+describe('foreign-realm error constructors as a tryCatch handler', () => {
+  // Not detected: a constructor from another realm is not this realm's
+  // `Error`, so the handler check admits it, and it builds a foreign error
+  // that is not a Failure here. TypeScript rejects it.
+  it('are admitted and return a foreign error as a Success', () => {
+    const result = tryCatch(() => {
+      throw new Error('boom')
+    }, ForeignTypeError)()
+    expect(result).toBeInstanceOf(ForeignTypeError)
+    expect(isFailure(result)).toBe(false)
   })
 })

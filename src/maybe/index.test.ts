@@ -179,6 +179,20 @@ describe('fromResult', () => {
   it('turns a Failure into Nothing, discarding the error', () => {
     expect(fromResult(failure(new Error('bad')))).toBeUndefined()
   })
+
+  it('keeps a value whose Error guard throws as a Just, not the guard error', () => {
+    // `value instanceof Error` throws for a Proxy whose `getPrototypeOf`
+    // trap throws; that RangeError must not escape.
+    const hostile = new Proxy(
+      {},
+      {
+        getPrototypeOf(): never {
+          throw new RangeError('trap')
+        },
+      },
+    )
+    expect(fromResult(hostile as never)).toBe(hostile)
+  })
 })
 
 describe('type-level', () => {

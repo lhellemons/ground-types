@@ -1,5 +1,6 @@
 import type { Maybe } from '../maybe/index.js'
 import { curry } from '../fn/index.js'
+import { isError } from '../internal/is-error.js'
 import type { CurryableMapper, Mapper } from '../fn/index.js'
 /* The phantom-handle symbols and their readers live in ./internal.ts — a
    module deliberately absent from the exports map — so `/result/box` can
@@ -216,10 +217,15 @@ type CheckedClasses<C extends readonly unknown[]> = {
  *
  * Domain code can use `tryCatch(construct, catchOnly(InvalidValue))`
  * or the shorthand `tryCatch(construct, [InvalidValue, OtherError])`.
- * A handler that is neither an array nor a function, or is an error class
- * (a bare class, or a built-in such as `TypeError`), throws a `TypeError`
- * when `tryCatch` is called. The default handler never
- * throws: a value whose `instanceof Error` check throws, or that cannot be
+ * An explicit handler that is neither an array nor a function (`null` and
+ * `undefined` included, where only an absent argument selects the default
+ * handler), or is a class (any function whose source starts with `class`,
+ * error or not), a built-in error constructor such as `TypeError`, or an
+ * ES5-style error constructor, throws a `TypeError` when `tryCatch` is
+ * called. A bound `Error` or a bound class, and an error constructor from
+ * another realm, are not detected, since a bound function hides its target;
+ * a handler bound with `handler.bind(ctx)` is accepted. The default handler
+ * never throws: a value whose `instanceof Error` check throws, or that cannot be
  * rendered, is wrapped in a {@link ThrownError} like any other non-`Error`.
  *
  * Naming `E` explicitly requires supplying the handler that produces it:
@@ -262,18 +268,15 @@ export function tryCatch<
   E extends Error = Error,
 >(
   fn: (...args: Args) => T,
-  errorHandler: Mapper<unknown, Result<T, E>> | readonly unknown[] = (error) =>
-    // The implementation signature is still generic in `E`, so the default
-    // still needs the cast — but the handler-less overload above pins
-    // `E = Error` at every call site that can reach it, which is what the
-    // cast then truthfully claims.
-    (isError(error) ? error : new ThrownError(error)) as Failure<T, E>,
+  ...errorHandler: [] | [Mapper<unknown, Result<T, E>> | readonly unknown[]]
 ): (...args: Args) => Result<T, E> {
-  const handler = Array.isArray(errorHandler)
-    ? (catchOnly as (...classes: unknown[]) => Mapper<unknown, Result<T, E>>)(
-        ...(errorHandler as readonly unknown[]),
-      )
-    : checkedHandler<T, E>(errorHandler)
+  // An absent argument means the default handler; an explicit `undefined` or
+  // `null` (an `undefined` from a circular CommonJS import) is a bad handler
+  // and is refused below, never silently replaced by catch-everything.
+  const handler =
+    errorHandler.length === 0
+      ? defaultHandler<T, E>()
+      : handlerFrom<T, E>(errorHandler[0])
   return function (...args: Args) {
     try {
       return fn(...args) as Result<T, E>
@@ -283,15 +286,22 @@ export function tryCatch<
   }
 }
 
-/* `value instanceof Error`, except that a guard which throws (a Proxy whose
-   `getPrototypeOf` trap throws) answers false instead, so the guard's own
-   error never replaces the value being classified. */
-function isError(value: unknown): value is Error {
-  try {
-    return value instanceof Error
-  } catch {
-    return false
-  }
+/* The implementation signature is still generic in `E`, so the default still
+   needs the cast — but the handler-less overload pins `E = Error` at every
+   call site that can reach it, which is what the cast then truthfully claims. */
+function defaultHandler<T, E extends Error>(): Mapper<unknown, Result<T, E>> {
+  return (error) =>
+    (isError(error) ? error : new ThrownError(error)) as Failure<T, E>
+}
+
+function handlerFrom<T, E extends Error>(
+  errorHandler: Mapper<unknown, Result<T, E>> | readonly unknown[],
+): Mapper<unknown, Result<T, E>> {
+  return Array.isArray(errorHandler)
+    ? (catchOnly as (...classes: unknown[]) => Mapper<unknown, Result<T, E>>)(
+        ...(errorHandler as readonly unknown[]),
+      )
+    : checkedHandler<T, E>(errorHandler)
 }
 
 /* Accepts a function as the handler and refuses everything else. An error
@@ -300,7 +310,7 @@ function isError(value: unknown): value is Error {
 function checkedHandler<T, E extends Error>(
   handler: unknown,
 ): Mapper<unknown, Result<T, E>> {
-  if (typeof handler !== 'function' || isErrorClass(handler)) {
+  if (typeof handler !== 'function' || isClassLike(handler)) {
     throw new TypeError(
       'tryCatch requires an error handler function or a non-empty array of error classes',
     )
@@ -308,11 +318,14 @@ function checkedHandler<T, E extends Error>(
   return handler as Mapper<unknown, Result<T, E>>
 }
 
-/* A function whose source starts with `class`, or whose `prototype` is an
-   Error (the built-in error constructors have native source). A function
-   whose inspection throws is refused too. */
+/* A function whose source starts with `class` (an error class or not), or
+   whose `prototype` is `Error.prototype` or inherits from it (a built-in
+   error constructor, which has native source, or an ES5-style error
+   constructor). A function whose inspection throws is refused too. A bound
+   function hides its target, so a bound class or a bound `Error` is not
+   detected. */
 // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- narrowed by typeof at the call site
-function isErrorClass(candidate: Function): boolean {
+function isClassLike(candidate: Function): boolean {
   try {
     if (
       /^class(?=[\s{/])(?!\s*\()/.test(
@@ -639,14 +652,17 @@ export function fromMaybe<T, E extends Error>(
  *
  * Each class must be an Error class (a private constructor is fine). An
  * empty list throws a `TypeError` when the handler is created, and so does an
- * entry that is not a function, or is a non-native function with neither an
- * object `prototype` nor a custom `Symbol.hasInstance`, own or inherited
- * (such as `undefined`, an arrow function or a method), or an entry whose
- * inspection throws (a revoked proxy, a throwing `Symbol.hasInstance`
- * getter). A function is native when its source text says `[native code]`:
- * `Math.max`, `Symbol` and bound functions are admitted. An entry that throws
- * inside `instanceof` later, such as a proxy revoked after the handler is
- * created, counts as not matching.
+ * entry that is not a function, or is a non-native function with neither a
+ * custom `Symbol.hasInstance`, own or inherited, nor an object `prototype`
+ * with `Error.prototype` on its chain (such as `undefined`, an arrow function,
+ * a method, `Object`, or a class that does not extend `Error`), or an entry
+ * whose inspection throws (a revoked proxy, a throwing `Symbol.hasInstance`
+ * getter). A function from another realm is not checked, since its inherited
+ * `Symbol.hasInstance` is not this realm's. A function is native when its source text
+ * says `[native code]`: `Math.max`, `parseInt` and bound functions are admitted,
+ * whatever they are bound to. An entry that throws inside `instanceof` later,
+ * such as a proxy revoked after the handler is created, counts as not
+ * matching.
  *
  * Use `tryCatch(construct, catchOnly(InvalidValue))` for domain code.
  */
@@ -681,9 +697,13 @@ export function catchOnly(
 }
 
 /* Checks the shape without calling the entry or its `Symbol.hasInstance`
-   (an accessor getter or a Proxy get trap does run at creation). A bound
-   class has neither an own object `prototype` nor a custom `hasInstance`, so
-   it is recognised by being a native function. */
+   (an accessor getter or a Proxy get trap does run at creation). An entry is
+   usable when it has a custom `hasInstance`, or an object `prototype` with
+   `Error.prototype` on its chain: `Object` and a plain `function () {}` have
+   an object `prototype` and would match every error, so they are refused. A
+   bound class has neither an own object `prototype` nor a custom
+   `hasInstance`, so it is recognised by being a native function, which also
+   admits a bound `Object`: a bound function hides its target. */
 function isUsableClass(candidate: unknown): boolean {
   if (typeof candidate !== 'function') return false
   try {
@@ -697,7 +717,12 @@ function isUsableClass(candidate: unknown): boolean {
       return true
     }
     const prototype = (candidate as { prototype?: unknown }).prototype
-    if (typeof prototype === 'object' && prototype !== null) return true
+    if (typeof prototype === 'object' && prototype !== null) {
+      return (
+        prototype === Error.prototype ||
+        Object.prototype.isPrototypeOf.call(Error.prototype, prototype)
+      )
+    }
     return /\[native code\]/.test(Function.prototype.toString.call(candidate))
   } catch {
     return false

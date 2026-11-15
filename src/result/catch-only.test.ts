@@ -46,6 +46,37 @@ describe('catchOnly', () => {
   })
 })
 
+describe('catchOnly(Object) from plain JS', () => {
+  const unchecked = catchOnly as (...classes: unknown[]) => unknown
+  it('is refused at creation instead of turning a bug into a Failure', () => {
+    expect(() => unchecked(Object)).toThrow(/catchOnly entry 0/)
+    expect(() => tryCatch(() => 1, [Object] as never)).toThrow(TypeError)
+  })
+  it('is refused for a class that is not an Error subclass, alone or in a list', () => {
+    class Plain {}
+    expect(() => unchecked(Plain)).toThrow(TypeError)
+    expect(() => unchecked(A, Plain)).toThrow(/catchOnly entry 1/)
+  })
+  it('still catches Error.prototype itself and everything below it', () => {
+    const handler = catchOnly(Error)
+    for (const error of [new Error(), new TypeError(), new A()]) {
+      expect(handler(error)).toBe(error)
+    }
+    const bug = new TypeError('bug')
+    expectThrow(() => catchOnly(A)(bug), bug)
+  })
+  it('admits an entry whose own Symbol.hasInstance decides', () => {
+    class Matcher {
+      static [Symbol.hasInstance](value: unknown) {
+        return value instanceof Error && value.message === 'match'
+      }
+    }
+    const handler = unchecked(Matcher) as (e: unknown) => unknown
+    const error = new Error('match')
+    expect(handler(error)).toBe(error)
+  })
+})
+
 describe('catchOnly list validation', () => {
   it('throws a TypeError at creation for an empty list', () => {
     expect(() => (catchOnly as (...classes: unknown[]) => unknown)()).toThrow(
@@ -67,6 +98,27 @@ describe('catchOnly list validation', () => {
       Object.assign(function () {}, { prototype: 1 }),
       Object.defineProperty(() => {}, Symbol.hasInstance, { value: 1 }),
       Object.assign(function () {}, { prototype: null }),
+      // An object `prototype` without `Error.prototype` on its chain would
+      // match every error (`Object`) or none (a class that is not an Error).
+      Object,
+      function () {},
+      class Plain {},
+      class extends Map {},
+      Symbol,
+      Object.assign(function () {}, {
+        prototype: Object.create(null) as object,
+      }),
+      Object.assign(function () {}, { prototype: {} }),
+      Object.assign(function () {}, {
+        prototype: new Proxy(
+          {},
+          {
+            getPrototypeOf(): never {
+              throw new RangeError('trap')
+            },
+          },
+        ),
+      }),
     ]
     for (const entry of unusable) {
       expect(() =>
@@ -75,9 +127,20 @@ describe('catchOnly list validation', () => {
       expect(() => tryCatch(() => 1, [entry] as never)).toThrow(TypeError)
     }
   })
-  it('accepts classes, bound classes and function declarations', () => {
+  it('accepts classes, bound classes and ES5-style error constructors', () => {
     function Legacy() {}
-    for (const entry of [A, A.bind(null), Legacy]) {
+    Legacy.prototype = Object.create(Error.prototype) as object
+    function LegacyInstance() {}
+    LegacyInstance.prototype = new RangeError()
+    for (const entry of [
+      A,
+      B,
+      Error,
+      TypeError,
+      A.bind(null),
+      Legacy,
+      LegacyInstance,
+    ]) {
       expect(() =>
         (catchOnly as (...classes: unknown[]) => unknown)(entry),
       ).not.toThrow()
@@ -169,7 +232,7 @@ describe('catchOnly entries with custom behaviour', () => {
     }
   })
   it('accepts native functions and counts them as not matching', () => {
-    for (const entry of [Math.max, parseInt, Symbol]) {
+    for (const entry of [Math.max, parseInt]) {
       const handler = (
         catchOnly as (...classes: unknown[]) => (e: unknown) => unknown
       )(entry)
@@ -184,6 +247,7 @@ describe('catchOnly entries with custom behaviour', () => {
   })
   it('rethrows the original error when an entry fails later', () => {
     function Legacy() {}
+    Legacy.prototype = Object.create(Error.prototype) as object
     const handler = (
       catchOnly as (...classes: unknown[]) => (e: unknown) => unknown
     )(Legacy)
@@ -257,9 +321,18 @@ describe('tryCatch default handler', () => {
 })
 
 describe('tryCatch handler dispatch', () => {
-  it('throws a TypeError at creation for a handler that is neither an array nor a function', () => {
+  it('throws a TypeError at creation for a handler that is not a usable function or class list', () => {
     class Bare extends Error {}
+    // Built with `Function` so the source text starts `class{` and
+    // `class/*`, the other two characters the class check looks ahead for.
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const braced = new Function('return class{}')() as unknown
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const commented = new Function('return class/*c*/Foo {}')() as unknown
     for (const handler of [
+      braced,
+      commented,
+      class Foo extends Map {},
       Bare,
       class {},
       class Named extends Error {},
@@ -278,11 +351,29 @@ describe('tryCatch handler dispatch', () => {
       'handler',
       1,
       null,
+      undefined,
     ]) {
       expect(() => tryCatch(() => 1, handler as never)).toThrow(
         /tryCatch requires an error handler function/,
       )
     }
+  })
+  it('refuses an explicit undefined or null handler instead of catching everything', () => {
+    const boom = () => throws('bad')
+    expect(() => tryCatch(boom, undefined as never)).toThrow(TypeError)
+    expect(() => tryCatch(boom, null as never)).toThrow(TypeError)
+    const maybeHandler: unknown = (() => undefined)()
+    expect(() => tryCatch(boom, maybeHandler as never)).toThrow(TypeError)
+    // Forwarded as is, so a spread of an optional handler is refused too.
+    const forwarded = [undefined] as const
+    expect(() =>
+      (tryCatch as (...args: unknown[]) => unknown)(boom, ...forwarded),
+    ).toThrow(TypeError)
+  })
+  it('uses the catch-everything default only when the handler is absent', () => {
+    const result = tryCatch(() => throws('bad'))()
+    expect(result).toBeInstanceOf(ThrownError)
+    expect((result as ThrownError).thrown).toBe('bad')
   })
   it('accepts function handlers, including methods named like a class', () => {
     const error = new A()
@@ -335,8 +426,35 @@ describe('tryCatch handler dispatch', () => {
     revocable.revoke()
     expect(() => tryCatch(() => 1, revocable.proxy as never)).toThrow(TypeError)
   })
-  /* Known limitation: a bound class has `[native code]` source and no
-     `prototype`, so it passes creation and fails on the error path. */
+  /* A bound function hides its target, so only what the bound function itself
+     reveals is checked: a bound Error subclass is refused, while a bound
+     `Error` or a bound class that is not an Error subclass passes creation
+     and runs as a handler. A bound handler is accepted. TypeScript rejects
+     all three bound classes. */
+  it('refuses a bound Error subclass but not a bound base class', () => {
+    const boom = () => throws('bad')
+    expect(() => tryCatch(boom, A.bind(null) as never)).toThrow(TypeError)
+    expect(() => tryCatch(boom, TypeError.bind(null) as never)).toThrow(
+      TypeError,
+    )
+    class Plain {}
+    expect(() => tryCatch(boom, Plain.bind(null) as never)).not.toThrow()
+    expect(() => tryCatch(boom, Error.bind(null) as never)).not.toThrow()
+  })
+  it('replaces the error with a fresh Error for a bound Error handler', () => {
+    const original = new A('original')
+    const result = tryCatch(() => throws(original), Error.bind(null) as never)()
+    expect(result).toBeInstanceOf(Error)
+    expect(result).not.toBe(original)
+  })
+  it('accepts a bound handler', () => {
+    const error = new A()
+    const handler = function (this: { tag: string }, e: unknown) {
+      return Object.assign(e as A, { tag: this.tag })
+    }.bind({ tag: 'bound' })
+    expect(tryCatch(() => throws(error), handler)()).toBe(error)
+    expect(error).toHaveProperty('tag', 'bound')
+  })
 })
 
 describe('error classes with a private constructor', () => {

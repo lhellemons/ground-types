@@ -85,6 +85,41 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   `getPrototypeOf` trap throws, `catchOnly` rethrows the original value and
   the default `tryCatch` handler wraps it in a `ThrownError`. `ThrownError`
   no longer throws while rendering a Proxy whose `get` trap throws.
+- **Breaking:** `catchOnly` (and so the `tryCatch` shorthand) now throws a
+  `TypeError` at creation for an entry that is a non-native function with an
+  object `prototype` but no `Error.prototype` on that prototype's chain, and
+  no custom `Symbol.hasInstance`: `catchOnly(Object)` from plain JS, a class
+  that does not extend `Error`, `Symbol`, or a function declaration whose
+  `prototype` was never set to inherit from `Error.prototype`. Before, such an
+  entry matched every `Error`, so `catchOnly(Object)(new TypeError('bug'))`
+  turned a programming bug into a Failure. An ES5-style error constructor
+  (`Legacy.prototype = Object.create(Error.prototype)`), a class with its own
+  `Symbol.hasInstance`, a native function without a `prototype` and a bound
+  function are still admitted; a bound function hides its target, so a bound
+  `Object` still passes. TypeScript already rejected these entries.
+- **Breaking:** `tryCatch(fn, undefined)` and
+  `definePrimitiveValueObject(construct, undefined)` now throw a `TypeError`,
+  and `definePrimitiveValueObject(construct, null)` does too. Only an absent
+  argument selects the default handler; before, a falsy one silently selected
+  the catch-everything default, and so an `undefined` from a circular
+  CommonJS import still became catch-everything. Omit the argument, or pass a
+  handler.
+- `promise/fail` wraps a rejection reason in a `RejectionError` when its
+  `instanceof Error` check throws (a Proxy whose `getPrototypeOf` trap
+  throws), and `maybe/fromResult` keeps such a value as a `Just`. Before, the
+  trap's error replaced the reason: `resultify(fail)(Promise.reject(proxy))`
+  rejected with it.
+- The `tryCatch` handler check is now stated as the code applies it: it refuses
+  any function whose source starts with `class` (an error class or not, so
+  `class {}` and `class Foo extends Map {}` too), any function whose
+  `prototype` is `Error.prototype` or inherits from it (`TypeError` and the
+  other built-ins, an ES5-style error constructor), and any function whose
+  inspection throws. It does not detect a bound `Error` or bound class, which
+  passes as a handler (`tryCatch(fn, Error.bind(null))` returns a fresh
+  `Error` as the Failure), or an error constructor from another realm (it
+  returns a foreign error as a Success), because a bound function hides its
+  target; TypeScript rejects both. A handler bound with `handler.bind(ctx)`
+  is accepted.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`
