@@ -6,8 +6,15 @@
 #
 #   no release yet     create a draft, upload the tarball, publish
 #   draft              (re)upload the tarball, publish
-#   already published  succeed if the published asset is byte-identical,
+#   already published  succeed if the published asset has the same contents,
 #                      otherwise fail without touching the release
+#
+# A tag with a hyphen before any `+` (v1.0.0-rc.1) is created and published as
+# a pre-release and is never Latest. A plain tag is Latest only when no higher
+# stable vX.Y.Z is published, among the newest 100 releases.
+#
+# Any step that fails leaves the release a draft, so a rerun completes it.
+# test/release/publish-release.test.ts drives this script with a stub `gh`.
 set -euo pipefail
 
 : "${RELEASE_TAG:?RELEASE_TAG must be set}"
@@ -21,9 +28,10 @@ fi
 tarball=${tarballs[0]}
 asset=$(basename "$tarball")
 
-# A version with a hyphen (v1.0.0-rc.1) is a pre-release.
+# The version without build metadata, which may itself contain a hyphen.
+core=${RELEASE_TAG%%+*}
 prerelease=false
-case "$RELEASE_TAG" in
+case "$core" in
   *-*) prerelease=true ;;
 esac
 
@@ -42,17 +50,33 @@ else
   exit 1
 fi
 
+# Anything else would fall through to replacing the asset.
+case "$is_draft" in
+  true | false | none) ;;
+  *)
+    echo "::error::Unexpected isDraft value '$is_draft' for release $RELEASE_TAG"
+    exit 1
+    ;;
+esac
+
 if [ "$is_draft" = false ]; then
   # Already public: consumers may be installing it, so never replace the asset.
-  if ! gh release download "$RELEASE_TAG" --pattern "$asset" --dir "$work/published"; then
-    echo "::error::Release $RELEASE_TAG is already published and has no downloadable asset $asset. Refusing to modify a published release."
+  if ! gh release download "$RELEASE_TAG" --pattern "$asset" --dir "$work/published" 2>"$work/download.err"; then
+    cat "$work/download.err" >&2
+    echo "::error::Could not download $asset from the published release $RELEASE_TAG: it has no such asset, or the download failed. Refusing to modify a published release. If the asset is missing, convert the release back to a draft and rerun."
     exit 1
   fi
-  if cmp -s "$tarball" "$work/published/$asset"; then
+  published=$work/published/$asset
+  if cmp -s "$tarball" "$published"; then
     echo "Release $RELEASE_TAG is already published with an identical $asset. Nothing to do."
     exit 0
   fi
-  echo "::error::Release $RELEASE_TAG is already published and its $asset differs from this build (published sha256 $(sha256sum "$work/published/$asset" | cut -d' ' -f1), built sha256 $(sha256sum "$tarball" | cut -d' ' -f1)). Refusing to replace a published asset; release a new version instead."
+  # The same contents can compress to different bytes under another zlib.
+  if cmp -s <(gzip -dc "$tarball") <(gzip -dc "$published"); then
+    echo "Release $RELEASE_TAG is already published with the same contents in $asset, compressed differently. Nothing to do."
+    exit 0
+  fi
+  echo "::error::Release $RELEASE_TAG is already published and its $asset differs from this build (published sha256 $(sha256sum "$published" | cut -d' ' -f1), built sha256 $(sha256sum "$tarball" | cut -d' ' -f1)). Refusing to replace a published asset; release a new version instead."
   exit 1
 fi
 
@@ -68,16 +92,19 @@ gh release upload "$RELEASE_TAG" "$tarball" --clobber
 
 # Only the newest stable version is Latest: never a pre-release or a back-port
 # tagged after a newer stable release. Publishing a draft marks it Latest unless
-# told otherwise.
+# told otherwise. The list is fetched on its own line so a failure stops the
+# script instead of reading as "no other release".
 latest=true
 if [ "$prerelease" = true ]; then
   latest=false
 else
-  highest=$(gh release list --limit 100 --json tagName,isDraft,isPrerelease \
-    --jq '.[] | select(.isDraft | not) | select(.isPrerelease | not) | .tagName' |
-    grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+  tags=$(gh release list --exclude-drafts --exclude-pre-releases --limit 100 --json tagName --jq '.[].tagName') || {
+    echo "::error::Could not list releases to decide Latest. The release stays a draft; rerun to complete it."
+    exit 1
+  }
+  highest=$(printf '%s\n' "$tags" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
   if [ -n "$highest" ] &&
-    [ "$(printf '%s\n%s\n' "$highest" "$RELEASE_TAG" | sort -V | tail -n 1)" != "$RELEASE_TAG" ]; then
+    [ "$(printf '%s\n%s\n' "$highest" "$core" | sort -V | tail -n 1)" != "$core" ]; then
     latest=false
   fi
 fi

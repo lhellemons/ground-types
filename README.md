@@ -57,11 +57,16 @@ attaches the tarball to the GitHub Release:
   succeeds, so a failed run never leaves a public release without its tarball.
 - Rerunning the workflow completes a draft left behind by a failed upload.
 - A release that is already public is never modified. A rerun succeeds without
-  changes when the published tarball is byte-identical to the new build, and
-  fails when it differs. To change a published release, ship a new version.
+  changes when the published tarball has the same contents as the new build
+  (the compression may differ), and fails when it differs. To change a
+  published release, ship a new version. A published release that lacks the
+  tarball also fails: convert it back to a draft and rerun.
 - A version with a hyphen (`v1.0.0-rc.1`) is published as a pre-release. Only the
   highest plain `vX.Y.Z` release is marked Latest, so a pre-release or a
   back-port tag never takes that mark. The check looks at the newest 100 releases.
+- Release runs share one concurrency group, so tags pushed together run one at
+  a time. GitHub keeps only one waiting run per group: if a third tag's run is
+  cancelled, rerun it.
 
 Registry publishing remains out of scope.
 
