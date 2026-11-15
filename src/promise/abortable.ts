@@ -22,10 +22,11 @@ function isPromise(value: unknown): value is Promise<unknown> {
 
 /* Calls `onFulfilled` or `onRejected` when `value` settles, which is `value`
    followed as a native resolve function follows it. `then` is the function
-   read from `value`. `Promise.prototype.then` is called on `value` at once; any
-   other `then` is called from a job of a native promise that is resolved with
-   it, so its callbacks run once at most and a thenable it resolves with is
-   followed in turn. Throws what the call throws. */
+   read from `value`. `Promise.prototype.then` is called on `value` at once,
+   and what the call throws is thrown. Any other `then` is called from a job of
+   a native promise that is resolved with it, so its callbacks run once at most,
+   a thenable it resolves with is followed in turn, and what the call throws
+   rejects that promise. */
 function follow(
   value: unknown,
   then: (onFulfilled: unknown, onRejected: unknown) => unknown,
@@ -373,10 +374,11 @@ export class AbortablePromise<T> extends Promise<T> {
   /**
    * Links the abort of `combined` to its members: aborting it calls `abort()`
    * on each member that is an AbortablePromise (`#isAbortablePromise`) with a
-   * function `then`, when `combined` is made and again when it is aborted.
-   * Every such member is aborted even when one `abort()` throws; the first
-   * error is thrown after the last. A member that settles first aborts no
-   * other (see docs/adr/0002-abort-propagation.md).
+   * function `then`, chosen when `combined` is made, and that is still an
+   * AbortablePromise when `combined` is aborted. `abort()` is called on every
+   * such member even when one throws; the first error is thrown after the last.
+   * A member that settles first aborts no other (see
+   * docs/adr/0002-abort-propagation.md).
    */
   static #abortMembersWith(
     combined: AbortablePromise<unknown>,
@@ -544,10 +546,10 @@ export class AbortablePromise<T> extends Promise<T> {
             // upstream link: the delegate is where the work actually is, and
             // rejecting only the outer promise would leave it running. The
             // adoption has been started before the link is registered: a
-            // native delegate already has its handlers, and any other has a
-            // job queued that calls its `then`, which runs before a rejection
-            // is reported as unhandled, also for a link that fires at once
-            // because `resolve` came after the abort.
+            // delegate whose `then` is `Promise.prototype.then` already has its
+            // handlers, and any other has a job queued that calls its `then`,
+            // which runs before a rejection is reported as unhandled, also for
+            // a link that fires at once because `resolve` came after the abort.
             if (AbortablePromise.#isAbortablePromise(adopted)) {
               state.link(() => {
                 if (AbortablePromise.#isAbortablePromise(adopted)) {
@@ -583,8 +585,8 @@ export class AbortablePromise<T> extends Promise<T> {
    *
    * Throws only when the abort reaches a promise whose own `abort()` throws —
    * a subclass's override, say, on the promise this one was derived from, a
-   * delegate or a fan-in member. Every promise the abort reaches is still
-   * aborted, and the first error is thrown after the last. Called through a
+   * delegate or a fan-in member. `abort()` is called on every promise the
+   * abort reaches, and the first error is thrown after the last. Called through a
    * signal that aborts later ({@link AbortablePromise.abortOn}, a controller
    * passed to the constructor, {@link AbortablePromise.peer}), the error is
    * thrown inside the signal's event listener, where the platform reports it as

@@ -264,45 +264,70 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   whoever called `resolve` later, in which case the promise stayed pending
   forever. A thenable Proxy whose `getPrototypeOf` trap throws is now adopted;
   before, the trap's error was thrown to the caller of `resolve` in the same two
-  ways. The `then` of a native promise is read once, and its `constructor` is
-  read once, by the species lookup of `then`, as `new Promise` reads them.
-  Before, `then` was read a second time and `constructor` a second time, by
-  `Promise.resolve`. A `then` or `constructor` getter that throws only on its
-  second read now fulfils the promise, and a `constructor` getter that throws
-  only on its first read rejects it, as they do for `new Promise`.
+  ways. An `AbortablePromise` whose prototype is such a Proxy is adopted too,
+  and is not aborted with the outer promise; before, `resolve` threw.
+- The `then` of every thenable that an executor resolves with (a native
+  promise, an `AbortablePromise`, any other) is read once, and the function from
+  that read is called, as `new Promise` does. Before, it was read twice: by the
+  check for a thenable, and by the `then` called on `Promise.resolve(delegate)`.
+  A getter that throws only on its second read now fulfils the promise, where it
+  rejected, and a getter that returns a new function on each read now has the
+  first called, where the second was. The `constructor` of a native promise or
+  of an `AbortablePromise` is read once, by the species lookup of `then`;
+  before, `Promise.resolve` read it, and so did the `then` called on the promise
+  it returned. A `constructor` getter that throws only on its second read now
+  fulfils the promise, and one that throws only on its first rejects it, as
+  they do for `new Promise`.
+- How a delegate is followed depends on its `then`. A delegate whose `then` is
+  the `Promise.prototype.then` captured when the module loads (a native promise,
+  or an instance of a Promise subclass that does not override `then`, whatever
+  its `constructor`) has it called from within `resolve`: a subclass's species
+  constructor, user code, runs before `resolve` returns, and the outer promise
+  settles one turn sooner than for `new Promise`. An instance of a plain
+  Promise subclass settles the outer promise in two turns, where it took four,
+  and so does a native promise whose `constructor` was replaced. A subclass
+  that overrides `then`, `AbortablePromise` included, is followed as before.
+  A delegate whose `then` is anything else, such as an own or spied `then` on a
+  native promise, or a `Promise.prototype.then` patched after the module loaded
+  (which is every native delegate), has it called from a job and settles the
+  outer promise two turns later than before, in four turns where it took two.
 - A delegate is followed before the upstream link to it is registered. Before,
   the link was registered first: for a `resolve` that came after the abort, the
-  link fired at once, a throw from the delegate's `abort()` reached the caller
-  of `resolve`, and the delegate was left with no handler, so its rejection was
-  unhandled and ends a Node process. Now a native delegate has its handlers
-  attached by then, and any other has a job queued that calls its `then`, which
-  runs before a rejection is reported as unhandled; and a throw from a link that
-  fires at once is dropped, since the promise is already settled. A delegate
-  whose own `then` subscribes nothing is still unhandled, as before.
+  link fired at once, and when the delegate's `abort()` threw, the error reached
+  the caller of `resolve` and the delegate was left with no handler, so its
+  rejection was unhandled and ends a Node process. Now a delegate whose `then`
+  is the captured `Promise.prototype.then` has its handlers attached by then,
+  and any other has a job queued that calls its `then`, which runs before a
+  rejection is reported as unhandled; and a throw from a link that fires at
+  once is dropped, since the promise is already settled. A delegate whose own
+  `then` subscribes nothing is still unhandled, as before.
 - Aborting the promise returned by `all`, `race`, `any` or `allSettled` aborts
   every `AbortablePromise` member whose `then` is a function, which are the
   members the combinator can subscribe to. A throw from one member's `abort()`
-  no longer stops the loop: every member is aborted, then the first error is
-  thrown. Before, the throw (a subclass's override, an `abort` assigned to the
-  instance, a derived member whose upstream `abort()` throws) ended the loop and
-  left the members after it running, and so did the trap of a Proxy whose
-  `getPrototypeOf` throws, or a revoked Proxy, which are now skipped without
-  `abort()` throwing. A member whose `then` was replaced by a non-function was
-  taken by the combinator as a plain value, and one with a `then` getter that
-  throws was taken as a member rejected with the getter's error: neither had a
-  handler, and aborting it rejected it unhandled,
-  which ends a Node process. They are no longer aborted. A member with a `then`
+  no longer stops the loop: `abort()` is called on every member, then the first
+  error is thrown. Before, the throw (a subclass's override, an `abort` assigned
+  to the instance, a derived member whose upstream `abort()` throws) ended the
+  loop and left the members after it running, and so did the trap of a Proxy
+  whose `getPrototypeOf` throws, or a revoked Proxy, which are now skipped
+  without `abort()` throwing. A member whose `then` was replaced by a
+  non-function was taken by the combinator as a plain value, and one with a
+  `then` getter that throws was taken as a member rejected with the getter's
+  error: neither had a handler, and aborting it rejected it unhandled, which
+  ends a Node process. They are no longer aborted. A member with a `then`
   function that subscribes nothing is still aborted, and unhandled, as before.
   A member whose prototype is swapped after the combinator was made is skipped
-  when it is aborted, as it was before. The same holds for the links of one
-  promise (an executor that resolves twice with delegates): `abort()` fires each
-  link, then throws the first error. A promise's signal listeners are released
-  even when a link throws; before, they stayed on the signal until it aborted. A
-  throw reached through a signal that aborts later (`abortOn`, a controller
-  passed to the constructor, `peer`) is thrown inside the signal's event
-  listener and so reported as an uncaught exception, as before; `abortOn` with
-  a signal that has already aborted throws it to the caller of `abortOn`, as
-  before.
+  when it is aborted, as it was before, and so is a delegate swapped after
+  `resolve`, where `abort()` threw a `TypeError` (`abort is not a function`).
+  `Object.create(AbortablePromise.prototype)`, as a member or a delegate, is
+  skipped too, where `abort()` threw a `TypeError` ("Cannot read private
+  member"). The same holds for the links of one promise (an executor that
+  resolves twice with delegates): `abort()` fires each link, then throws the
+  first error. A promise's signal listeners are released even when a link
+  throws; before, they stayed on the signal until it aborted. A throw reached
+  through a signal that aborts later (`abortOn`, a controller passed to the
+  constructor, `peer`) is thrown inside the signal's event listener and so
+  reported as an uncaught exception, as before; `abortOn` with a signal that
+  has already aborted throws it to the caller of `abortOn`, as before.
 - "Is an `AbortablePromise`", asked by `of`, the four combinators and an
   executor that resolves with a thenable, now asks whether the value carries the
   private field that only this class's constructor sets, and whether
@@ -336,13 +361,6 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   instead of using `instanceof`, so `Promise[Symbol.hasInstance]` is no longer
   consulted. A value whose chain cannot be walked is not one, and goes where any
   other value goes.
-- A delegate that is an instance of a Promise subclass is followed by calling
-  `Promise.prototype.then` on it from within `resolve`. Its species
-  constructor, user code, runs before `resolve` returns, and the outer promise
-  settles two turns sooner than before and one turn sooner than for
-  `new Promise`. Before, `Promise.resolve` wrapped it and its `then` was called
-  from a job. A native promise whose `constructor` is `Promise` is followed as
-  it was.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`

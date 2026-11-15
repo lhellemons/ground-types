@@ -997,8 +997,8 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
       })
 
       it('does not abort a member through a binding Proxy over it', async () => {
-        // Abort reaches a member through its private state, which no Proxy
-        // forwards, whatever its traps do with methods.
+        // A Proxy has no private field of the class, so it is no member to
+        // abort, whatever its traps do with methods.
         let aborted = false
         const target = new AbortablePromise<string>(
           (_resolve, _reject, ctx) => {
@@ -1249,6 +1249,37 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     expect(() => outer.abort()).not.toThrow()
 
     await expect(outer).rejects.toSatisfy(isAbortError)
+  })
+
+  it('follows a delegate in the turns its then allows', async () => {
+    class Sub<T> extends Promise<T> {}
+    class Overriding<T> extends Promise<T> {
+      override then<A = T, B = never>(
+        onFulfilled?: ((value: T) => A | PromiseLike<A>) | null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        onRejected?: ((reason: any) => B | PromiseLike<B>) | null,
+      ): Promise<A | B> {
+        return super.then(onFulfilled, onRejected)
+      }
+    }
+    const spied = () => {
+      const promise = Promise.resolve('value')
+      return Object.assign(promise, {
+        then(...args: Parameters<Promise<string>['then']>) {
+          return Promise.prototype.then.apply(promise, args)
+        },
+      })
+    }
+    const turns = (make: () => unknown) =>
+      turnsToSettle(() => new AbortablePromise((resolve) => resolve(make())))
+
+    // The `then` captured at load is called at once: two turns, where a
+    // subclass instance took four, and a native resolve takes three.
+    expect(await turns(() => Sub.resolve('value'))).toBe(2)
+    // Any other `then` is called from a job: four turns.
+    expect(await turns(() => Overriding.resolve('value'))).toBe(4)
+    expect(await turns(() => AbortablePromise.resolve('value'))).toBe(4)
+    expect(await turns(spied)).toBe(4)
   })
 
   it('follows a delegate with the Promise it captured, not the global one', async () => {
@@ -2044,8 +2075,8 @@ describe('AbortablePromise unhandled rejections', () => {
   })
 
   it('leaves none behind when a delegate is aborted', async () => {
-    // The adoption attaches handlers to the delegate before anything can abort
-    // it, so the rejection the propagation causes is already accounted for.
+    // The adoption is started before the link to the delegate is registered,
+    // so the rejection the propagation causes is already accounted for.
     const unhandled = await unhandledDuring(() => {
       const work = new AbortablePromise<string>(() => {})
       const ap = new AbortablePromise<string>((resolve) => resolve(work))

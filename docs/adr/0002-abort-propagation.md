@@ -101,16 +101,17 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   `AbortablePromise.prototype` is on its chain (answering false when the walk
   throws). The combinators abort the members they can subscribe to: the
   members of that kind whose `then` is a function. A member whose `then` is no
-  function was taken as a plain value, and one whose `then` getter throws was taken
-  as a member rejected with the getter's error; neither has a handler, so
+  function was taken as a plain value, and one whose `then` getter throws was
+  taken as a member rejected with the getter's error; neither has a handler, so
   aborting it is an unhandled rejection. A `then` function that subscribes
   nothing is not detected and is aborted. The combinators call the member's
   `abort()`, so a subclass's override is honoured, as it is by `then`'s
   upstream link; they check again when the combined promise is aborted, so a
-  member whose prototype was swapped since is skipped; and every member is
-  aborted even when one `abort()` throws, the first error being thrown after
+  member whose prototype was swapped since is skipped; and `abort()` is called
+  on every member even when one throws, the first error being thrown after
   the last. A Proxy over an `AbortablePromise` is not one, whatever its traps
-  do, and neither is a member whose prototype was swapped. Reached through a
+  do, and neither is a member whose prototype was swapped to one that does not
+  inherit `AbortablePromise.prototype`. Reached through a
   signal that aborts later, the error is thrown inside the signal's event
   listener, which the platform reports as an uncaught exception; `abortOn`
   with a signal that has already aborted throws it to the caller of `abortOn`.
@@ -155,17 +156,18 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
     a link late enough to need it.
 
   The rejection this causes in the delegate is handled: the adoption is
-  started before the upstream link to it is registered. A native delegate
-  has its handlers attached at once; any other has a job queued that calls
-  its `then`, which runs before a rejection is reported as unhandled, also
-  for a link that fires at once because the `resolve` came after the abort.
-  A delegate whose own `then` subscribes nothing stays unhandled. A test
-  pins that.
+  started before the upstream link to it is registered. A delegate whose
+  `then` is the `Promise.prototype.then` captured at load has its handlers
+  attached at once; any other has a job queued that calls its `then`, which
+  runs before a rejection is reported as unhandled, also for a link that
+  fires at once because the `resolve` came after the abort. A delegate whose
+  own `then` subscribes nothing stays unhandled. A test pins that.
 
   **Update, 2026-11-15:** delegation recognises its delegate by the same
-  checks as fan-in, checks again when it is aborted, and calls its `abort()` the same way: a subclass's
-  override, an `abort` assigned or spied on the instance and a patched
-  `AbortablePromise.prototype.abort` are called. A throw from it ends neither
+  checks as fan-in, checks again when it is aborted, and calls its
+  `abort()` the same way: a subclass's override, an `abort` assigned or
+  spied on the instance and a patched `AbortablePromise.prototype.abort` are
+  called. A throw from it ends neither
   the loop over the promise's upstream links nor the abort: each link fires,
   then the first error is thrown, and the signal bindings are released
   either way. A throw from a link that fires at once, for a `resolve` after
