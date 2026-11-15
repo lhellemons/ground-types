@@ -15,19 +15,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `catchOnly` (and so the `tryCatch` shorthand) now throws a
   `TypeError` when the handler is created, if the class list is empty or holds
   an entry that is not a function, or a non-native function with neither an
-  object `prototype` nor its own `Symbol.hasInstance` (such as `undefined`, an
-  arrow function or a method). Before, a bad entry threw on the error path and
-  replaced the original error, so a list holding one (an `undefined` from a
-  circular CommonJS import) loaded on 0.4.0 and now throws at creation. Native
-  functions such as `Math.max` or a bound function are still admitted, and an
-  entry that fails inside `instanceof`, such as a revoked proxy, counts as not
-  matching: the original error is rethrown unless a later entry matches.
+  object `prototype` nor a custom `Symbol.hasInstance`, own or inherited (such
+  as `undefined`, an arrow function or a method), or an entry whose inspection
+  throws, such as a revoked proxy or a throwing `Symbol.hasInstance` getter.
+  Before, a bad entry threw on the error path and replaced the original error,
+  so a list holding one (an `undefined` from a circular CommonJS import)
+  loaded on 0.4.0 and now throws at creation. A function whose source text
+  says `[native code]`, such as `Math.max` or a bound function, is still
+  admitted. An entry that fails inside `instanceof` later, such as a proxy
+  revoked after the handler is created, counts as not matching: the original
+  error is rethrown unless a later entry matches.
 - **Breaking:** `tryCatch` now throws a `TypeError` when called with a handler
   that is neither an array nor a function, or with a bare class. Before, one
   was accepted and replaced the original error on the error path.
-- `catchOnly` and the default `tryCatch` handler rethrow the original error
-  when the `instanceof Error` check itself throws, such as for a Proxy whose
-  `getPrototypeOf` trap throws.
+- When the `instanceof Error` check itself throws, such as for a Proxy whose
+  `getPrototypeOf` trap throws, `catchOnly` rethrows the original value and
+  the default `tryCatch` handler wraps it in a `ThrownError`. `ThrownError`
+  no longer throws while rendering a Proxy whose `get` trap throws.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`

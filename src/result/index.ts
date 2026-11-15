@@ -101,12 +101,17 @@ export class ThrownError<T = unknown> extends Error {
    */
   static describe(value: unknown): string {
     // `String` first: it is special-cased for symbols, where template
-    // interpolation throws. `Object.prototype.toString` is the fallback
-    // because it reads no property of the value at all.
+    // interpolation throws. `Object.prototype.toString` is the fallback; it
+    // still reads `Symbol.toStringTag`, so a hostile Proxy can throw there
+    // too, and the constant is the last resort.
     try {
       return String(value)
     } catch {
-      return Object.prototype.toString.call(value)
+      try {
+        return Object.prototype.toString.call(value)
+      } catch {
+        return '[object Unknown]'
+      }
     }
   }
 }
@@ -164,7 +169,9 @@ type CheckedClasses<C extends readonly unknown[]> = {
  * Domain code can use `tryCatch(construct, catchOnly(InvalidValue))`
  * or the shorthand `tryCatch(construct, [InvalidValue, OtherError])`.
  * A handler that is neither an array nor a function, or is a bare class,
- * throws a `TypeError` when `tryCatch` is called.
+ * throws a `TypeError` when `tryCatch` is called. The default handler never
+ * throws: a value whose `instanceof Error` check throws, or that cannot be
+ * rendered, is wrapped in a {@link ThrownError} like any other non-`Error`.
  *
  * Naming `E` explicitly requires supplying the handler that produces it:
  * `tryCatch(fn)` fixes `E = Error`, and no overload takes three type
@@ -211,7 +218,7 @@ export function tryCatch<
     // still needs the cast — but the handler-less overload above pins
     // `E = Error` at every call site that can reach it, which is what the
     // cast then truthfully claims.
-    (isErrorOrRethrow(error) ? error : new ThrownError(error)) as Failure<T, E>,
+    (isError(error) ? error : new ThrownError(error)) as Failure<T, E>,
 ): (...args: Args) => Result<T, E> {
   const handler = Array.isArray(errorHandler)
     ? (catchOnly as (...classes: unknown[]) => Mapper<unknown, Result<T, E>>)(
@@ -228,13 +235,13 @@ export function tryCatch<
 }
 
 /* `value instanceof Error`, except that a guard which throws (a Proxy whose
-   `getPrototypeOf` trap throws) rethrows `value` itself, so the original
-   error is never replaced by the guard's own. */
-function isErrorOrRethrow(value: unknown): value is Error {
+   `getPrototypeOf` trap throws) answers false instead, so the guard's own
+   error never replaces the value being classified. */
+function isError(value: unknown): value is Error {
   try {
     return value instanceof Error
   } catch {
-    throw value
+    return false
   }
 }
 
@@ -254,7 +261,7 @@ function checkedHandler<T, E extends Error>(
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- narrowed by typeof at the call site
 function isBareClass(candidate: Function): boolean {
-  return /^class\b/.test(Function.prototype.toString.call(candidate))
+  return /^class\b(?!\s*\()/.test(Function.prototype.toString.call(candidate))
 }
 
 /**
@@ -564,10 +571,13 @@ export function fromMaybe<T, E extends Error>(
  * Each class must be an Error class (a private constructor is fine). An
  * empty list throws a `TypeError` when the handler is created, and so does an
  * entry that is not a function, or is a non-native function with neither an
- * object `prototype` nor its own `Symbol.hasInstance` (such as `undefined`,
- * an arrow function or a method). A native function (`Math.max`, `Symbol`,
- * a bound function) is admitted, since a bound class cannot be told from
- * one; an entry that fails inside `instanceof` counts as not matching.
+ * object `prototype` nor a custom `Symbol.hasInstance`, own or inherited
+ * (such as `undefined`, an arrow function or a method), or an entry whose
+ * inspection throws (a revoked proxy, a throwing `Symbol.hasInstance`
+ * getter). A function is native when its source text says `[native code]`:
+ * `Math.max`, `Symbol` and bound functions are admitted. An entry that throws
+ * inside `instanceof` later, such as a proxy revoked after the handler is
+ * created, counts as not matching.
  *
  * Use `tryCatch(construct, catchOnly(InvalidValue))` for domain code.
  */
@@ -594,7 +604,7 @@ export function catchOnly(
     }
   })
   return (error: unknown): Failure<never, Error> => {
-    if (isErrorOrRethrow(error) && isInstanceOfAny(error, classes)) {
+    if (isError(error) && isInstanceOfAny(error, classes)) {
       return failure<Error, never>(error)
     }
     throw error
@@ -602,9 +612,9 @@ export function catchOnly(
 }
 
 /* Checks the shape without calling the entry or its `Symbol.hasInstance`
-   (an accessor getter or a Proxy get trap does run at creation). A bound class has neither an
-   own object `prototype` nor a custom `hasInstance`, so it is recognised by
-   being a native function. */
+   (an accessor getter or a Proxy get trap does run at creation). A bound
+   class has neither an own object `prototype` nor a custom `hasInstance`, so
+   it is recognised by being a native function. */
 function isUsableClass(candidate: unknown): boolean {
   if (typeof candidate !== 'function') return false
   try {
