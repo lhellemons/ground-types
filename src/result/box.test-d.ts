@@ -46,8 +46,8 @@ const queried = Result.from<number, Err<1>>(0)
 
 describe('ways in', () => {
   it("from is the boundary lift, and its inference is its counterpart's exactly", () => {
-    // Including the counterpart's quirk: a union argument lands wholly in T
-    // with E defaulted — naming E means naming both, as with `result()`.
+    // Both take the same two overloads: without type arguments a union
+    // splits into the arms, and naming a type argument means naming both.
     const fromParity = result(numberOrError)
     void fromParity
     // `.branded`: the two sides are the same type built through different
@@ -59,11 +59,11 @@ describe('ways in', () => {
       ResultIndex<number, Err<1>>
     >()
     expectTypeOf(Result.from(0).unbox()).toEqualTypeOf<
-      ResultIndex<number, Error>
+      ResultIndex<number, never>
     >()
   })
 
-  it('success seeds with an empty error union — E defaults to never, unlike result/success', () => {
+  it('success seeds with an empty error union — E defaults to never, as result/success does', () => {
     expectTypeOf(Result.success(0).unbox()).toEqualTypeOf<
       Success<number, never>
     >()
@@ -99,13 +99,20 @@ describe('box: the way in for a Result in hand (#51)', () => {
     expectTypeOf(
       Result.from<BoxUser, InvalidUser>(UserFactory.from({ id: 'u1' })).unbox(),
     ).toEqualTypeOf<ResultIndex<BoxUser, InvalidUser>>()
-    // The zero-argument form compiles and silently degrades: the whole
-    // union lands in the value arm and the error arm becomes a phantom
-    // Error — the soft-marked trap box exists to close
-    // (docs/adr/0005-box-classes.md).
+    // The zero-argument form compiles and still degrades for an object
+    // value: the `Success` half lands in the value arm and the error arm
+    // keeps a plain Error beside the Failure, so the result stays nested —
+    // the soft-marked trap box exists to close
+    // (docs/adr/0005-box-classes.md). For a primitive-valued Result the
+    // overload flattens it; that split is #66's premise.
     expectTypeOf(
       Result.from(UserFactory.from({ id: 'u1' })).unbox(),
-    ).toEqualTypeOf<ResultIndex<ResultIndex<BoxUser, InvalidUser>, Error>>()
+    ).toEqualTypeOf<
+      ResultIndex<
+        Success<BoxUser, InvalidUser>,
+        Error | Failure<BoxUser, InvalidUser>
+      >
+    >()
   })
 
   it('the boxed chain proceeds from the value arm, error union intact', () => {

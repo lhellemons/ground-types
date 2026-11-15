@@ -95,7 +95,8 @@ failure(new Error())` compiled. No Failure can satisfy `[_error]?: never`.
 | `if (isFailure(r)) return r` into a `Result<string, …>` (Arm B's goal)                                                                                                                                      | error                                       | error                                                         |
 
 Full suite under Arm A: 478 passed, 4 failed, identically on TypeScript
-5.9.3, 6.0.3 and 7.0.2. The four:
+5.9.3, 6.0.3 and 7.0.2 (on 0.4.0, when measured; on main after #84 and #90
+it is 515 passed, 4 failed). The four:
 
 - `index.test-d.ts` "binds failure's single explicit type argument": now
   `Failure<never, Invalid>`, was `Failure<unknown, Invalid>`. Expectation

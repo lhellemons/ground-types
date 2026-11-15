@@ -210,7 +210,7 @@ describe('failure and success constructors', () => {
     // the named error class demoted to plain Error, with no diagnostic.
     const f = failure<Invalid>(new Invalid('x'))
 
-    expectTypeOf(f).toEqualTypeOf<Failure<unknown, Invalid>>()
+    expectTypeOf(f).toEqualTypeOf<Failure<never, Invalid>>()
   })
 
   it('rejects a non-Error single type argument, where the old order accepted it', () => {
@@ -219,7 +219,7 @@ describe('failure and success constructors', () => {
   })
 
   it('keeps success value-first — the documented, deliberate asymmetry', () => {
-    expectTypeOf(success<number>(5)).toEqualTypeOf<Success<number, Error>>()
+    expectTypeOf(success<number>(5)).toEqualTypeOf<Success<number, never>>()
     expectTypeOf(success<number, Invalid>(5)).toEqualTypeOf<
       Success<number, Invalid>
     >()

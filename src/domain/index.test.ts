@@ -50,10 +50,10 @@ class EmptyName extends Error {
 
 const StrictUserFactory: DomainObjectFactory<User, UserDTO, EmptyName> = {
   from(dto) {
-    // success<User, EmptyName>(...) is spelled out explicitly: Success's `E`
-    // phantom is invariant (docs/adr/0001, 2026-08-04 amendment), so the
-    // plain `success(...)` call below would default E to Error and fail to
-    // satisfy this factory's narrower Result<User, EmptyName>.
+    // The type arguments are spelled out for the reader: with the never
+    // defaults (docs/adr/0001, 2026-11-14 amendment) plain `success(...)`
+    // and `failure(...)` calls would satisfy this factory's narrower
+    // Result<User, EmptyName> as well.
     return dto.name.length > 0
       ? success<User, EmptyName>({ id: dto.id, name: dto.name })
       : failure<EmptyName, User>(new EmptyName('name must not be empty'))

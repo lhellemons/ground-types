@@ -15,7 +15,7 @@ import type {
 /* Module-private inference machinery, shared with `./index.ts` through a
    module deliberately absent from the exports map — which is what lets this
    class restate member types without widening the public surface. */
-import type { ErrorOf, ValueOf } from './internal.js'
+import type { ErrorArmOf, ErrorOf, ValueOf } from './internal.js'
 
 /**
  * The unboxed type, under the capitalised name: `Result<T, E>` written in
@@ -50,12 +50,21 @@ class ResultBox<R> {
   }
 
   /**
-   * Boxes a value-or-error: the counterpart of `result()`, both arms. For
-   * a `Result` already in hand — a factory's output, say — use
-   * {@link box}: handed a whole `Result` without explicit type arguments,
-   * `from` lands the union in the value arm and degrades the error arm to
-   * a phantom `Error`.
+   * Boxes a value-or-error: the counterpart of `result()`, both arms, with
+   * the same two overloads. Without type arguments the value's type splits
+   * into the arms: `Error` members go to the error arm, the rest to the
+   * value arm, and any member that may hide an Error keeps a plain `Error`
+   * in the error arm. With explicit type arguments `from<T, E>` names both
+   * arms. For a `Result` already in hand — a factory's output, say — use
+   * {@link box}: handed a whole object-valued `Result`, `from` lands it in
+   * the value arm and the result comes back nested.
    */
+  static from<V>(
+    value: V,
+  ): ResultBox<ResultValue<Exclude<V, Error>, ErrorArmOf<V>>>
+  static from<T, E extends Error = Error>(
+    value: T | E,
+  ): ResultBox<ResultValue<T, E>>
   static from<T, E extends Error = Error>(
     value: T | E,
   ): ResultBox<ResultValue<T, E>> {
@@ -67,9 +76,10 @@ class ResultBox<R> {
   /**
    * Boxes a `Result` already in hand — a factory's output, a combinator
    * chain's result — with both arms exact and no type arguments needed.
-   * The way in {@link from} cannot be for a whole `Result`. A raw
-   * non-Result value cannot be rejected and degrades to exactly `from`'s
-   * behaviour. `Result` only: the other classes' `from` already takes the
+   * The way in {@link from} cannot be for a whole object-valued `Result`.
+   * A raw non-Result value cannot be rejected and takes `from`'s arms: for
+   * a primitive, `null` or `undefined` that is exactly `from`'s result,
+   * though not for an object. `Result` only: the other classes' `from` already takes the
    * thing itself, so `box` there would be a mere alias.
    */
   static box<T, E extends Error>(
@@ -82,10 +92,11 @@ class ResultBox<R> {
   }
 
   /**
-   * Boxes a known-good value as a `Success`. Seeds `E = never` — unlike
-   * `result/success`, whose default is `Error` — so a chain's error union
-   * holds exactly what its links contribute
-   * (docs/adr/0005-box-classes.md).
+   * Boxes a known-good value as a `Success`. Seeds `E = never`, as
+   * `result/success` does (docs/adr/0001-unboxed-maybe-and-result.md), so
+   * a chain's error union holds exactly what its links contribute
+   * (docs/adr/0005-box-classes.md). Takes no `NotPossiblyAnError` guard
+   * yet; whether it should is open (#66).
    */
   static success<T, E extends Error = never>(
     value: T,

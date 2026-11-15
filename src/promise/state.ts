@@ -1,7 +1,6 @@
 import { nothing } from '../maybe/index.js'
 import type { Maybe } from '../maybe/index.js'
-import { success } from '../result/index.js'
-import type { Result } from '../result/index.js'
+import type { Result, Success } from '../result/index.js'
 import { fail } from './resultify.js'
 
 /** An operation that has not been started. */
@@ -105,8 +104,14 @@ export function settledResult<O>(state: State<O>): Maybe<Result<O, Error>> {
   // conditional type, and with `O` still an unresolved type parameter it
   // cannot be evaluated, so assignment into it is checked conservatively.
   return (
-    isFulfilled(state) ? success<O, Error>(state.value) : fail<O>(state.reason)
-  ) as Maybe<Result<O, Error>>
+    // `O` is unresolved, so `success`'s guard cannot judge it; the cast
+    // below already claims the whole Result.
+    (
+      isFulfilled(state)
+        ? (state.value as Success<O, Error>)
+        : fail<O>(state.reason)
+    ) as Maybe<Result<O, Error>>
+  )
 }
 
 /** A live view of a promise's {@link State}, as produced by {@link stateOf}. */

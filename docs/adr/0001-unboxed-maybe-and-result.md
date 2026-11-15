@@ -199,8 +199,8 @@ failure<E extends Error, T = never>(error: E): Failure<NoInfer<T>, E>
 ```
 
 `NoInfer` is what keeps the default: without it TypeScript infers `E`
-from the return position, lands on `Error` at a site typed to a union or
-to a wider `Result`, and the annotation is back.
+from the return position and lands on `Error` at every site typed to a
+`Result`, whatever its error type, so the annotation is back.
 
 `NotPossiblyAnError<T>` is `success`'s guard, decided in review round 4
 over a conservative `E = ErrorArmOf<T>` default. With `E = never`, a
@@ -217,8 +217,12 @@ member, a `Result` or a `Failure`; a type the empty object fits
 `Partial<Config>`, and any union of one of those with a primitive, `null`
 or `undefined`, since `{} extends T` distributes over nothing and reads
 the union whole); and a type a plain `Error` fits (`{ message: string
-}`). It lets a class instance, an array, a DTO with a required member, a
-primitive, `undefined` and `void` through with no type arguments, which
+}`), which includes a class whose members are all ones a plain `Error` has
+(`class Tag { constructor(readonly name: string) {} }`, `{ name: string
+}`) and an index-signature type (`Record<string, number>`, a dictionary,
+a JSON type), since the empty object fits an index signature. It lets
+through, with no type arguments, a class instance, an array or a DTO with
+a member no plain `Error` has, a primitive, `undefined` and `void`, which
 is where the consumer cost sat (every sampled `success` site wraps a
 domain object; the conservative default would have kept all of them
 annotated). Its costs are on record. **Known sharp edge:** an object type
@@ -231,16 +235,23 @@ it passes every constraint. **Breaking:** the guard judges the value's
 type at every call, not only at a site typed to a narrower error class,
 so `success` of any value whose type it judges may hold an `Error`
 (`unknown`, `object`, `{}`, an all-optional object, an `Error` union, a
-`Result`) no longer compiles anywhere it did, with or without a target
+`Result`, a `Tag`-like class or `{ name: string }`, an index-signature
+type such as `Record<string, number>`) no longer compiles anywhere it
+did, with or without a target
 type and with or without explicit type arguments: `(p: Partial<Config>):
 Result<Partial<Config>> => success(p)` is now an error. So is `success`
 of an unresolved type parameter (constrained or not), which cannot be
 judged. Such code casts, or wraps with `result()`; three library-internal
-sites cast (`orElse`, `fromMaybe` and `promise/state`). Two further
-changes to explicit calls: `failure<E>(e)` now has phantom `T = never`
-where it had `unknown`, and the one-type-argument `result<X>(v)` binds
-the new overload, so `result<number>(5)` is `Result<number, never>` and
-`result<number | Invalid>(x)` is `Result<number, Invalid>`. The guard's type,
+sites cast (`orElse`, `fromMaybe` and `promise/state`). Further
+changes: `failure<E>(e)` now has phantom `T = never` where it had
+`unknown`; the one-type-argument `result<X>(v)` binds the new overload, so
+`result<number>(5)` is `Result<number, never>` and `result<number |
+Invalid>(x)` is `Result<number, Invalid>`; `success(x)` is now
+`Success<T, never>` where it was `Success<T, Error>`; and a variable
+seeded by an unannotated `failure(e)` or `result(primitive)` takes the
+narrower type and rejects a later wider assignment (`let last =
+failure(new Invalid())`, then `last = s` with `s: Failure<number,
+Invalid>`, no longer compiles; annotate the variable). The guard's type,
 `NotPossiblyAnError`, is exported so its message can be pinned, as
 `NotAResult`'s is: it joins the README's module table, the `/result`
 surface test and the CHANGELOG.
@@ -259,19 +270,18 @@ no Failure can pass as a Success whatever `T` is.
 the argument, keeping the two-parameter signature for explicit calls:
 
 ```ts
-type ErrorArmOf<V> = unknown extends V
-  ? Error
-  : V extends Error
-    ? V
-    : V extends string | number | boolean | bigint | symbol | null | undefined
-      ? never
-      : Error
+type ErrorArmOf<V> = V extends Error
+  ? V
+  : V extends string | number | boolean | bigint | symbol | null | undefined
+    ? never
+    : Error
 
 result<V>(value: V): Result<Exclude<V, Error>, ErrorArmOf<V>>
 ```
 
 `ErrorArmOf` is load-bearing, and conservative by decision (review round
-4). A plain `Extract<V, Error>` is `never` for every type a plain `Error`
+4); `unknown` and `any` need no clause of their own: `unknown` falls
+through to `Error`, and `any` stays `any`. A plain `Extract<V, Error>` is `never` for every type a plain `Error`
 is assignable to without being one (`unknown`, `object`, `{}`, a narrowed
 `catch` binding), and so is any rule that asks whether `Error` fits the
 member: `{ code: string }` admits no plain `Error`, yet an `Error`
@@ -318,16 +328,17 @@ overload breaks a different promise for primitive, `null` and
 `Result<number, never>` where `Result.box(5)` is `Result<number, Error>`.
 Which of the two promises `box` keeps is not decided here; it goes to the
 implementation task and to the Box implementation (#66), under
-docs/adr/0005-box-classes.md. These statements are superseded by this
-amendment and are corrected with the implementation: ADR 0005's
+docs/adr/0005-box-classes.md. These statements were superseded by this
+amendment and are corrected in the implementation (#88): ADR 0005's
 "`Result.success` seeds `E = never`, the one deliberately divergent
 default", its margin note 5 (a plain `success(0)` seed no longer rides an
 `Error` arm) and its margin note 9 (`from(resultInHand)` now degrades to
 a nested `Result<Success<…>, Failure<…>>`, not to a phantom `Error`);
 `src/result/box.ts`'s `Result.success` docblock ("unlike
 `result/success`, whose default is `Error`") and `Result.from` docblock
-("degrades the error arm to a phantom `Error`"); the comments in
-`src/result/box.test-d.ts` on the parity test and the soft trap;
+("degrades the error arm to a phantom `Error`"); the comments and the test title
+"E defaults to never, unlike result/success" in `src/result/box.test-d.ts`
+on the parity test, the `success` seed and the soft trap;
 `docs/migration/0.1.0-to-0.3.0.md`'s "invariant `E` phantom"; and the
 0.4.0 `definePrimitiveValueObject` docblock, which points at the reversed
 amendment; so are the test comments at `src/domain/index.test.ts:53-56`
@@ -347,7 +358,7 @@ object type only an `Error` subclass fits (the sharp edge above), checked
 rather than assumed. (The combinators are out of this amendment's scope:
 `orElse(caught, r)`, `map(() => caught, r)` and `fromMaybe(new Invalid(),
 caught)` with `caught: unknown` type-check into `Result<unknown,
-Invalid>` on the old signatures as well as the new ones.) a plain `Error` is still rejected where
+Invalid>` on the old signatures as well as the new ones.) A plain `Error` is still rejected where
 `Invalid` is expected, through `failure`, through `result` of a union, of
 an `unknown` value, of an `object` or narrowed `catch` binding and of an
 object type an `Error` subclass could hide in, through `success` of an
@@ -366,8 +377,10 @@ this amendment. Explicit type arguments remain allowed and, at a concrete
 `T` the guard passes, keep compiling; the breaking cases are the ones
 named above (`success` of any value the guard judges may hold an
 `Error`, at any site; `success` of an unresolved type parameter;
-`failure<E>(e)`'s phantom; the one-type-argument `result<X>(v)`), and the
-CHANGELOG marks each **Breaking:**, as 0.4.0's does.
+`failure<E>(e)`'s phantom; the one-type-argument `result<X>(v)`;
+`success(x)`'s inferred `E`, now `never`; a variable seeded by an
+unannotated `failure(e)` or `result(primitive)`), and the CHANGELOG marks
+each **Breaking:**, as 0.4.0's does.
 
 Two things were ruled out on the way:
 

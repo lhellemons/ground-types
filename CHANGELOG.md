@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Upgrading from 0.4.0: `success`, `failure` and `result` no longer need type
+arguments in early-return code, and several calls that compiled now do not.
+The **Breaking** entries below list each; TypeScript 5.4 or later is required.
+
+- `success(x)`, `failure(e)` and `result(x)` now infer at a site typed to a
+  narrower `Result`: `(n: number): Result<number, Invalid> => success(n)`,
+  `(): Result<number, A | B> => failure(new A())` and `(x: number | Invalid):
+Result<number, Invalid> => result(x)` compile with no type arguments. A
+  `Success` carries `E = never` and a `Failure` carries `T = never`, and both
+  flow into any `Result<T, E>`. A plain `Error` is still rejected where a
+  narrower class is expected, and `Result<Result<T>>` is still not assignable
+  to `Result<T>`. `Result.from` takes the same overload as `result`.
+- **Breaking:** TypeScript 5.4 or later is required, for `NoInfer` on the
+  phantom position of `success` and `failure`.
+- **Breaking:** `success` rejects, at any site and with or without type
+  arguments, a value whose type may be an `Error`, with a message naming
+  `result()`: a union with an `Error` member, a `Result` or `Failure`, a type
+  the empty object fits (`unknown`, `object`, `{}`, an all-optional object
+  such as `Partial<Config>`, or a union of one with a primitive, `null` or
+  `undefined`), a type a plain `Error` fits (`{ name: string }`, a class such
+  as `class Tag { constructor(readonly name: string) {} }`) and an
+  index-signature type (`Record<string, number>`, a dictionary, a JSON type).
+  Wrap such a value with `result()`, or cast. Class instances, arrays, DTOs
+  with a member no plain `Error` has, primitives, `undefined` and `void` pass.
+  An object type that only an `Error` subclass fits, and `any`, also pass.
+- **Breaking:** `success` of an unresolved type parameter no longer compiles,
+  constrained or not; cast, or wrap with `result()`.
+- **Breaking:** `success(x)` is now `Success<T, never>`, where it was
+  `Success<T, Error>`. A variable seeded by an unannotated `failure(e)` or
+  `result(primitive)` takes the narrower type and rejects a later wider
+  assignment: `let last = failure(new Invalid())` followed by `last = s` with
+  `s: Failure<number, Invalid>` no longer compiles; annotate the variable.
+- **Breaking:** `failure<E>(e)` now has phantom `T = never`, where it had
+  `unknown`.
+- **Breaking:** the one-type-argument form `result<X>(v)` binds the new
+  overload: `result<number>(5)` is `Result<number, never>` and
+  `result<number | Invalid>(x)` is `Result<number, Invalid>`.
+- `Success` carries a third marker, `[_error]?: never`, so that no `Failure`
+  can pass as a `Success`.
+- Add `NotPossiblyAnError`, the type of `success`'s guard, exported from
+  `/result`.
+- `definePrimitiveValueObject` infers `E` from a handler written with
+  `failure()` or `result()`, when it is given no type arguments.
 - `catchOnly` and the `tryCatch` class-list shorthand now accept error classes
   with a private constructor, such as a domain error with a static factory.
   Arrow functions, methods, plain objects and constructors of non-`Error`

@@ -4,7 +4,13 @@ import type { CurryableMapper, Mapper } from '../fn/index.js'
 /* The phantom-handle symbols and their readers live in ./internal.ts — a
    module deliberately absent from the exports map — so `/result/box` can
    restate member types with them without them becoming public API. */
-import type { _value, _error, ValueOf, ErrorOf } from './internal.js'
+import type {
+  _value,
+  _error,
+  ValueOf,
+  ErrorOf,
+  ErrorArmOf,
+} from './internal.js'
 
 declare const _phantom: unique symbol
 
@@ -15,7 +21,11 @@ declare const _phantom: unique symbol
  */
 export type Success<T, E extends Error = Error> = (T extends Error
   ? never
-  : T) & { readonly [_phantom]?: E; readonly [_value]?: T }
+  : T) & {
+  readonly [_phantom]?: E
+  readonly [_value]?: T
+  readonly [_error]?: never
+}
 
 /**
  * The `Error`-carrying case of a {@link Result}, unboxed — a `Failure` *is*
@@ -39,17 +49,52 @@ export type Result<T, E extends Error = Error> = Success<T, E> | Failure<T, E>
 /**
  * Wraps a value-or-error as a {@link Result}. Reach for this at the
  * boundary where a `T | E` enters code that deals in `Result`.
+ *
+ * Without type arguments the value's type splits: its `Error` members
+ * form the error arm, and the rest the value arm. A member that may hide
+ * an `Error` (an object type, `unknown`) keeps a plain `Error` in the
+ * error arm; only a primitive, `null` or `undefined` contributes none.
+ * With explicit type arguments, `result<T, E>` names both arms.
  */
+export function result<V>(value: V): Result<Exclude<V, Error>, ErrorArmOf<V>>
+export function result<T, E extends Error = Error>(value: T | E): Result<T, E>
 export function result<T, E extends Error = Error>(value: T | E): Result<T, E> {
   return value as unknown as Result<T, E>
 }
 
 /**
+ * Rejects a `success` value whose type can hold an `Error` at runtime, as
+ * far as the type says so: a union with an `Error` member, a `Result` or
+ * a `Failure`, a type the empty object fits (`unknown`, `object`, `{}`,
+ * an all-optional object, and any union of one with a primitive, `null`
+ * or `undefined`), and a type a plain `Error` fits (`{ message: string
+ * }`, a class whose members an `Error` has, an index-signature type). It cannot see past three things: `any` passes, as it passes every
+ * constraint; so does an object type that only an `Error` subclass fits
+ * (a plain interface, a DTO, a class instance without private members);
+ * and an unresolved type parameter is refused, so generic code casts
+ * instead. See docs/adr/0001-unboxed-maybe-and-result.md.
+ */
+export type NotPossiblyAnError<T> = [Extract<T, Error>] extends [never]
+  ? // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` is the point: a type the empty object fits admits any non-nullish value, an Error included
+    {} extends T
+    ? 'This value may be an Error — wrap it with result(), not success()'
+    : Error extends T
+      ? 'This value may be an Error — wrap it with result(), not success()'
+      : unknown
+  : 'This value may be an Error — wrap it with result(), not success()'
+
+/**
  * Wraps a known-good value as a {@link Success}. Type parameters are
  * value-first: `success<Widget>(w)` names the value being wrapped.
- * {@link failure} orders its parameters the other way round.
+ * {@link failure} orders its parameters the other way round. The error
+ * type `E` defaults to `never` and is not inferred, so the result flows
+ * into any `Result<T, E>`. A value whose type may be an `Error` is
+ * refused with a message naming {@link result}.
  */
-export function success<T, E extends Error = Error>(value: T): Success<T, E> {
+export function success<
+  T extends NotPossiblyAnError<T>,
+  E extends Error = never,
+>(value: T): Success<T, NoInfer<E>> {
   return value as Success<T, E>
 }
 
@@ -57,11 +102,12 @@ export function success<T, E extends Error = Error>(value: T): Success<T, E> {
  * Wraps a known error as a {@link Failure}. Type parameters are ordered
  * `<E, T>` — the reverse of {@link success} and of the `Result`/`Failure`
  * types themselves: `failure<MyError>(e)` names the error being wrapped,
- * leaving the phantom channel defaulted.
+ * leaving the phantom value type `T` at `never`, which is not inferred, so
+ * the result flows into any `Result<T, E>` that admits `E`.
  */
-export function failure<E extends Error = Error, T = unknown>(
+export function failure<E extends Error, T = never>(
   error: E,
-): Failure<T, E> {
+): Failure<NoInfer<T>, E> {
   return error
 }
 
@@ -475,7 +521,10 @@ export function orElse<T, E extends Error>(
 ): CurryableMapper<Result<T, E>, Success<T, E>> {
   return curry(
     (value: Result<T, E>): Success<T, E> =>
-      isSuccess(value) ? value : success<T, E>(defaultValue),
+      // `T` is unresolved here, so `success`'s guard cannot judge it. The
+      // cast only skips the guard: `defaultValue` is typed `T`, and for
+      // `T = unknown` it may be an Error, as it could be on main.
+      isSuccess(value) ? value : (defaultValue as Success<T, E>),
     ...value,
   )
 }
@@ -573,8 +622,10 @@ export function fromMaybe<T, E extends Error>(
   // (see docs/adr/0001-unboxed-maybe-and-result.md).
   return curry(
     (value: Maybe<T>) =>
+      // `T` is unresolved, so `success`'s guard cannot judge it; the cast
+      // below already claims the whole Result.
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Maybe<T>'s conditional can't reduce for generic T; see maybe/isJust
-      (value === undefined ? failure(error) : success(value)) as Result<T, E>,
+      (value === undefined ? failure(error) : value) as Result<T, E>,
     ...value,
   )
 }

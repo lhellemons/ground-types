@@ -74,19 +74,19 @@ Registry publishing remains out of scope.
 
 Each module is a separate subpath export.
 
-| Subpath            | Exports                                                                                                                                                                                                                                         |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/maybe`           | `Maybe`, `Just`, `Nothing`, `maybe`, `just`, `nothing`, `fromNullable`, `isJust`, `isNothing`, `orElse`, `fallback`, `map`, `andThen`, `assertJust`, `fromResult`                                                                               |
-| `/result`          | `Result`, `Success`, `Failure`, `ThrownError`, `NotAResult`, `NotAPromise`, `result`, `success`, `failure`, `isSuccess`, `isFailure`, `catchOnly`, `tryCatch`, `assertSuccess`, `map`, `mapError`, `fallback`, `orElse`, `andThen`, `fromMaybe` |
-| `/brand`           | `Brand`, `Branded`                                                                                                                                                                                                                              |
-| `/value-object`    | `Primitive`, `PrimitiveValueObject`, `definePrimitiveValueObject`                                                                                                                                                                               |
-| `/domain`          | `Entity`, `CompoundValueObject`, `DTOSource`, `DomainObjectFactory`                                                                                                                                                                             |
-| `/intern-registry` | `InternRegistry`, `internByKey`                                                                                                                                                                                                                 |
-| `/fn`              | `Fn`, `Mapper`, `CurryableMapper`, `compose`, `pipe`, `curry`, `identity`, `constant`                                                                                                                                                           |
-| `/promise`         | `AbortablePromise`, `AbortContext`, `RejectionError`, `resultify`, `fail`, `recoverWith`, `State` with its constructors and guards, `settledResult`, `stateOf`, `TrackedState`                                                                  |
-| `/promise/fake`    | `fakePromise`, `fakeAbortablePromise`                                                                                                                                                                                                           |
-| `/call`            | `Call`, `AsyncCall`, `AbortableCall`, `abortable`, `resultify`                                                                                                                                                                                  |
-| `/abort`           | `AbortError`, `isAbortError`, `ABORT_ERROR_NAME`                                                                                                                                                                                                |
+| Subpath            | Exports                                                                                                                                                                                                                                                               |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/maybe`           | `Maybe`, `Just`, `Nothing`, `maybe`, `just`, `nothing`, `fromNullable`, `isJust`, `isNothing`, `orElse`, `fallback`, `map`, `andThen`, `assertJust`, `fromResult`                                                                                                     |
+| `/result`          | `Result`, `Success`, `Failure`, `ThrownError`, `NotAResult`, `NotAPromise`, `NotPossiblyAnError`, `result`, `success`, `failure`, `isSuccess`, `isFailure`, `catchOnly`, `tryCatch`, `assertSuccess`, `map`, `mapError`, `fallback`, `orElse`, `andThen`, `fromMaybe` |
+| `/brand`           | `Brand`, `Branded`                                                                                                                                                                                                                                                    |
+| `/value-object`    | `Primitive`, `PrimitiveValueObject`, `definePrimitiveValueObject`                                                                                                                                                                                                     |
+| `/domain`          | `Entity`, `CompoundValueObject`, `DTOSource`, `DomainObjectFactory`                                                                                                                                                                                                   |
+| `/intern-registry` | `InternRegistry`, `internByKey`                                                                                                                                                                                                                                       |
+| `/fn`              | `Fn`, `Mapper`, `CurryableMapper`, `compose`, `pipe`, `curry`, `identity`, `constant`                                                                                                                                                                                 |
+| `/promise`         | `AbortablePromise`, `AbortContext`, `RejectionError`, `resultify`, `fail`, `recoverWith`, `State` with its constructors and guards, `settledResult`, `stateOf`, `TrackedState`                                                                                        |
+| `/promise/fake`    | `fakePromise`, `fakeAbortablePromise`                                                                                                                                                                                                                                 |
+| `/call`            | `Call`, `AsyncCall`, `AbortableCall`, `abortable`, `resultify`                                                                                                                                                                                                        |
+| `/abort`           | `AbortError`, `isAbortError`, `ABORT_ERROR_NAME`                                                                                                                                                                                                                      |
 
 ```ts
 import { andThen, isFailure } from '@lhellemons/ground-types/result'
@@ -290,7 +290,8 @@ settledResult(tracked.current) // Nothing while pending, a Result once settled
 
 ## Requirements
 
-Node 20 or newer, and a TypeScript `lib` that includes `DOM` **or**
+Node 20 or newer, TypeScript 5.4 or newer (`success` and `failure` use
+`NoInfer`), and a TypeScript `lib` that includes `DOM` **or**
 `@types/node`. `/promise` and `/abort` are built on `AbortController`,
 `AbortSignal` and `DOMException`, which are WHATWG platform standards
 rather than document APIs — present in browsers, Node 20+, Deno and Bun
