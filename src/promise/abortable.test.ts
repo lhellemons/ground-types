@@ -285,7 +285,8 @@ describe('AbortablePromise.of', () => {
 
 /* A value whose `instanceof` throws: a Proxy whose `getPrototypeOf` trap throws,
    and a revoked Proxy. Native `Promise` never asks a value for its prototype,
-   so each of these is an ordinary value to it. */
+   so it treats the first as an ordinary value; it rejects on the second, whose
+   `then` it cannot read. */
 function hostileProxy<T extends object>(target: T): T {
   return new Proxy(target, {
     getPrototypeOf(): never {
@@ -414,6 +415,37 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     },
   )
 
+  it.each([
+    ['a revoked Proxy', revokedProxy(), TypeError],
+    [
+      'a thenable whose then getter throws',
+      {
+        get then(): never {
+          throw new RangeError('getter')
+        },
+      },
+      RangeError,
+    ],
+  ])(
+    'resolve(%s) inside the executor does not throw into it, as new Promise does not',
+    async (_name, value, errorClass) => {
+      const settle = (resolve: (value: unknown) => void) => {
+        try {
+          resolve(value)
+        } catch {
+          resolve('fallback')
+        }
+      }
+
+      await expect(new Promise<unknown>(settle)).rejects.toBeInstanceOf(
+        errorClass,
+      )
+      await expect(
+        new AbortablePromise<unknown>(settle),
+      ).rejects.toBeInstanceOf(errorClass)
+    },
+  )
+
   it('a late resolve() of a promise whose constructor getter throws rejects the promise rather than throwing, as new Promise does', async () => {
     const make = () =>
       Object.defineProperty(Promise.resolve('value'), 'constructor', {
@@ -490,9 +522,14 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
         Object.setPrototypeOf(swappedToNull, null)
         const after = new AbortablePromise<string>(() => {})
         // Aborting rejects the swapped members; nothing else handles that.
-        for (const swapped of [swappedToPromise, swappedToNull]) {
-          void Promise.prototype.then.call(swapped, undefined, () => {})
-        }
+        const swappedRejections = [swappedToPromise, swappedToNull].map(
+          (swapped) =>
+            Promise.prototype.then.call(
+              swapped,
+              () => 'fulfilled',
+              (reason: unknown) => reason,
+            ),
+        )
 
         const combined = fanIn[combinator]([
           swappedToPromise,
@@ -504,6 +541,9 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
 
         await expect(combined).rejects.toSatisfy(isAbortError)
         await expect(after).rejects.toSatisfy(isAbortError)
+        for (const reason of await Promise.all(swappedRejections)) {
+          expect(isAbortError(reason)).toBe(true)
+        }
       })
 
       it('aborts a subclass instance, which the brand recognises', async () => {
@@ -515,6 +555,23 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
 
         await expect(combined).rejects.toSatisfy(isAbortError)
         await expect(member).rejects.toSatisfy(isAbortError)
+      })
+
+      it('aborts a subclass member whose abort() override refuses, without calling it', async () => {
+        const refused = vi.fn()
+        class Sticky<T> extends AbortablePromise<T> {
+          override abort(): void {
+            refused()
+          }
+        }
+        const member = new Sticky<string>(() => {})
+
+        const combined = fanIn[combinator]([member])
+        combined.abort()
+
+        await expect(combined).rejects.toSatisfy(isAbortError)
+        await expect(member).rejects.toSatisfy(isAbortError)
+        expect(refused).not.toHaveBeenCalled()
       })
 
       it('does not abort a member through a binding Proxy over it', async () => {
@@ -578,9 +635,10 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
   })
 
   it('does not mistake a Proxy with no traps over an AbortablePromise for one', async () => {
-    // `then` called on the Proxy reaches `Promise.prototype.then` with the
-    // Proxy as its receiver, which throws; to `of` the Proxy is a thenable
-    // that fails, as it is to `Promise.resolve`.
+    // Not a brand, so `of` wraps it; it passes `isPromise` (the chain is
+    // walked through the Proxy), and calling `then` on the Proxy reaches
+    // `Promise.prototype.then` with the Proxy as its receiver, which throws,
+    // as it does for `Promise.resolve`.
     const inner = new AbortablePromise<string>(() => {})
     const proxy = new Proxy(inner, {})
 
@@ -591,6 +649,23 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     await expect(wrapped).rejects.toBeInstanceOf(TypeError)
     inner.abort()
     await expect(inner).rejects.toSatisfy(isAbortError)
+  })
+
+  it('an executor resolving with a subclass instance whose abort() override refuses still aborts it, without calling the override', async () => {
+    const refused = vi.fn()
+    class Sticky<T> extends AbortablePromise<T> {
+      override abort(): void {
+        refused()
+      }
+    }
+    const delegate = new Sticky<string>(() => {})
+    const outer = new AbortablePromise<string>((resolve) => resolve(delegate))
+
+    outer.abort()
+
+    await expect(outer).rejects.toSatisfy(isAbortError)
+    await expect(delegate).rejects.toSatisfy(isAbortError)
+    expect(refused).not.toHaveBeenCalled()
   })
 
   it('of() returns a subclass instance as it is', () => {
@@ -615,12 +690,17 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
   it('an executor resolving with an AbortablePromise whose prototype has been swapped can still be aborted', async () => {
     const swapped = new AbortablePromise<string>(() => {})
     Object.setPrototypeOf(swapped, Promise.prototype)
-    void Promise.prototype.then.call(swapped, undefined, () => {})
+    const swappedRejection = Promise.prototype.then.call(
+      swapped,
+      () => 'fulfilled',
+      (reason: unknown) => reason,
+    )
 
     const outer = new AbortablePromise<string>((resolve) => resolve(swapped))
 
     expect(() => outer.abort()).not.toThrow()
     await expect(outer).rejects.toSatisfy(isAbortError)
+    expect(isAbortError(await swappedRejection)).toBe(true)
   })
 })
 

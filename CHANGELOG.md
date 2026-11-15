@@ -244,57 +244,61 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   (no traps, or a `Reflect.get(target, key, receiver)` forwarder), as the
   platform's `name` getter rejects the proxy. A `get` trap that reads `name`
   with the target as receiver still answers `true`.
-- `AbortablePromise.of`, `resolve` and the `resolve` an executor receives no
-  longer throw, or hang, on a value that cannot be inspected: a Proxy whose
-  `getPrototypeOf` trap throws, a revoked Proxy, a thenable whose `then` or a
-  promise whose `constructor` getter throws. They now do what a native
-  `Promise` does with it. `of` resolves with a Proxy whose `getPrototypeOf`
-  trap throws or adopts it if it is a thenable, where it threw synchronously;
-  for a revoked Proxy it returns a promise rejected with a `TypeError`, as
-  `Promise.resolve` does, where it threw synchronously. An executor that
-  resolves with a Proxy whose `getPrototypeOf` trap throws and that is a
-  thenable now adopts it, as `new Promise` does, where the promise rejected
-  with the trap's error when `resolve` was called before the executor
-  returned, and where `resolve` threw that error to its caller and the promise
-  stayed pending when it was called after.
-- When an executor's `resolve` is called after the executor has returned with
-  a value that cannot be adopted (a revoked Proxy, a thenable whose `then`
-  getter throws, a promise whose `constructor` getter throws), the promise
-  now rejects with the error, as `new Promise` does. Before, the error was
-  thrown to the caller of `resolve` and the promise stayed pending forever.
-  The same call before the executor returned rejected the promise, as before.
-- Aborting the promise returned by `all`, `race`, `any` or `allSettled`
-  aborts every `AbortablePromise` member, whatever else is in the list.
-  Before, a member whose prototype chain cannot be read (a Proxy whose
-  `getPrototypeOf` trap throws, a revoked Proxy) made `abort()` throw the
-  trap's error and left every member after it running.
+- `AbortablePromise.of` no longer throws for a Proxy whose `getPrototypeOf`
+  trap throws or for a revoked Proxy. For the first it resolves with the Proxy,
+  or adopts it if it is a thenable, as `Promise.resolve` does. For a revoked
+  Proxy it returns a promise rejected with a `TypeError`, as `Promise.resolve`
+  does. Both threw synchronously. `of` and `resolve` are unchanged for a
+  thenable whose `then` getter throws and for a promise whose `constructor`
+  getter throws (`resolve` still throws synchronously for the second, as
+  `Promise.resolve` does).
+- The `resolve` an executor receives no longer throws when its argument cannot
+  be adopted: a revoked Proxy, a thenable whose `then` getter throws, a promise
+  whose `constructor` getter throws. It rejects the promise with the error, as
+  a native resolve function does. Before, the error was thrown to the caller of
+  `resolve`: into the executor when `resolve` was called inside it, so that
+  `new AbortablePromise(r => { try { r(revoked) } catch { r('fallback') } })`
+  fulfilled with `'fallback'`, and to whoever called `resolve` later when it
+  was called after the executor had returned, in which case the promise stayed
+  pending forever. A Proxy whose `getPrototypeOf` trap throws and that is a
+  thenable is now adopted, where the promise rejected with the trap's error
+  (inside the executor) or the error was thrown to the late caller and the
+  promise stayed pending. A native promise whose `then` throws when called
+  still throws to a late caller of `resolve` and leaves the promise pending,
+  as before.
+- Aborting the promise returned by `all`, `race`, `any` or `allSettled` aborts
+  every `AbortablePromise` member, also when the list holds a member whose
+  prototype chain cannot be read (a Proxy whose `getPrototypeOf` trap throws, a
+  revoked Proxy). Before, such a member made `abort()` throw the trap's error
+  and left the members after it running. A member that is an `AbortablePromise` whose own
+  `abort` throws still ends the loop, as before.
 - "Is an `AbortablePromise`", asked by `of`, the four combinators and an
   executor that resolves with a thenable, is now a private-field brand check
-  instead of `instanceof`, and fan-in and delegation abort a member through
-  its abort state rather than by calling its `abort()`. Observable
-  consequences:
-  - **Abort no longer reaches a promise through any Proxy over it.** A Proxy
-    over an `AbortablePromise`, including one whose `get` trap binds every
-    method to the target, is a plain thenable to these. Before, aborting
-    `AbortablePromise.all([proxy])`, `AbortablePromise.of(proxy)` or
-    `new AbortablePromise(r => r(proxy))` aborted the target when the Proxy
-    bound its methods, and threw a `TypeError` from `abort()` when it had no
-    traps. `of(proxy)` now returns a promise that rejects with a `TypeError`
-    when the Proxy has no traps, as `Promise.resolve(proxy)` does, and follows
-    the target when the Proxy binds its methods.
-  - A member whose prototype was swapped (`Object.setPrototypeOf(ap, null)`)
-    is still aborted by the combinators and by delegation, and no longer
-    makes them throw. Before, it was skipped. `of` wraps it in a new
-    `AbortablePromise` instead of returning it, since it no longer has
-    `abort()`.
-  - A subclass's override of `abort()` is not called by the combinators or by
-    delegation. `then`'s upstream link still calls `abort()`.
-  - `Symbol.hasInstance` is no longer consulted for these checks.
+  instead of `instanceof`, and the combinators and delegation abort a
+  member through its abort state rather than by calling its `abort()`.
+  `Symbol.hasInstance` is no longer consulted for these checks. Consequences:
+  - **Breaking:** the combinators and delegation no longer call a subclass's
+    override of `abort()`. `AbortablePromise.race([sticky]).abort()` now
+    rejects a subclass instance whose override refuses to abort, where it left
+    it pending. `then`'s upstream link still calls `abort()`.
+  - **Breaking:** abort no longer reaches an `AbortablePromise` through a Proxy
+    over it, including one whose `get` trap binds every method to the target.
+    `AbortablePromise.all([proxy]).abort()`, `AbortablePromise.of(proxy).abort()`
+    and `new AbortablePromise(r => r(proxy)).abort()` aborted the target for a
+    binding Proxy and now leave it running; for a Proxy with no traps they
+    threw a `TypeError` (the combinators and delegation) or returned the Proxy,
+    whose `abort()` throws (`of`), and `of` now returns a new promise that rejects
+    with a `TypeError`, as `Promise.resolve(proxy)` does. This reaches
+    `call/abortable`: `abortable(() => bindingProxy)()` wraps the Proxy, where
+    it passed through. `proxy.then(f).abort()` on a binding Proxy still aborts
+    the target.
+  - A member whose prototype was swapped for `Promise.prototype` is now aborted
+    by the combinators and by delegation, where they skipped it. `of` wraps
+    it, as before.
 - `of`'s check for a native Promise asks whether `Promise.prototype`, read once
   when the module loads, is on the value's prototype chain (`isPrototypeOf`)
   instead of using `instanceof`, so `Promise[Symbol.hasInstance]` is no longer
-  consulted, and a value whose chain cannot be read goes where any other
-  non-Promise value goes.
+  consulted.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`

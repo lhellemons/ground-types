@@ -31,6 +31,33 @@ describe('abortable', () => {
     const abortingCall = () => AbortablePromise.abort()
     await expect(abortable(abortingCall)()).rejects.toSatisfy(isAbortError)
   })
+  it('wraps a Call that returns a Proxy over an AbortablePromise, so abort no longer reaches the target through it', async () => {
+    // Abort reaches an AbortablePromise through its private state, which a
+    // Proxy does not forward, even one that binds every method to the target.
+    let aborted = false
+    const target = new AbortablePromise<string>((_resolve, _reject, ctx) => {
+      ctx.signal.addEventListener('abort', () => {
+        aborted = true
+      })
+    })
+    const binding = new Proxy(target, {
+      get(t, key) {
+        const value: unknown = Reflect.get(t, key)
+        return typeof value === 'function'
+          ? (value as (...args: unknown[]) => unknown).bind(t)
+          : value
+      },
+    })
+
+    const promise = abortable(() => binding)()
+    promise.abort()
+
+    expect(promise).not.toBe(binding)
+    await expect(promise).rejects.toSatisfy(isAbortError)
+    expect(aborted).toBe(false)
+    target.abort()
+    await expect(target).rejects.toSatisfy(isAbortError)
+  })
   it('reports a Call that throws synchronously as a rejection', async () => {
     // A Call may settle synchronously, so it may fail that way too. The lifted
     // Call is typed as returning an AbortablePromise, and it has to be one:

@@ -6,8 +6,8 @@ const promisePrototype = Promise.prototype
 
 /* A native promise that follows `thenable`. `Promise.resolve` first, which
    returns a native promise as it is, so it settles without the extra turns of
-   a resolve function adopting it. It reads `thenable.constructor` and can throw
-   (a revoked Proxy, a getter that throws) where a native resolve function
+   a resolve function adopting it. For a native promise it reads `constructor`,
+   and that can throw (a getter that throws) where a native resolve function
    rejects; when it throws, `new Promise` adopts the thenable instead, and its
    outcome, the rejection, is what a native resolve function gives. */
 function adoptAsPromise<T>(thenable: PromiseLike<T>): Promise<T> {
@@ -302,8 +302,8 @@ export class AbortablePromise<T> extends Promise<T> {
    * subclass), else `undefined`. A private brand check, which runs no Proxy
    * trap and is false for a Proxy over an AbortablePromise, whatever its
    * traps. Fan-in and delegation abort through this state, not through the
-   * public `abort()`, so a member whose prototype has been swapped cannot make
-   * them throw; the cost is that a subclass's override of `abort()` is not
+   * public `abort()`, so a member whose prototype has been swapped is still
+   * aborted; the cost is that a subclass's override of `abort()` is not
    * called by them.
    */
   static #abortStateOf(value: unknown): AbortState | undefined {
@@ -314,9 +314,8 @@ export class AbortablePromise<T> extends Promise<T> {
 
   /**
    * Extends this class's upstream propagation to fan-in: aborting the
-   * combined promise aborts every member that can be aborted, by its abort
-   * state and not its `abort()`. Members that
-   * are plain Promises are skipped, and losers are *not* aborted when one
+   * combined promise aborts every branded member, by its abort state and not
+   * its `abort()`. Proxies and plain Promises are skipped, and losers are *not* aborted when one
    * member settles first, including in `race` (see
    * docs/adr/0002-abort-propagation.md).
    */

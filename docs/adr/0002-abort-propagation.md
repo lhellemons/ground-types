@@ -95,6 +95,15 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   semantics verbatim, which is worth more than the allocation: hand-rolled
   fan-in is four more places to get abort wrong.
 
+  **Update, 2026-11-15:** the combinators abort a member through its
+  private abort state, not by calling its public `abort()`, and they
+  recognise a member by a private-field brand check, not `instanceof`.
+  A member that cannot be inspected (a Proxy whose `getPrototypeOf` trap
+  throws, a revoked Proxy) therefore no longer makes `abort()` throw and
+  strand the members after it; a Proxy over an `AbortablePromise` is not a
+  member, whatever its traps do; and a subclass's override of `abort()` is
+  not called by fan-in.
+
 - **Resolving with a promise is not settling.** The abort window closes
   when the promise actually settles, not when its executor calls
   `resolve`. Counting resolution as settlement made `abort()` a silent
@@ -138,6 +147,12 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   attaches its own handlers to the delegate before anything can abort
   it, so the propagation cannot manufacture an unhandled rejection. A
   test pins that.
+
+  **Update, 2026-11-15:** delegation recognises its delegate by the same
+  brand check and aborts it through its abort state, not by calling its
+  public `abort()`. A Proxy over an `AbortablePromise` is a plain thenable
+  to it, so abort does not travel through one, and a subclass's override
+  of `abort()` is not called.
 
 - **A fresh `AbortError` per abort.** The imported implementation held a
   single `static readonly AbortError`, constructed once at module load.
