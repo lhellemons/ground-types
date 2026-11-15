@@ -289,8 +289,8 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   `getPrototypeOf` throws, or a revoked Proxy, which are now skipped without
   `abort()` throwing. A member whose `then` was replaced by a non-function was
   taken by the combinator as a plain value, and one with a `then` getter that
-  throws made the combinator reject (`all`, `race`, `any`) or record the error
-  (`allSettled`): neither had a handler, and aborting it rejected it unhandled,
+  throws was taken as a member rejected with the getter's error: neither had a
+  handler, and aborting it rejected it unhandled,
   which ends a Node process. They are no longer aborted. A member with a `then`
   function that subscribes nothing is still aborted, and unhandled, as before.
   A member whose prototype is swapped after the combinator was made is skipped
@@ -298,9 +298,11 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   promise (an executor that resolves twice with delegates): `abort()` fires each
   link, then throws the first error. A promise's signal listeners are released
   even when a link throws; before, they stayed on the signal until it aborted. A
-  throw reached through a signal (`abortOn`, a controller passed to the
-  constructor, `peer`) is thrown inside the signal's event listener and so
-  reported as an uncaught exception, as before.
+  throw reached through a signal that aborts later (`abortOn`, a controller
+  passed to the constructor, `peer`) is thrown inside the signal's event
+  listener and so reported as an uncaught exception, as before; `abortOn` with
+  a signal that has already aborted throws it to the caller of `abortOn`, as
+  before.
 - "Is an `AbortablePromise`", asked by `of`, the four combinators and an
   executor that resolves with a thenable, now asks whether the value carries the
   private field that only this class's constructor sets, and whether
@@ -329,17 +331,18 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   `Promise.resolve` does. A prototype swapped with `Object.setPrototypeOf` is
   wrapped, as before; an `AbortablePromise` whose prototype is a Proxy whose
   `getPrototypeOf` trap throws is wrapped too, where `of` threw.
-- `of` no longer takes a path of its own for a value that inherits
-  `Promise.prototype`. Before, `source instanceof Promise` led to
-  `source.then(resolve)` inside the executor. Now every value that is no
-  `AbortablePromise` goes to `Promise.resolve(source)`. For a native promise
-  whose `constructor` is `Promise` nothing differs. For any other value that
-  inherits `Promise.prototype` — an instance of a Promise subclass, a native
-  promise with an own `constructor` that is not `Promise`, an object that only
-  inherits `Promise.prototype` and has an own `then` — `then` is called from a
-  job, not synchronously inside the executor, and the wrapper of a native
-  promise settles in four microtask turns where it settled in two.
-  `Promise[Symbol.hasInstance]` is no longer consulted.
+- `of`'s check for a native Promise asks whether `Promise.prototype`, read once
+  when the module loads, is on the value's prototype chain (`isPrototypeOf`)
+  instead of using `instanceof`, so `Promise[Symbol.hasInstance]` is no longer
+  consulted. A value whose chain cannot be walked is not one, and goes where any
+  other value goes.
+- A delegate that is an instance of a Promise subclass is followed by calling
+  `Promise.prototype.then` on it from within `resolve`. Its species
+  constructor, user code, runs before `resolve` returns, and the outer promise
+  settles two turns sooner than before and one turn sooner than for
+  `new Promise`. Before, `Promise.resolve` wrapped it and its `then` was called
+  from a job. A native promise whose `constructor` is `Promise` is followed as
+  it was.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`

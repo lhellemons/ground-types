@@ -1,11 +1,24 @@
 import { AbortError } from '../abort/index.js'
 import { hasPrototype } from '../internal/is-error.js'
 
-/* `Promise.prototype.then` and `Reflect.apply`, captured when the module
-   loads. */
+/* `Promise`, `Promise.prototype`, `Promise.prototype.then` and `Reflect.apply`,
+   captured when the module loads. */
+const NativePromise = Promise
+const promisePrototype = Promise.prototype
 // eslint-disable-next-line @typescript-eslint/unbound-method -- only applied
 const promiseThen = Promise.prototype.then
 const apply = Reflect.apply
+
+/* Whether `value` is a native Promise or a subclass instance: `instanceof
+   Promise`, but by `isPrototypeOf`, so `Promise[Symbol.hasInstance]` is not
+   consulted. False for a value whose prototype chain cannot be walked. */
+function isPromise(value: unknown): value is Promise<unknown> {
+  try {
+    return hasPrototype(promisePrototype, value)
+  } catch {
+    return false
+  }
+}
 
 /* Calls `onFulfilled` or `onRejected` when `value` settles, which is `value`
    followed as a native resolve function follows it. `then` is the function
@@ -23,7 +36,7 @@ function follow(
     apply(then, value, [onFulfilled, onRejected])
     return
   }
-  const following = new Promise<unknown>((resolve) => {
+  const following = new NativePromise<unknown>((resolve) => {
     resolve({
       then: (resolveFollowing: unknown, rejectFollowing: unknown) =>
         apply(then, value, [resolveFollowing, rejectFollowing]),
@@ -297,6 +310,12 @@ export class AbortablePromise<T> extends Promise<T> {
       return source as AbortablePromise<T>
     }
 
+    if (isPromise(source)) {
+      return new AbortablePromise<T>((resolve, reject) => {
+        source.then(resolve).catch(reject)
+      })
+    }
+
     return new AbortablePromise<T>((resolve, reject) => {
       Promise.resolve(source).then(resolve).catch(reject)
     })
@@ -530,7 +549,11 @@ export class AbortablePromise<T> extends Promise<T> {
             // is reported as unhandled, also for a link that fires at once
             // because `resolve` came after the abort.
             if (AbortablePromise.#isAbortablePromise(adopted)) {
-              state.link(() => adopted.abort())
+              state.link(() => {
+                if (AbortablePromise.#isAbortablePromise(adopted)) {
+                  adopted.abort()
+                }
+              })
             }
           } catch (error) {
             // As a native resolve function rejects when following the thenable
@@ -562,10 +585,11 @@ export class AbortablePromise<T> extends Promise<T> {
    * a subclass's override, say, on the promise this one was derived from, a
    * delegate or a fan-in member. Every promise the abort reaches is still
    * aborted, and the first error is thrown after the last. Called through a
-   * signal ({@link AbortablePromise.abortOn}, a controller passed to the
-   * constructor, {@link AbortablePromise.peer}), the error is thrown inside the
-   * signal's event listener, where the platform reports it as an uncaught
-   * exception, and nothing returns it to a caller.
+   * signal that aborts later ({@link AbortablePromise.abortOn}, a controller
+   * passed to the constructor, {@link AbortablePromise.peer}), the error is
+   * thrown inside the signal's event listener, where the platform reports it as
+   * an uncaught exception, and nothing returns it to a caller. `abortOn` with a
+   * signal that has already aborted aborts at once and throws to its caller.
    */
   abort(): void {
     this.#state.abort()
@@ -586,8 +610,10 @@ export class AbortablePromise<T> extends Promise<T> {
    * listeners on it — and no rejection handler is attached to do it, so this
    * promise's handled-ness is untouched.
    *
-   * An `abort()` that throws, reached through the signal, is reported as an
-   * uncaught exception: see {@link AbortablePromise.abort}.
+   * An `abort()` that throws, reached through the signal when it aborts later,
+   * is reported as an uncaught exception; for a signal that has already
+   * aborted it is thrown to the caller of `abortOn`: see
+   * {@link AbortablePromise.abort}.
    */
   abortOn(signal: AbortSignal): AbortablePromise<T> {
     this.#state.watchSignal(signal)

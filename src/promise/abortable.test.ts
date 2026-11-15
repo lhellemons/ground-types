@@ -685,8 +685,8 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
   })
 
   it('settles in no more turns than new Promise when it resolves with a native promise', async () => {
-    // `Promise.resolve` returns a native promise as it is; always adopting it
-    // through `new Promise` costs two more turns.
+    // A native promise is followed by calling its `then`; always following it
+    // through a promise resolved with it costs two more turns.
     const settle = (resolve: (value: unknown) => void) => {
       resolve(Promise.resolve('value'))
     }
@@ -699,6 +699,10 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
   it.each([
     ['a revoked Proxy, whose then cannot be read', () => revokedProxy()],
     ['a native promise whose own then throws', () => throwingOwnThen()],
+    [
+      'a native promise whose constructor getter throws',
+      () => countedConstructor([1]).promise,
+    ],
   ])(
     'a rejection by a late resolve() of %s claims the settlement, so a later abort() leaves the signal alone',
     async (_name, make) => {
@@ -950,6 +954,23 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
         await expect(after).rejects.toSatisfy(isAbortError)
       })
 
+      it('fixes the members to abort when the combinator is made', async () => {
+        // Its `then` is no function now, so the combinator took it as a plain
+        // value; restoring `then` afterwards does not make it a member to abort.
+        const member = new AbortablePromise<string>(() => {})
+        const abort = vi.spyOn(member, 'abort')
+        void Object.assign(member, { then: undefined })
+        const after = new AbortablePromise<string>(() => {})
+        const combined = fanIn[combinator]([member, after])
+        Reflect.deleteProperty(member, 'then')
+
+        combined.abort()
+
+        await expect(combined).rejects.toSatisfy(isAbortError)
+        await expect(after).rejects.toSatisfy(isAbortError)
+        expect(abort).not.toHaveBeenCalled()
+      })
+
       it('skips a member whose prototype is a Proxy that throws, and aborts the rest', async () => {
         const member = new AbortablePromise<string>(() => {})
         Object.setPrototypeOf(member, hostileProxy(AbortablePromise.prototype))
@@ -1187,6 +1208,18 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     await expect(delegate).rejects.toSatisfy(isAbortError)
   })
 
+  it('abortOn with a signal that has already aborted throws an upstream abort() error to its caller', async () => {
+    const source = new AbortablePromise<string>(() => {})
+    source.abort = () => {
+      throw new RangeError('refused')
+    }
+    const derived = source.then((value) => value)
+
+    expect(() => derived.abortOn(AbortSignal.abort())).toThrow(RangeError)
+
+    await expect(derived).rejects.toSatisfy(isAbortError)
+  })
+
   it('releases the signal listeners of a promise when an upstream abort() throws', async () => {
     const controller = new AbortController()
     const removeEventListener = vi.spyOn(
@@ -1206,6 +1239,88 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
       'abort',
       expect.any(Function),
     )
+  })
+
+  it('an executor resolving with a delegate whose prototype is swapped afterwards is abortable, and does not abort it', async () => {
+    const delegate = new AbortablePromise<string>(() => {})
+    const outer = new AbortablePromise<string>((resolve) => resolve(delegate))
+    Object.setPrototypeOf(delegate, Promise.prototype)
+
+    expect(() => outer.abort()).not.toThrow()
+
+    await expect(outer).rejects.toSatisfy(isAbortError)
+  })
+
+  it('follows a delegate with the Promise it captured, not the global one', async () => {
+    const delegate = AbortablePromise.resolve('value')
+    const OriginalPromise = Promise
+    // A stand-in that is no native promise, which a promise made with it could
+    // not be chained with `Promise.prototype.then`.
+    class Standin<T> {
+      readonly #promise: Promise<T>
+      constructor(
+        executor: (
+          resolve: (value: T | PromiseLike<T>) => void,
+          reject: (reason?: unknown) => void,
+        ) => void,
+      ) {
+        this.#promise = new OriginalPromise(executor)
+      }
+      then<U>(onFulfilled: (value: T) => U) {
+        return this.#promise.then(onFulfilled)
+      }
+    }
+
+    let outer: AbortablePromise<string> | undefined
+    globalThis.Promise = Standin as unknown as PromiseConstructor
+    try {
+      outer = new AbortablePromise<string>((resolve) => resolve(delegate))
+    } finally {
+      globalThis.Promise = OriginalPromise
+    }
+
+    await expect(outer).resolves.toBe('value')
+  })
+
+  it('calls the species constructor of a Promise subclass delegate before resolve returns', () => {
+    // Its `then` is the one `Promise.prototype` has, which is called at once.
+    let species = 0
+    class Sub<T> extends Promise<T> {
+      static override get [Symbol.species]() {
+        species++
+        return Promise
+      }
+    }
+
+    void new AbortablePromise<string>((resolve) => {
+      resolve(Sub.resolve('value'))
+      expect(species).toBe(1)
+    })
+  })
+
+  it('reads the then of a thenable once, and calls it from a job', async () => {
+    let reads = 0
+    let calls = 0
+    const thenable = {
+      get then() {
+        reads++
+        return (resolve: (value: string) => void) => {
+          calls++
+          resolve('value')
+        }
+      },
+    }
+    let callsInExecutor = -1
+
+    const ap = new AbortablePromise<string>((resolve) => {
+      resolve(thenable as never)
+      callsInExecutor = calls
+    })
+
+    expect(callsInExecutor).toBe(0)
+    await expect(ap).resolves.toBe('value')
+    expect(reads).toBe(1)
+    expect(calls).toBe(1)
   })
 
   it('an executor resolving with an AbortablePromise whose prototype is a Proxy that throws is abortable, and does not abort it', async () => {
@@ -1228,7 +1343,7 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     ).resolves.toBe('pending')
   })
 
-  it('of() does not call the then of a value that inherits Promise.prototype before the executor has returned, as Promise.resolve does not', async () => {
+  it('of() calls the then of a value that inherits Promise.prototype before the executor has returned', async () => {
     let calls = 0
     const lookalike = Object.assign(
       Object.create(Promise.prototype) as object,
@@ -1242,19 +1357,37 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
 
     const wrapped = AbortablePromise.of(lookalike as Promise<string>)
 
-    expect(calls).toBe(0)
-    await expect(wrapped).resolves.toBe('value')
     expect(calls).toBe(1)
+    await expect(wrapped).resolves.toBe('value')
   })
 
-  it('of() settles an instance of a Promise subclass in four turns, which Promise.resolve wrapping it costs', async () => {
+  it('of() settles an instance of a Promise subclass in two turns', async () => {
     class Sub<T> extends Promise<T> {}
 
-    // `Promise.resolve` wraps a promise whose constructor is not `Promise`. A
-    // `then` called directly on the instance settles it in two.
+    // `Promise.resolve` would wrap it, which costs two more turns.
     expect(
       await turnsToSettle(() => AbortablePromise.of(Sub.resolve('value'))),
-    ).toBe(4)
+    ).toBe(2)
+  })
+
+  it('of() reads the constructor of a native promise once, and resolve() twice, as before', async () => {
+    const forOf = countedConstructor([])
+    await expect(AbortablePromise.of(forOf.promise)).resolves.toBe('value')
+    expect(forOf.reads()).toBe(1)
+
+    const forResolve = countedConstructor([])
+    await expect(AbortablePromise.resolve(forResolve.promise)).resolves.toBe(
+      'value',
+    )
+    expect(forResolve.reads()).toBe(2)
+
+    // The second read of `of`, and the third of `resolve`, do not happen.
+    await expect(
+      AbortablePromise.of(countedConstructor([2]).promise),
+    ).resolves.toBe('value')
+    await expect(
+      AbortablePromise.resolve(countedConstructor([3]).promise),
+    ).resolves.toBe('value')
   })
 
   it('does not consult Symbol.hasInstance to recognise an AbortablePromise or a Promise', async () => {

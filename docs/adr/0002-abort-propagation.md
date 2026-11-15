@@ -101,8 +101,8 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   `AbortablePromise.prototype` is on its chain (answering false when the walk
   throws). The combinators abort the members they can subscribe to: the
   members of that kind whose `then` is a function. A member whose `then` is no
-  function was taken as a plain value, and one whose `then` getter throws made
-  the combinator reject or record the error; neither has a handler, so
+  function was taken as a plain value, and one whose `then` getter throws was taken
+  as a member rejected with the getter's error; neither has a handler, so
   aborting it is an unhandled rejection. A `then` function that subscribes
   nothing is not detected and is aborted. The combinators call the member's
   `abort()`, so a subclass's override is honoured, as it is by `then`'s
@@ -111,8 +111,9 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   aborted even when one `abort()` throws, the first error being thrown after
   the last. A Proxy over an `AbortablePromise` is not one, whatever its traps
   do, and neither is a member whose prototype was swapped. Reached through a
-  signal, the error is thrown inside the signal's event listener, which the
-  platform reports as an uncaught exception.
+  signal that aborts later, the error is thrown inside the signal's event
+  listener, which the platform reports as an uncaught exception; `abortOn`
+  with a signal that has already aborted throws it to the caller of `abortOn`.
 
 - **Resolving with a promise is not settling.** The abort window closes
   when the promise actually settles, not when its executor calls
@@ -162,7 +163,7 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   pins that.
 
   **Update, 2026-11-15:** delegation recognises its delegate by the same
-  checks as fan-in, and calls its `abort()` the same way: a subclass's
+  checks as fan-in, checks again when it is aborted, and calls its `abort()` the same way: a subclass's
   override, an `abort` assigned or spied on the instance and a patched
   `AbortablePromise.prototype.abort` are called. A throw from it ends neither
   the loop over the promise's upstream links nor the abort: each link fires,
