@@ -170,11 +170,8 @@ The construction seam of a domain object: it takes a DTO, validates it,
 and returns either the domain object or a Failure explaining why the DTO
 was not admissible. A Factory is the only sanctioned way to turn
 untrusted data into a domain object. `DomainObjectFactory` describes the
-static `from(dto)` seam.
-A Primitive Value Object Factory also has a callable throwing form, used
-when invalid input is a bug; `.from` reports expected invalid input as a
-Failure. JSON carries no Brand or validation proof: parsed data must pass
-through the Factory again.
+`from(dto)` seam. A Primitive Value Object Factory also has a callable
+throwing form.
 
 _Avoid_: Parser, validator, builder, constructor (a constructor cannot
 report failure as a value).
@@ -195,10 +192,7 @@ the DTO entry above), toJSON, export.
 To canonicalise a Value Object so that equal values are represented by
 one shared instance, making reference equality agree with value
 equality. The **Intern Registry** holds those canonical instances weakly: sameness
-is guaranteed while an instance remains live. An instance no longer held
-by callers may be collected and recreated later. Keys are held strongly;
-a key referring to its instance keeps that instance alive. Collection
-and cleanup have no guaranteed timing.
+holds while an instance is live.
 
 _Avoid_: Cache, pool, memoize (interning is about identity of equals,
 not about avoiding recomputation).
