@@ -137,11 +137,14 @@ describe('box: the way in for a Result in hand (#51)', () => {
     expectTypeOf(Result.from(5).unbox()).toEqualTypeOf<
       ResultIndex<number, never>
     >()
-    // `null` and `undefined` do not compile through box.
-    // @ts-expect-error - not a Result
-    Result.box(null)
-    // @ts-expect-error - not a Result
-    Result.box(undefined)
+    // `null` and `undefined` compile through box since #93 gave them their
+    // own Success arm, and keep Error in the error arm like any primitive.
+    expectTypeOf(Result.box(null).unbox()).toEqualTypeOf<
+      ResultIndex<null, Error>
+    >()
+    expectTypeOf(Result.box(undefined).unbox()).toEqualTypeOf<
+      ResultIndex<undefined, Error>
+    >()
   })
 
   it('the poison overload catches a Box handed back in — soft, like the guard statics', () => {

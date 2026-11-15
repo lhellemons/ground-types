@@ -22,6 +22,48 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   returned without `failure()` still compiles where `T` is `object`, a union
   with `object`, or an object type whose required members a plain `Error` has
   (`{ name: string }`), as before.
+- **Breaking:** `Success<undefined>`, `Success<null>` and `Success<void>` no
+  longer reduce to `never`; each is the bare `undefined`, `null` or `void`,
+  with no error phantom, and a nullish member of `T` is a Success arm of its
+  own. So `success(undefined)` and `success(null)` are no longer assignable to
+  every `Result`: `(): Result<User, Invalid> => success(undefined)` is now an
+  error, while `Result<User | undefined, Invalid>`, `Result<void, Invalid>`
+  and `Result<undefined, Invalid>` accept it. Narrowing a
+  `Result<number | undefined, E>` with `!isFailure` or `isSuccess` keeps the
+  `undefined` (it narrowed to `number` before, so the branch handling
+  `undefined` was typed unreachable), and `Result<undefined, E>` is
+  `undefined | Failure<undefined, E>` where it was the `Failure` alone.
+  `Result.box(null)` and `Result.box(undefined)` now compile, as
+  `Result<null, Error>` and `Result<undefined, Error>`.
+  With `r: Result<number | undefined, E>`, `map((n: number) => n * 2, r)` and
+  `andThen((n: number) => success(n), r)` are now errors, since the
+  `undefined` reaches a callback that takes a number: annotate it
+  `(n: number | undefined)`, or handle the `undefined` first (for `map` and
+  `andThen` only). A nullish arm has
+  no error phantom, so `map(f, success(undefined))` is `Result<number, Error>`
+  where a value-carrying `success(x)` seeds `E = never`: a chain over
+  `success(undefined)` does not reach a narrower `Result`, and neither
+  `success<undefined, E>(undefined)` nor a declared seed nor `andThen(f,
+success(undefined))` narrows `E`. Pass type arguments to the combinator
+  (`map<undefined, number, undefined, Invalid>(f, success(undefined))`), use
+  `result<undefined, Invalid>(undefined)`, or cast.
+  A `Success` narrowed out of a `Result<number | undefined, E>`
+  (`isSuccess(r) && r !== undefined`, `typeof r === 'number'`, `r!`) still
+  carries `number | undefined` through a generic: `orElse(0, r)`,
+  `fallback(() => 0, r)` and your own `unwrap<T, E>(x: Result<T, E>): T` no
+  longer give a `number`, and `mapError(f, r)` and `Result.box(r).unbox()`
+  widen back. So does ruling the `undefined` out of the whole `Result` first
+  for `orElse`, `fallback` and `unwrap`. Pass type arguments
+  (`orElse<number, Invalid>(0, r)`), rebind to a declared
+  `Result<number, Invalid>`, or `map((n: number) => n, r)` first.
+  The curried `act` overload (an unimplemented stub) no longer takes a
+  `Result<Maybe<number>, E>` argument for a callback written over the same
+  type.
+  `unknown` gets no nullish arm, so `(): Result<unknown, E> =>
+success(undefined)` and `success(null)` no longer compile. Checked on
+  TypeScript 5.4, 5.9 and 7.0.
+- Add `SuccessArm`, the marked part of a `Success`, exported from `/result`:
+  consumers whose declarations mention a `Success` need a name to emit.
 - **Breaking:** TypeScript 5.4 or later is required, for `NoInfer` on the
   phantom position of `success` and `failure`.
 - **Breaking:** `success` rejects, at any site and with or without type
@@ -52,7 +94,7 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   overload: `result<number>(5)` is `Result<number, never>`,
   `result<number>(x)` with `x: any` is too, and
   `result<number | Invalid>(x)` is `Result<number, Invalid>`.
-- `Success` carries a third marker, `[_error]?: never`, so that no `Failure`
+- `SuccessArm` carries a third marker, `[_error]?: never`, so that no `Failure`
   can pass as a `Success`.
 - Add `NotPossiblyAnError`, the type of `success`'s guard, exported from
   `/result`.

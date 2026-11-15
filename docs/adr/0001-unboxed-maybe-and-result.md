@@ -23,6 +23,10 @@ compiler rather than assumed:
   assignable back to `Result<T>`. Once a Result nests, it is stuck —
   there is no generic way to un-nest it back to the outer shape.
 
+**Update, 2026-11-15:** a `Maybe<Result<T, E>>` is not a nest of that kind.
+It reads as `Result<T | undefined, E>`, matching the runtime, where
+`isSuccess(undefined)` is true (the 2026-11-15 amendment below).
+
 ## Decision
 
 - **Keep both Maybe and Result unboxed.** It makes both types nearly
@@ -266,7 +270,9 @@ the old `unknown` default happened to cover: `Failure<never, Error>` has
 `[_phantom]?: Invalid`, and an Error object satisfies any `T` that admits
 an object, so `(): Result<unknown, Invalid> => failure(new Error())` would
 compile. Every `Failure` carries `[_error]?: E`, which `never` refuses, so
-no Failure can pass as a Success whatever `T` is.
+no Failure can pass as a Success whatever `T` is. **Update, 2026-11-15:**
+a nullish arm of `Success` has no `[_error]`; see the 2026-11-15
+amendment below.
 
 `result` has a different shape of cost: a union argument lands wholly in
 `T` and `E` defaults to `Error`. It gains a first overload that splits
@@ -332,8 +338,9 @@ still does (`Result.box({ id: 'x' })` and `Result.from({ id: 'x' })` are
 both `Result<{ id: string }, Error>`); for a primitive it no longer does
 (`Result.from(5)` is `Result<number, never>` where `Result.box(5)` is
 `Result<5, Error>`); and `Result.box(null)` and `Result.box(undefined)`
-do not compile. Which of the two promises `box` keeps is not decided
-here; it goes to the implementation task and to the Box implementation
+do not compile. **Update, 2026-11-15:** they compile since #93; see the
+2026-11-15 amendment below. Which of the two promises `box` keeps is not
+decided here; it goes to the implementation task and to the Box implementation
 (#89), under docs/adr/0005-box-classes.md. These statements were
 superseded by this amendment and are corrected in the implementation
 (#88): ADR 0005's "`Result.success` seeds `E = never`, the one
@@ -427,3 +434,160 @@ Two things were ruled out on the way:
   and infers under the new ones (probed). The 0.4.0 docblock tells users
   to name `T, P, E` for handwritten handlers; the implementation of this
   amendment drops that instruction and corrects the diagnosis.
+
+### 2026-11-15 — `Success` keeps `null`, `undefined` and `void` as arms of its own (#93)
+
+`Success<T, E>` was `(T extends Error ? never : T) & { markers }`, and an
+object type intersected with `undefined` or `null` is `never`. So
+`Success<undefined, E>` and `Success<null, E>` were `never`, and two
+things followed that the 2026-11-14 amendment's guarantees did not cover,
+because neither is a way for an `Error` into a `Success`; the review of
+#88 found them, and both exist on 0.4.0 as well:
+
+- `success(undefined)` and `success(null)` were typed `never`, which
+  assigns to anything: `(): Result<User, Invalid> => success(undefined)`
+  compiled.
+- The Success arm of `Result<number | undefined, E>` lost its
+  `undefined`: `!isFailure(r)` narrowed to `number`, and the branch that
+  handles the `undefined` value was typed unreachable.
+
+`Result<undefined, E>` was likewise its `Failure` arm alone.
+
+**Decision: distribute the markers over the non-nullish part of `T`, and
+let the nullish part stand for itself.**
+
+```ts
+type Success<T, E extends Error = Error> =
+  SuccessArm<T, E> | NoInfer<Extract<T, null | undefined | void>>
+
+type SuccessArm<T, E extends Error> = Exclude<
+  T,
+  Error | null | undefined | void
+> & {
+  readonly [_phantom]?: E
+  readonly [_value]?: T
+  readonly [_error]?: never
+}
+```
+
+`SuccessArm` is the marked part of a `Success`: an exported alias of its
+own, in `/result`'s module table and surface test. It has to be a named
+export for two reasons, both measured. Written inline in a union, the
+`Success` alias is erased once `Result` flattens, and inference falls back
+to the optional `[_phantom]?: E`, so `success(1)` stopped seeding `E =
+never` through a generic: `andThen(validate, success(1))` and `map(f,
+success(1))` no longer fitted a `Result<_, Invalid>`, which is the
+consumer case the 2026-11-14 amendment exists for. And a consumer that
+exports a value typed through it, with `declaration` on, failed with
+TS4023 or TS4058 ("cannot be named" for `_phantom`, `_value` and
+`_error`) unless the arm is reachable through an exported name.
+
+`void` joins the nullish set so that `Result<void, E>`, a common return
+type, accepts `success(undefined)`: `undefined` is not assignable to
+`void & { … }` (measured; with `void` left out that line failed to
+compile). The second arm needs `NoInfer`: written plainly, `T` sits in
+the true branch of a conditional, and TypeScript infers a `Failure` into
+it, so `resultify(catchOnly(A, B), promise)` bound `O` to the error class
+(measured; the first form of this change broke several existing
+expectations that way). `NoInfer` is already required (5.4).
+
+The markers keep the whole `T` in `[_value]`. A `Result<number | undefined,
+E>` therefore infers `T = number | undefined` from the arm's alias type
+argument, as it should; the cost of that is the narrowed-arm case in the
+list below. One more consequence is a stub's: the curried `act` overload
+(`Result<T, E> & A`, `src/result/act.ts`) does not take a
+`Result<Maybe<number>, Invalid>` argument for a callback written over the
+same type (TS2345: `T` and `E` infer as `number` and `Error` from the value
+and `Invalid` from the parameter at once). That compiled on 0.4.0. `act` is
+an unexported, unimplemented stub, so the case is pinned as an error in
+`nullish-success.test-d.ts` and handed to the act and Box work (#89).
+
+Costs, on record. A nullish arm carries no phantom, so `Success<undefined,
+Invalid>` and `Success<undefined, Other>` are the same type, `undefined`;
+the error arm of a `Result<undefined, E>` is still its `Failure<_, E>`,
+which the phantom keeps distinct. Four consequences are observable:
+
+- `success(undefined)` and `success(null)` seed no `E = never` into a
+  chain: `map(f, success(undefined))` is `Result<number, Error>`, so a
+  `Result<number, Invalid>` annotation on that call does not compile.
+  None of these narrow `E`: `success<undefined, Invalid>(undefined)` (the
+  arm keeps no phantom), `andThen(validate, success(undefined))` (which
+  gives `Invalid | Error`), a seed declared `Result<undefined, Invalid>`
+  (its declared type narrows to `undefined` on assignment) and the curried
+  `andThen`. What works is explicit type arguments on the combinator
+  (`map<undefined, number, undefined, Invalid>(f, success(undefined))`),
+  `result<undefined, Invalid>(undefined)` as the value, or a cast to
+  `Result<undefined, Invalid>`; all three are pinned.
+- A `Success` narrowed out of a `Result<number | undefined, E>` keeps its
+  `undefined` through a generic. After `isSuccess(r) && r !== undefined`
+  (or a `typeof r === 'number'` test, or `r!`), `r` is still a
+  `SuccessArm<number | undefined, E>`, and a generic that infers `T` from
+  `Result<T, E>` reads the alias's type argument, `number | undefined`:
+  `orElse(0, r)`, `fallback(() => 0, r)` and a user
+  `unwrap<T, E>(x: Result<T, E>): T` no longer give a `number`, and `mapError(…, r)` and `Result.box(r).unbox()`
+  widen back to `number | undefined`. Ruling the `undefined` out of the
+  whole `Result` first (`if (r === undefined) return`) does not help for
+  `orElse`, `fallback` or `unwrap` either: the `Failure` arm still names
+  `number | undefined`. All of these compiled on main, because the
+  `undefined` was lost from the Success arm. Workarounds, all pinned: explicit
+  type arguments (`orElse<number, Invalid>(0, r)`), rebinding to a declared
+  `Result<number, Invalid>`, or `map((n: number) => n, r)` first. Two
+  structural alternatives were measured and each costs more: passing the
+  alias the non-nullish part (`SuccessArm<Exclude<T, nullish>, E>`, and the
+  `T & {}` and `NonNullable<T>` spellings) loses the seeding, since
+  inference through the wrapper has lower priority and `plain(success(1))`
+  becomes `[1 | undefined, never]`; and distributing `Success` over `T`
+  (`T extends nullish ? NoInfer<T> : SuccessArm<T, E>`) fixes seeding and
+  most of this, but breaks `fallback`'s callback and `mapError`'s recovery
+  inference.
+- `unknown` gets no nullish arm, since `Extract<unknown, null | undefined>`
+  is `never`, so `success(undefined)` and `success(null)` no longer fit a
+  `Result<unknown, Invalid>`, though they did on 0.4.0. Narrowing a
+  `Result<unknown, E>` and testing `=== undefined` still gives `never`, as
+  before. No clean fix exists: an `unknown extends T ? …` branch breaks
+  `map` and `andThen`.
+- The error guarantee below now holds for a nullish arm for a different
+  reason: a nullish arm has no `[_error]` marker to refuse a `Failure`
+  with, but a `Failure` is an object, so it is never `null` or `undefined`.
+
+Measured against the ADR's two guarantees and the standing probes, on
+TypeScript 5.4.5, 5.9.3 and 7.0.2:
+
+- A `Success` can never be an `Error`: `Success<Invalid | undefined,
+Other>` is `undefined`, `Success<Invalid, Other>` is `never`, no `Error`
+  and no `Failure` is assignable to `Success<number | undefined, E>`, and
+  the `success` guard (`NotPossiblyAnError`) is untouched.
+- `Result<Result<T>>` is still not assignable to `Result<T>`, for a `T`
+  with and without a nullish member. A `Maybe<Result<T, E>>` reads as
+  `Result<T | undefined, E>`, which matches the runtime, where
+  `isSuccess(undefined)` is true.
+- Every earlier type test passes unchanged except two Box pins, below.
+
+New behaviour, each pinned in `src/result/nullish-success.test-d.ts`:
+
+- `success(undefined)` is `undefined`, `success(null)` is `null`, and
+  neither fits `Result<User, E>`, `Result<null, E>` (for `undefined`) or
+  `Result<undefined, E>` (for `null`); each fits a `Result` whose value
+  type admits it (`Result<User | undefined, E>`, `Result<void, E>`).
+- `!isFailure(r)` on a `Result<number | undefined, E>` narrows to `number |
+undefined`, and `Result<undefined, E>` is `undefined | Failure<undefined,
+E>`.
+- **Breaking, and the most common new compile error:** with `r:
+Result<number | undefined, E>`, `map((n: number) => n * 2, r)` and
+  `andThen((n: number) => success(n), r)` are now errors. The `undefined`
+  value used to be lost from the Success arm, so the callback compiled; it
+  now reaches a callback that cannot take it, which is the point. Annotate
+  the callback `(n: number | undefined)`, or handle the `undefined` first.
+  Handling it first helps `map` and `andThen` only, not `orElse`,
+  `fallback` or a user `unwrap`; see the narrowed-arm cost above.
+- The Result Box's `box(null)` and `box(undefined)` pins moved: the two
+  lines that said they do not compile now compile, as `Result<null, Error>`
+  and `Result<undefined, Error>`, the primitive rule of #89 (a primitive
+  keeps `Error` through `box`). That decision stays #89's; the
+  docblock on `ResultBox.box` is corrected to say what compiles.
+
+A consumer declaration-emit check, `test/declaration-emit/result.test.ts`,
+compiles a file that exports `success(1)`, `success(undefined)`, a function
+returning `success(n)` or `failure(e)` and a value narrowed by `isSuccess`,
+with `declaration` on and `skipLibCheck` off, and expects no TS4023 or
+TS4058.
