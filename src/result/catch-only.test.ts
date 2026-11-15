@@ -8,7 +8,16 @@ import type { Branded } from '../brand/index.js'
 class A extends Error {}
 class B extends A {}
 class Other extends Error {}
-const unexpected = [new TypeError(), {}, null, undefined, 'bad']
+const unexpected = [
+  new TypeError(),
+  new Error(),
+  {},
+  null,
+  undefined,
+  'bad',
+  Symbol('bad'),
+  { then() {} },
+]
 function throws(value: unknown): never {
   throw value
 }
@@ -34,6 +43,113 @@ describe('catchOnly', () => {
   it('rethrows all other values by identity', () => {
     for (const value of unexpected)
       expectThrow(() => catchOnly(A)(value), value)
+  })
+})
+
+describe('catchOnly list validation', () => {
+  it('throws a TypeError at creation for an empty list', () => {
+    expect(() => (catchOnly as (...classes: unknown[]) => unknown)()).toThrow(
+      TypeError,
+    )
+    expect(() => tryCatch(() => 1, [] as never)).toThrow(TypeError)
+  })
+  it('throws a TypeError at creation for entries unusable with instanceof', () => {
+    const unusable = [
+      undefined,
+      null,
+      {},
+      'A',
+      { prototype: new Error() },
+      () => new A(),
+      async () => new A(),
+      { method(this: void) {} }.method,
+      { [Symbol.hasInstance]: () => true },
+    ]
+    for (const entry of unusable) {
+      expect(() =>
+        (catchOnly as (...classes: unknown[]) => unknown)(A, entry),
+      ).toThrow(TypeError)
+      expect(() => tryCatch(() => 1, [entry] as never)).toThrow(TypeError)
+    }
+  })
+  it('accepts classes, bound classes and function declarations', () => {
+    function Legacy() {}
+    for (const entry of [A, A.bind(null), Legacy]) {
+      expect(() =>
+        (catchOnly as (...classes: unknown[]) => unknown)(entry),
+      ).not.toThrow()
+    }
+  })
+})
+
+describe('catchOnly entries with custom behaviour', () => {
+  it('accepts a class with its own Symbol.hasInstance without calling it', () => {
+    let calls = 0
+    class Coded extends Error {
+      static [Symbol.hasInstance](value: unknown) {
+        calls++
+        return value instanceof Error && value.message.startsWith('coded')
+      }
+    }
+    const handler = catchOnly(Coded)
+    expect(calls).toBe(0)
+    const error = new Error('coded: x')
+    expect(handler(error)).toBe(error)
+    const other = new Error('plain')
+    expectThrow(() => handler(other), other)
+  })
+  it('rejects a revoked proxy at creation', () => {
+    const revocable = Proxy.revocable(class extends Error {}, {})
+    revocable.revoke()
+    expect(() =>
+      (catchOnly as (...classes: unknown[]) => unknown)(revocable.proxy),
+    ).toThrow(TypeError)
+  })
+  it('names the failing entry in the creation error', () => {
+    expect(() =>
+      (catchOnly as (...classes: unknown[]) => unknown)(A, undefined),
+    ).toThrow(/entry 1/)
+  })
+  it('rethrows the original error when an entry fails later', () => {
+    function Legacy() {}
+    const handler = (
+      catchOnly as (...classes: unknown[]) => (e: unknown) => unknown
+    )(Legacy)
+    ;(Legacy as unknown as { prototype: unknown }).prototype = 1
+    const error = new Error('original')
+    expectThrow(() => handler(error), error)
+
+    class Throwing extends Error {
+      static [Symbol.hasInstance](): boolean {
+        throw new RangeError('hasInstance')
+      }
+    }
+    expectThrow(() => catchOnly(Throwing)(error), error)
+
+    const revocable = Proxy.revocable(class extends Error {}, {})
+    const viaProxy = (
+      catchOnly as (...classes: unknown[]) => (e: unknown) => unknown
+    )(revocable.proxy)
+    revocable.revoke()
+    expectThrow(() => viaProxy(error), error)
+  })
+})
+
+describe('error classes with a private constructor', () => {
+  class Priv extends Error {
+    private constructor() {
+      super('private')
+    }
+    static create(): Priv {
+      return new Priv()
+    }
+  }
+  it('are accepted by catchOnly and the tryCatch list', () => {
+    const error = Priv.create()
+    expect(catchOnly(Priv)(error)).toBe(error)
+    expect(tryCatch(() => throws(error), [Priv])()).toBe(error)
+    const other = new A()
+    expectThrow(() => catchOnly(Priv)(other), other)
   })
 })
 

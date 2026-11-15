@@ -1,5 +1,6 @@
 import { describe, expectTypeOf, it } from 'vitest'
 import { definePrimitiveValueObject } from './index.js'
+import { catchOnly } from '../result/index.js'
 import type { Branded } from '../brand/index.js'
 import type { Result } from '../result/index.js'
 
@@ -44,5 +45,50 @@ describe('definePrimitiveValueObject', () => {
     expectTypeOf(Email.from).toEqualTypeOf<
       (value: string) => Result<Email, Error>
     >()
+  })
+
+  it('types .from as readonly, matching the frozen factory', () => {
+    const Email = definePrimitiveValueObject<Email>((value) => value as Email)
+
+    // @ts-expect-error `from` is frozen at runtime, so it is readonly in the type
+    Email.from = () => new Error('replacement')
+  })
+
+  describe('with catchOnly', () => {
+    const construct = (value: string): Email => {
+      if (!value.includes('@')) throw new InvalidEmail('invalid email')
+      return value as Email
+    }
+
+    it('infers E from the listed classes when no type arguments are given', () => {
+      const Email = definePrimitiveValueObject(
+        construct,
+        catchOnly(InvalidEmail),
+      )
+
+      expectTypeOf(Email.from('a@b.com')).toEqualTypeOf<
+        Result<Email, InvalidEmail>
+      >()
+    })
+
+    it('names all three type arguments to keep E', () => {
+      const Email = definePrimitiveValueObject<Email, string, InvalidEmail>(
+        construct,
+        catchOnly(InvalidEmail),
+      )
+
+      expectTypeOf(Email.from('a@b.com')).toEqualTypeOf<
+        Result<Email, InvalidEmail>
+      >()
+    })
+
+    it('widens E to Error when only T is named — a partial list never infers the rest', () => {
+      const Email = definePrimitiveValueObject<Email>(
+        construct,
+        catchOnly(InvalidEmail),
+      )
+
+      expectTypeOf(Email.from('a@b.com')).toEqualTypeOf<Result<Email, Error>>()
+    })
   })
 })
