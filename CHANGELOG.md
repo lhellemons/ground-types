@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `catchOnly` and the `tryCatch` class-list shorthand now accept error classes
+  with a private constructor, such as a domain error with a static factory.
+  Any value with an `Error` prototype is accepted as a class; existing
+  inference is unchanged.
+- `catchOnly` (and so the `tryCatch` shorthand) now throws a `TypeError` when
+  the handler is created, if the class list is empty or holds anything that
+  is not a function. Before, a bad entry threw on the error path and
+  replaced the original error.
+- `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
+  frozen factory: assigning to it no longer typechecks.
+- Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`
+  widens `E` to `Error`; pass no type arguments, or all three.
 - The release workflow no longer replaces the asset of a release that is already
   public: a rerun succeeds when the published tarball has the same contents and
   fails when it differs. Only drafts are replaced and then published.

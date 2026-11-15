@@ -61,6 +61,14 @@ class Selected extends Error {
 class Other extends Error {
   readonly other = true
 }
+class Private extends Error {
+  private constructor() {
+    super('private')
+  }
+  static create(): Private {
+    return new Private()
+  }
+}
 declare const construct: (value: string) => Branded<string, 'Selected'>
 describe('selective handler inference', () => {
   it('infers the selected union at each site', () => {
@@ -83,6 +91,16 @@ describe('selective handler inference', () => {
     >()
     expectTypeOf(tryCatch(() => 1, [Selected])()).toEqualTypeOf<
       Result<number, Selected>
+    >()
+    // Error classes with a private constructor and a static factory
+    expectTypeOf(tryCatch(() => 1, [Private])()).toEqualTypeOf<
+      Result<number, Private>
+    >()
+    expectTypeOf(
+      tryCatch(() => 1, catchOnly(Private, Selected))(),
+    ).toEqualTypeOf<Result<number, Private | Selected>>()
+    expectTypeOf(tryCatch(() => 1, [Private, Selected])()).toEqualTypeOf<
+      Result<number, Private | Selected>
     >()
     // @ts-expect-error Bare constructors are not handlers; use a list
     tryCatch(() => 1, Selected)

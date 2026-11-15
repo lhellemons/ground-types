@@ -8,7 +8,16 @@ import type { Branded } from '../brand/index.js'
 class A extends Error {}
 class B extends A {}
 class Other extends Error {}
-const unexpected = [new TypeError(), {}, null, undefined, 'bad']
+const unexpected = [
+  new TypeError(),
+  new Error(),
+  {},
+  null,
+  undefined,
+  'bad',
+  Symbol('bad'),
+  { then() {} },
+]
 function throws(value: unknown): never {
   throw value
 }
@@ -34,6 +43,47 @@ describe('catchOnly', () => {
   it('rethrows all other values by identity', () => {
     for (const value of unexpected)
       expectThrow(() => catchOnly(A)(value), value)
+  })
+})
+
+describe('catchOnly list validation', () => {
+  it('throws a TypeError at creation for an empty list', () => {
+    expect(() => (catchOnly as (...classes: unknown[]) => unknown)()).toThrow(
+      TypeError,
+    )
+    expect(() => tryCatch(() => 1, [] as never)).toThrow(TypeError)
+  })
+  it('throws a TypeError at creation for entries that are not functions', () => {
+    for (const entry of [
+      undefined,
+      null,
+      {},
+      'A',
+      { prototype: new Error() },
+    ]) {
+      expect(() =>
+        (catchOnly as (...classes: unknown[]) => unknown)(A, entry),
+      ).toThrow(TypeError)
+      expect(() => tryCatch(() => 1, [entry] as never)).toThrow(TypeError)
+    }
+  })
+})
+
+describe('error classes with a private constructor', () => {
+  class Priv extends Error {
+    private constructor() {
+      super('private')
+    }
+    static create(): Priv {
+      return new Priv()
+    }
+  }
+  it('are accepted by catchOnly and the tryCatch list', () => {
+    const error = Priv.create()
+    expect(catchOnly(Priv)(error)).toBe(error)
+    expect(tryCatch(() => throws(error), [Priv])()).toBe(error)
+    const other = new A()
+    expectThrow(() => catchOnly(Priv)(other), other)
   })
 })
 

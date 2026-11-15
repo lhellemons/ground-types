@@ -23,6 +23,7 @@ describe('definePrimitiveValueObject', () => {
 
     expect(Object.isFrozen(factory)).toBe(true)
     expect(() => {
+      // @ts-expect-error `from` is readonly in the type, as it is frozen at runtime
       factory.from = () => new Error('replacement')
     }).toThrow(TypeError)
     expect(factory.from).toBe(from)
