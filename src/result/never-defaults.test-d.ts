@@ -161,6 +161,11 @@ describe('ADR 0001 safety properties', () => {
     >()
     expectTypeOf(result(5 as number)).toEqualTypeOf<Result<number, never>>()
     expectTypeOf(result(null)).toEqualTypeOf<Result<null, never>>()
+    // `undefined` is on `ErrorArmOf`'s primitive list: dropping it gives the
+    // `undefined` member of a union an `Error` arm.
+    expectTypeOf(result(undefined as number | undefined)).toEqualTypeOf<
+      Result<number | undefined, never>
+    >()
     expectTypeOf(result(true as boolean)).toEqualTypeOf<
       Result<boolean, never>
     >()
@@ -317,6 +322,11 @@ describe('ADR 0001 safety properties', () => {
     const sneaky: Game = new Sneaky()
     const l = (): Result<Game, Invalid> => success(sneaky)
     void [k, l]
+    // `void` passes beside `any`, and can hide an Error: `() => Error` is
+    // assignable to `() => void`.
+    const fn: () => void = () => new Error('x')
+    const m = (f: () => void): Result<void, Invalid> => success(f())
+    void [fn, m]
   })
 
   it('rejects a plain Failure<_, Error> where Failure<_, Invalid> is expected', () => {

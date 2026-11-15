@@ -9,9 +9,8 @@ import ts from 'typescript'
  * `/result`; if the type is not reachable through an exported alias,
  * declaration emit fails with TS4023 or TS4058 ("has or is using name
  * '_phantom' … cannot be named"). This compiles a consumer file against the
- * source of `/result` with `declaration` on and `skipLibCheck` off and
- * expects no declaration diagnostics. Source stands in for `dist`, which has
- * the same declarations and needs no build.
+ * source of `/result`, standing in for `dist`, with `declaration` on and
+ * `skipLibCheck` off and expects no declaration diagnostics.
  */
 const here = dirname(fileURLToPath(import.meta.url))
 const resultEntry = resolve(here, '../../src/result/index.js')

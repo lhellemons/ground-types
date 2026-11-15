@@ -82,10 +82,11 @@ export function result<T, E extends Error = Error>(value: T | E): Result<T, E> {
  * an all-optional object, an index-signature type such as `Record<string,
  * number>`, and any union of one of those with a primitive, `null` or
  * `undefined`), and a type a plain `Error` fits (`{ message: string }`, a
- * class whose members an `Error` has). It cannot see past three things:
- * `any` passes, as it passes every constraint; so does an object type that
- * only an `Error` subclass fits (a plain interface, a DTO, a class
- * instance without private members);
+ * class whose members an `Error` has). It cannot see past four things:
+ * `any` passes, as it passes every constraint; so does `void`, which can
+ * hold an `Error` (a `() => Error` is assignable to a `() => void`); so
+ * does an object type that only an `Error` subclass fits (a plain
+ * interface, a DTO, a class instance without private members);
  * and an unresolved type parameter is refused, so generic code casts
  * instead. See docs/adr/0001-unboxed-maybe-and-result.md.
  */

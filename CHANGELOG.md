@@ -20,8 +20,11 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   `failure`, `result` and `success`, where a narrower class is expected, and
   `Result<Result<T>>` is still not assignable to `Result<T>`. A raw `Error`
   returned without `failure()` still compiles where `T` is `object`, a union
-  with `object`, or an object type whose required members a plain `Error` has
-  (`{ name: string }`), as before.
+  with `object`, an object type whose required members a plain `Error` has
+  (`{ name: string }`), or an all-optional object that shares a key with
+  `Error` (`name`, `message`, `stack`, `cause`: `{ name?: string }`,
+  `Partial<{ name: string; port: number }>`), as before. `unknown`, `{}` and
+  an all-optional object with no key in common with `Error` reject it.
 - **Breaking:** `Success<undefined>`, `Success<null>` and `Success<void>` no
   longer reduce to `never`; each is the bare `undefined`, `null` or `void`,
   with no error phantom, and a nullish member of `T` is a Success arm of its
@@ -33,8 +36,6 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   `undefined` (it narrowed to `number` before, so the branch handling
   `undefined` was typed unreachable), and `Result<undefined, E>` is
   `undefined | Failure<undefined, E>` where it was the `Failure` alone.
-  `Result.box(null)` and `Result.box(undefined)` now compile, as
-  `Result<null, Error>` and `Result<undefined, Error>`.
   With `r: Result<number | undefined, E>`, `map((n: number) => n * 2, r)` and
   `andThen((n: number) => success(n), r)` are now errors, since the
   `undefined` reaches a callback that takes a number: annotate it
@@ -49,16 +50,17 @@ success(undefined))` narrows `E`. Pass type arguments to the combinator
   `result<undefined, Invalid>(undefined)`, or cast.
   A `Success` narrowed out of a `Result<number | undefined, E>`
   (`isSuccess(r) && r !== undefined`, `typeof r === 'number'`, `r!`) still
-  carries `number | undefined` through a generic: `orElse(0, r)`,
-  `fallback(() => 0, r)` and your own `unwrap<T, E>(x: Result<T, E>): T` no
-  longer give a `number`, and `mapError(f, r)` and `Result.box(r).unbox()`
-  widen back. So does ruling the `undefined` out of the whole `Result` first
-  for `orElse`, `fallback` and `unwrap`. Pass type arguments
+  carries `number | undefined` through a generic: `orElse(0, r)` and your own
+  `unwrap<T, E>(x: Result<T, E>): T` no longer give a `number`, and
+  `mapError(f, r)` widens back. So does ruling the `undefined` out of the
+  whole `Result` first, for `orElse` and `fallback`. Pass type arguments
   (`orElse<number, Invalid>(0, r)`), rebind to a declared
-  `Result<number, Invalid>`, or `map((n: number) => n, r)` first.
-  The curried `act` overload (an unimplemented stub) no longer takes a
-  `Result<Maybe<number>, E>` argument for a callback written over the same
-  type.
+  `Result<number, Invalid>`, or `map((n: number) => n, r)` first. Three
+  cases were already errors on 0.4.0, so they are not regressions:
+  `fallback(() => 0, r)` on the narrowed arm (its callback was typed
+  `never`), `unwrap` after ruling the `undefined` out of the whole `Result`,
+  and `unwrap` on a narrowed `string | null`. On TypeScript 7.0 the
+  narrowed-arm `unwrap` was an error on 0.4.0 as well.
   `unknown` gets no nullish arm, so `(): Result<unknown, E> =>
 success(undefined)` and `success(null)` no longer compile. Checked on
   TypeScript 5.4, 5.9 and 7.0.
@@ -76,8 +78,10 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   (`{ name: string }`, a class such as
   `class Tag { constructor(readonly name: string) {} }`).
   Wrap such a value with `result()`, or cast. Class instances, arrays, DTOs
-  with a member no plain `Error` has, primitives, `undefined` and `void` pass.
-  An object type that only an `Error` subclass fits, and `any`, also pass.
+  with a member no plain `Error` has, primitives and `undefined` pass. An
+  object type that only an `Error` subclass fits, `any` and `void` also pass,
+  and can hide an `Error`: a `() => Error` is assignable to `() => void`, so
+  `(f: () => void): Result<void, Invalid> => success(f())` compiles.
 - **Breaking:** `success` of an unresolved type parameter no longer compiles,
   constrained or not; cast, or wrap with `result()`.
 - **Breaking:** `success(x)` is now `Success<T, never>`, where it was
