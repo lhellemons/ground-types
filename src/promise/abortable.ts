@@ -1,4 +1,21 @@
 import { AbortError } from '../abort/index.js'
+import { hasPrototype } from '../internal/is-error.js'
+
+/* `Promise.prototype`, captured when the module loads. */
+const promisePrototype = Promise.prototype
+
+/* Whether `value` is a native Promise or a subclass instance: `instanceof
+   Promise`, but by `isPrototypeOf` so `Promise[Symbol.hasInstance]` is not
+   consulted. A value whose prototype chain cannot be walked (a Proxy whose
+   `getPrototypeOf` trap throws, a revoked Proxy) answers false instead of
+   throwing, and so goes where any other non-Promise value goes. */
+function isPromise(value: unknown): value is Promise<unknown> {
+  try {
+    return hasPrototype(promisePrototype, value)
+  } catch {
+    return false
+  }
+}
 
 /**
  * What an {@link AbortablePromise}'s executor receives as its third argument,
@@ -216,11 +233,11 @@ export class AbortablePromise<T> extends Promise<T> {
    * the wrapper; the underlying work runs to completion, unobserved.
    */
   static of<T>(source: T | Promise<T>): AbortablePromise<T> {
-    if (source instanceof AbortablePromise) {
-      return source
+    if (AbortablePromise.#isAbortable(source)) {
+      return source as AbortablePromise<T>
     }
 
-    if (source instanceof Promise) {
+    if (isPromise(source)) {
       return new AbortablePromise<T>((resolve, reject) => {
         source.then(resolve).catch(reject)
       })
@@ -262,6 +279,15 @@ export class AbortablePromise<T> extends Promise<T> {
   }
 
   /**
+   * Whether `value` was constructed by this class (or a subclass): a private
+   * brand check, which runs no Proxy trap and is false for a Proxy over an
+   * AbortablePromise.
+   */
+  static #isAbortable(value: unknown): value is AbortablePromise<unknown> {
+    return typeof value === 'object' && value !== null && #state in value
+  }
+
+  /**
    * Extends this class's upstream propagation to fan-in: aborting the
    * combined promise aborts every member that can be aborted. Members that
    * are plain Promises are skipped, and losers are *not* aborted when one
@@ -274,7 +300,7 @@ export class AbortablePromise<T> extends Promise<T> {
   ): void {
     combined.#state.link(() => {
       for (const member of members) {
-        if (member instanceof AbortablePromise) {
+        if (AbortablePromise.#isAbortable(member)) {
           member.abort()
         }
       }
@@ -387,11 +413,11 @@ export class AbortablePromise<T> extends Promise<T> {
             // no-op for the delegating shape this class exists for —
             // `new AbortablePromise((resolve) => resolve(fetchThing()))`. Adopt
             // it instead, and claim only when it really settles.
-            // Bound to its own const because the `instanceof` below narrows
-            // `value` to `AbortablePromise<any>`, and that `any` would leak
-            // out through the adopted value's type.
+            // Bound to its own const because the brand check below narrows
+            // `value`, and the narrowed type would leak out through the
+            // adopted value's type.
             const adopted: PromiseLike<T> = value
-            if (value instanceof AbortablePromise) {
+            if (AbortablePromise.#isAbortable(value)) {
               // Delegation is upstream, so abort travels it like any other
               // upstream link: the delegate is where the work actually is, and
               // rejecting only the outer promise would leave it running. The

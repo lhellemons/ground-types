@@ -283,6 +283,142 @@ describe('AbortablePromise.of', () => {
   })
 })
 
+/* A value whose `instanceof` throws: a Proxy whose `getPrototypeOf` trap throws,
+   and a revoked Proxy. Native `Promise` never asks a value for its prototype,
+   so each of these is an ordinary value to it. */
+function hostileProxy<T extends object>(target: T): T {
+  return new Proxy(target, {
+    getPrototypeOf(): never {
+      throw new RangeError('trap')
+    },
+  })
+}
+
+function revokedProxy(): object {
+  const { proxy, revoke } = Proxy.revocable({}, {})
+  revoke()
+  return proxy
+}
+
+describe('AbortablePromise with a value whose prototype chain throws', () => {
+  it('of() resolves it, as Promise.resolve does', async () => {
+    const hostile = hostileProxy({})
+
+    expect(() => AbortablePromise.of(hostile)).not.toThrow()
+    await expect(AbortablePromise.of(hostile)).resolves.toBe(hostile)
+    await expect(Promise.resolve(hostile)).resolves.toBe(hostile)
+  })
+
+  it('of() adopts a hostile thenable, as Promise.resolve does', async () => {
+    const hostileThenable = hostileProxy({
+      then(resolve: (value: string) => void) {
+        resolve('adopted')
+      },
+    })
+
+    await expect(AbortablePromise.of<unknown>(hostileThenable)).resolves.toBe(
+      'adopted',
+    )
+    await expect(Promise.resolve(hostileThenable)).resolves.toBe('adopted')
+  })
+
+  it('of() rejects, rather than throws, for a revoked Proxy, as Promise.resolve does', async () => {
+    const revoked = revokedProxy()
+
+    await expect(Promise.resolve(revoked)).rejects.toBeInstanceOf(TypeError)
+    expect(() => AbortablePromise.of(revoked)).not.toThrow()
+    await expect(AbortablePromise.of(revoked)).rejects.toBeInstanceOf(TypeError)
+  })
+
+  it('an executor resolving with a hostile thenable adopts it, as new Promise does', async () => {
+    const hostileThenable = hostileProxy({
+      then(resolve: (value: string) => void) {
+        resolve('adopted')
+      },
+    })
+
+    await expect(
+      new Promise<string>((resolve) => resolve(hostileThenable as never)),
+    ).resolves.toBe('adopted')
+    await expect(
+      new AbortablePromise<string>((resolve) =>
+        resolve(hostileThenable as never),
+      ),
+    ).resolves.toBe('adopted')
+  })
+
+  it('an executor resolving with a hostile thenable is still abortable', async () => {
+    const hostileThenable = hostileProxy({ then() {} })
+    const ap = new AbortablePromise<string>((resolve) =>
+      resolve(hostileThenable as never),
+    )
+
+    ap.abort()
+
+    await expect(ap).rejects.toSatisfy(isAbortError)
+  })
+
+  it.each([
+    ['a Proxy whose getPrototypeOf trap throws', hostileProxy({})],
+    ['a revoked Proxy', revokedProxy()],
+  ])(
+    'aborting all() aborts every abortable member, with %s among them',
+    async (_name, hostile) => {
+      const before = new AbortablePromise<string>(() => {})
+      const after = new AbortablePromise<string>(() => {})
+      const afterThat = new AbortablePromise<string>(() => {})
+
+      const combined = AbortablePromise.all([
+        before,
+        hostile,
+        after,
+        afterThat,
+      ] as unknown[])
+
+      expect(() => combined.abort()).not.toThrow()
+
+      await expect(combined).rejects.toSatisfy(isAbortError)
+      await expect(before).rejects.toSatisfy(isAbortError)
+      await expect(after).rejects.toSatisfy(isAbortError)
+      await expect(afterThat).rejects.toSatisfy(isAbortError)
+    },
+  )
+
+  it.each(['race', 'any', 'allSettled'] as const)(
+    'aborting %s() aborts every abortable member around a hostile one',
+    async (combinator) => {
+      const before = new AbortablePromise<string>(() => {})
+      const after = new AbortablePromise<string>(() => {})
+
+      const members: unknown[] = [before, hostileProxy({}), after]
+      const combined = {
+        race: () => AbortablePromise.race(members),
+        any: () => AbortablePromise.any(members),
+        allSettled: () => AbortablePromise.allSettled(members),
+      }[combinator]()
+
+      expect(() => combined.abort()).not.toThrow()
+
+      await expect(combined).rejects.toSatisfy(isAbortError)
+      await expect(before).rejects.toSatisfy(isAbortError)
+      await expect(after).rejects.toSatisfy(isAbortError)
+    },
+  )
+
+  it('does not mistake a Proxy over an AbortablePromise for one', async () => {
+    // The class brand is a private field, which a Proxy does not carry; the
+    // Proxy is a plain value to `of`, as it is to `Promise.resolve`.
+    const inner = new AbortablePromise<string>(() => {})
+    const proxy = new Proxy(inner, {})
+
+    expect(AbortablePromise.of(proxy)).not.toBe(proxy)
+    await expect(Promise.resolve(proxy)).rejects.toBeInstanceOf(TypeError)
+    await expect(AbortablePromise.of(proxy)).rejects.toBeInstanceOf(TypeError)
+    inner.abort()
+    await expect(inner).rejects.toSatisfy(isAbortError)
+  })
+})
+
 describe('AbortablePromise.abort', () => {
   it('creates an AbortablePromise that has been aborted', async () => {
     await expect(AbortablePromise.abort()).rejects.toSatisfy(isAbortError)

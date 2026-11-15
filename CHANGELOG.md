@@ -244,6 +244,25 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   (no traps, or a `Reflect.get(target, key, receiver)` forwarder), as the
   platform's `name` getter rejects the proxy. A `get` trap that reads `name`
   with the target as receiver still answers `true`.
+- `AbortablePromise` no longer throws, or leaks an abort, on a value whose
+  prototype chain cannot be read (a Proxy whose `getPrototypeOf` trap throws,
+  a revoked Proxy). Its four `instanceof` checks are replaced, and each such
+  value now goes where any other non-Promise value goes, as with a native
+  `Promise`. `AbortablePromise.of` resolves with it, where it threw
+  synchronously; for a revoked Proxy it returns a promise rejected with a
+  `TypeError`, as `Promise.resolve` does. An executor that resolves an
+  AbortablePromise with a hostile thenable adopts it, as `new Promise` does,
+  where it rejected with the trap's error. Aborting the
+  promise returned by `all`, `race`, `any` or `allSettled` aborts every
+  AbortablePromise member whatever else is in the list; before, a hostile
+  member made `abort()` throw the trap's error and left every member after it
+  pending. The checks for "is an AbortablePromise" (in `of`, in delegated
+  resolution and in the four combinators) are now a private-field brand
+  check, which runs no Proxy trap: a Proxy over an AbortablePromise is a plain
+  value to them, not one (before, `abort()` on it threw), and
+  `Symbol.hasInstance` is no longer consulted. `of`'s check for a native
+  Promise asks whether `Promise.prototype`, read once when the module loads,
+  is on the prototype chain (`isPrototypeOf`) instead of using `instanceof`.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`
