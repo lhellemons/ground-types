@@ -95,14 +95,19 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   semantics verbatim, which is worth more than the allocation: hand-rolled
   fan-in is four more places to get abort wrong.
 
-  **Update, 2026-11-15:** the combinators abort a member through its
-  private abort state, not by calling its public `abort()`, and they
-  recognise a member by a private-field brand check, not `instanceof`.
-  A member that cannot be inspected (a Proxy whose `getPrototypeOf` trap
-  throws, a revoked Proxy) therefore no longer makes `abort()` throw and
-  strand the members after it; a Proxy over an `AbortablePromise` is not a
-  member, whatever its traps do; and a subclass's override of `abort()` is
-  not called by fan-in.
+  **Update, 2026-11-15:** the combinators recognise a member by a
+  private-field brand check, not `instanceof`, and abort it through its
+  private abort state, not by calling `abort()` on it. A member that cannot
+  be inspected (a Proxy whose `getPrototypeOf` trap throws, a revoked
+  Proxy) or whose `abort()` is unusable (a swapped prototype, one that
+  throws) would otherwise make the combined `abort()` throw and strand the
+  members after it. So no `abort()` but the class's own is called by
+  fan-in: not a subclass's override, not one assigned or spied on the
+  instance, not a patched `AbortablePromise.prototype.abort`, and a throw
+  from any of them no longer stops the loop. A Proxy over an
+  `AbortablePromise` is not aborted, whatever its traps do. `then`'s
+  upstream link still calls `abort()`, so a throwing `abort()` reached
+  through a link still ends the loop.
 
 - **Resolving with a promise is not settling.** The abort window closes
   when the promise actually settles, not when its executor calls
@@ -149,10 +154,13 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   test pins that.
 
   **Update, 2026-11-15:** delegation recognises its delegate by the same
-  brand check and aborts it through its abort state, not by calling its
-  public `abort()`. A Proxy over an `AbortablePromise` is a plain thenable
-  to it, so abort does not travel through one, and a subclass's override
-  of `abort()` is not called.
+  brand check and aborts it through its abort state, not by calling
+  `abort()` on it, for the reason given in the fan-in update above. No
+  `abort()` but the class's own is called (not a subclass's override, one
+  assigned or spied on the instance, or a patched
+  `AbortablePromise.prototype.abort`), and a Proxy over an
+  `AbortablePromise` is a plain thenable to it, so abort does not travel
+  through one.
 
 - **A fresh `AbortError` per abort.** The imported implementation held a
   single `static readonly AbortError`, constructed once at module load.

@@ -574,6 +574,71 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
         expect(refused).not.toHaveBeenCalled()
       })
 
+      it('aborts every member when a member has an own abort that throws', async () => {
+        class Throwing<T> extends AbortablePromise<T> {
+          override abort(): never {
+            throw new RangeError('refused')
+          }
+        }
+        const assigned = new AbortablePromise<string>(() => {})
+        assigned.abort = () => {
+          throw new RangeError('refused')
+        }
+        const subclass = new Throwing<string>(() => {})
+        const after = new AbortablePromise<string>(() => {})
+
+        const combined = fanIn[combinator]([assigned, subclass, after])
+
+        expect(() => combined.abort()).not.toThrow()
+
+        await expect(combined).rejects.toSatisfy(isAbortError)
+        await expect(assigned).rejects.toSatisfy(isAbortError)
+        await expect(subclass).rejects.toSatisfy(isAbortError)
+        await expect(after).rejects.toSatisfy(isAbortError)
+      })
+
+      it('does not call an abort spied on a member, or patched on the prototype', async () => {
+        const member = new AbortablePromise<string>(() => {})
+        const spy = vi.spyOn(member, 'abort')
+        const patched = new AbortablePromise<string>(() => {})
+        const prototypeSpy = vi.spyOn(AbortablePromise.prototype, 'abort')
+
+        try {
+          const combined = fanIn[combinator]([member, patched])
+          combined.abort()
+
+          await expect(combined).rejects.toSatisfy(isAbortError)
+          await expect(member).rejects.toSatisfy(isAbortError)
+          await expect(patched).rejects.toSatisfy(isAbortError)
+          expect(spy).not.toHaveBeenCalled()
+          expect(prototypeSpy.mock.contexts).not.toContain(member)
+          expect(prototypeSpy.mock.contexts).not.toContain(patched)
+        } finally {
+          prototypeSpy.mockRestore()
+        }
+      })
+
+      it('still throws when an abort reached through a link throws', async () => {
+        // `then`'s upstream link calls `abort()` on the promise it was
+        // chained from, so a throw from there ends the loop.
+        class Throwing<T> extends AbortablePromise<T> {
+          override abort(): never {
+            throw new RangeError('refused')
+          }
+        }
+        const source = new Throwing<string>(() => {})
+        const after = new AbortablePromise<string>(() => {})
+        const derived = source.then((value) => value)
+
+        const combined = fanIn[combinator]([derived, after])
+        // Aborting rejects the combined promise whether or not the link throws.
+        combined.catch(() => {})
+
+        expect(() => combined.abort()).toThrow(RangeError)
+        after.abort()
+        await expect(after).rejects.toSatisfy(isAbortError)
+      })
+
       it('does not abort a member through a binding Proxy over it', async () => {
         // Abort reaches a member through its private state, which no Proxy
         // forwards, whatever its traps do with methods.
@@ -666,6 +731,29 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     await expect(outer).rejects.toSatisfy(isAbortError)
     await expect(delegate).rejects.toSatisfy(isAbortError)
     expect(refused).not.toHaveBeenCalled()
+  })
+
+  it('an executor resolving with a delegate whose own abort throws, or is spied on, aborts it without calling that abort', async () => {
+    const throwing = new AbortablePromise<string>(() => {})
+    throwing.abort = () => {
+      throw new RangeError('refused')
+    }
+    const spied = new AbortablePromise<string>(() => {})
+    const spy = vi.spyOn(spied, 'abort')
+
+    const outerThrowing = new AbortablePromise<string>((resolve) =>
+      resolve(throwing),
+    )
+    const outerSpied = new AbortablePromise<string>((resolve) => resolve(spied))
+
+    expect(() => outerThrowing.abort()).not.toThrow()
+    outerSpied.abort()
+
+    await expect(outerThrowing).rejects.toSatisfy(isAbortError)
+    await expect(throwing).rejects.toSatisfy(isAbortError)
+    await expect(outerSpied).rejects.toSatisfy(isAbortError)
+    await expect(spied).rejects.toSatisfy(isAbortError)
+    expect(spy).not.toHaveBeenCalled()
   })
 
   it('of() returns a subclass instance as it is', () => {

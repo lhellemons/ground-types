@@ -299,12 +299,9 @@ export class AbortablePromise<T> extends Promise<T> {
 
   /**
    * The abort machinery of `value` if it was constructed by this class (or a
-   * subclass), else `undefined`. A private brand check, which runs no Proxy
-   * trap and is false for a Proxy over an AbortablePromise, whatever its
-   * traps. Fan-in and delegation abort through this state, not through the
-   * public `abort()`, so a member whose prototype has been swapped is still
-   * aborted; the cost is that a subclass's override of `abort()` is not
-   * called by them.
+   * subclass), else `undefined`. A private brand check: it runs no Proxy trap
+   * and is false for a Proxy over an AbortablePromise, whatever its traps.
+   * Fan-in and delegation abort through this state, not through `abort()`.
    */
   static #abortStateOf(value: unknown): AbortState | undefined {
     return typeof value === 'object' && value !== null && #state in value
@@ -315,8 +312,8 @@ export class AbortablePromise<T> extends Promise<T> {
   /**
    * Extends this class's upstream propagation to fan-in: aborting the
    * combined promise aborts every branded member, by its abort state and not
-   * its `abort()`. Proxies and plain Promises are skipped, and losers are *not* aborted when one
-   * member settles first, including in `race` (see
+   * its `abort()`. Proxies and plain Promises are skipped, and losers are
+   * *not* aborted when one member settles first, including in `race` (see
    * docs/adr/0002-abort-propagation.md).
    */
   static #abortMembersWith(
