@@ -983,6 +983,17 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
         await expect(after).rejects.toSatisfy(isAbortError)
       })
 
+      it('skips an unbranded forgery, and aborts the rest', async () => {
+        const forgery = Object.create(AbortablePromise.prototype) as unknown
+        const after = new AbortablePromise<string>(() => {})
+
+        const combined = fanIn[combinator]([forgery, after])
+
+        expect(() => combined.abort()).not.toThrow()
+        await expect(combined).rejects.toSatisfy(isAbortError)
+        await expect(after).rejects.toSatisfy(isAbortError)
+      })
+
       it('does not throw for a Proxy with no traps over an AbortablePromise', async () => {
         const inner = new AbortablePromise<string>(() => {})
         const after = new AbortablePromise<string>(() => {})
@@ -1276,10 +1287,60 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     // The `then` captured at load is called at once: two turns, where a
     // subclass instance took four, and a native resolve takes three.
     expect(await turns(() => Sub.resolve('value'))).toBe(2)
-    // Any other `then` is called from a job: four turns.
+    expect(
+      await turns(() =>
+        Object.defineProperty(Promise.resolve('value'), 'constructor', {
+          value: Object,
+        }),
+      ),
+    ).toBe(2)
+    // A promise with another `then` has it called from a job: four turns.
     expect(await turns(() => Overriding.resolve('value'))).toBe(4)
     expect(await turns(() => AbortablePromise.resolve('value'))).toBe(4)
     expect(await turns(spied)).toBe(4)
+  })
+
+  it('compares the then of a delegate with the Promise.prototype.then captured at load', async () => {
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below
+    const original = Promise.prototype.then
+    const patched = function (
+      this: Promise<unknown>,
+      ...args: Parameters<Promise<unknown>['then']>
+    ) {
+      return original.apply(this, args)
+    }
+    const delegate = Promise.resolve('value')
+    Promise.prototype.then = patched as typeof original
+    try {
+      // A native promise took two turns; its `then` is not the captured one.
+      expect(
+        await turnsToSettle(
+          () => new AbortablePromise((resolve) => resolve(delegate)),
+        ),
+      ).toBe(4)
+    } finally {
+      Promise.prototype.then = original
+    }
+  })
+
+  it('an executor resolving with an unbranded forgery is abortable, and abort() does not throw', async () => {
+    const forgery = Object.create(
+      AbortablePromise.prototype,
+    ) as PromiseLike<string>
+    const outer = new AbortablePromise<string>((resolve) => resolve(forgery))
+
+    expect(() => outer.abort()).not.toThrow()
+
+    await expect(outer).rejects.toSatisfy(isAbortError)
+  })
+
+  it('an executor resolving with an AbortablePromise whose prototype is a Proxy that throws follows it', async () => {
+    const delegate = AbortablePromise.resolve('value')
+    Object.setPrototypeOf(delegate, hostileProxy(AbortablePromise.prototype))
+
+    const outer = new AbortablePromise<string>((resolve) => resolve(delegate))
+
+    await expect(outer).resolves.toBe('value')
   })
 
   it('follows a delegate with the Promise it captured, not the global one', async () => {

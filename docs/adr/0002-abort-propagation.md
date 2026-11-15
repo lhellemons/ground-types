@@ -111,10 +111,10 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   on every member even when one throws, the first error being thrown after
   the last. A Proxy over an `AbortablePromise` is not one, whatever its traps
   do, and neither is a member whose prototype was swapped to one that does not
-  inherit `AbortablePromise.prototype`. Reached through a
-  signal that aborts later, the error is thrown inside the signal's event
-  listener, which the platform reports as an uncaught exception; `abortOn`
-  with a signal that has already aborted throws it to the caller of `abortOn`.
+  inherit `AbortablePromise.prototype`. Reached through a signal that
+  aborts later, the error is thrown inside the signal's event listener,
+  which the platform reports as an uncaught exception; `abortOn` with a
+  signal that has already aborted throws it to the caller of `abortOn`.
 
 - **Resolving with a promise is not settling.** The abort window closes
   when the promise actually settles, not when its executor calls
@@ -167,10 +167,9 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   checks as fan-in, checks again when it is aborted, and calls its
   `abort()` the same way: a subclass's override, an `abort` assigned or
   spied on the instance and a patched `AbortablePromise.prototype.abort` are
-  called. A throw from it ends neither
-  the loop over the promise's upstream links nor the abort: each link fires,
-  then the first error is thrown, and the signal bindings are released
-  either way. A throw from a link that fires at once, for a `resolve` after
+  called. A throw from it ends neither the loop over the promise's upstream
+  links nor the abort: each link fires, then the first error is thrown, and
+  the signal bindings are released either way. A throw from a link that fires at once, for a `resolve` after
   the abort, is dropped, since the promise is already settled. A Proxy over
   an `AbortablePromise` is a plain thenable to it, so abort does not travel
   through one.

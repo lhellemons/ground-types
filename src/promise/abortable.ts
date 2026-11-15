@@ -586,12 +586,13 @@ export class AbortablePromise<T> extends Promise<T> {
    * Throws only when the abort reaches a promise whose own `abort()` throws —
    * a subclass's override, say, on the promise this one was derived from, a
    * delegate or a fan-in member. `abort()` is called on every promise the
-   * abort reaches, and the first error is thrown after the last. Called through a
-   * signal that aborts later ({@link AbortablePromise.abortOn}, a controller
-   * passed to the constructor, {@link AbortablePromise.peer}), the error is
-   * thrown inside the signal's event listener, where the platform reports it as
-   * an uncaught exception, and nothing returns it to a caller. `abortOn` with a
-   * signal that has already aborted aborts at once and throws to its caller.
+   * abort reaches, and the first error is thrown after the last. Called
+   * through a signal that aborts later ({@link AbortablePromise.abortOn}, a
+   * controller passed to the constructor, {@link AbortablePromise.peer}), the
+   * error is thrown inside the signal's event listener, where the platform
+   * reports it as an uncaught exception, and nothing returns it to a caller.
+   * `abortOn` with a signal that has already aborted aborts at once and throws
+   * to its caller.
    */
   abort(): void {
     this.#state.abort()
