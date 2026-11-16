@@ -269,6 +269,7 @@ describe('collect', () => {
   it('an object of parts with string name and message members has no Success type', () => {
     expectTypeOf(collect({ name: 'n', message: 'm', level: 1 })).toBeNever()
     expectTypeOf<Exclude<ReturnType<typeof collectNamed>, Error>>().toBeNever()
+    void collectNamed
   })
 
   it('an unknown member does not erase the other parts error types', () => {
