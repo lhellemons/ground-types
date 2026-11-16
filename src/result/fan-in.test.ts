@@ -190,6 +190,89 @@ describe('collect', () => {
     expect(collect(viaLiteral)).toBe(viaLiteral)
   })
 
+  describe('a part whose prototype chain cannot be read counts as not an Error', () => {
+    const bug = new TypeError('bug from the trap')
+    const unreadable = (): Result<string, InvalidId> =>
+      new Proxy(
+        {},
+        {
+          getPrototypeOf(): never {
+            throw bug
+          },
+        },
+      ) as unknown as Result<string, InvalidId>
+
+    it('collect passes it through and drops what the trap threw', () => {
+      const parts = { a: unreadable(), b: id('a') }
+      expect(collect(parts)).toBe(parts)
+    })
+
+    it('a revoked Proxy passes through too', () => {
+      const { proxy, revoke } = Proxy.revocable({}, {})
+      revoke()
+      const parts = [proxy as unknown as Result<string, InvalidId>]
+      expect(collect(parts)).toBe(parts)
+    })
+
+    it('take returns it as the value', () => {
+      const part = unreadable()
+      expect(attempt<unknown, InvalidId>((take) => take(part))).toBe(part)
+    })
+
+    it('a leave from an enclosing attempt thrown by the trap is dropped', () => {
+      const r = attempt<string, InvalidId>((outer) => {
+        const trap = new Proxy(
+          {},
+          {
+            getPrototypeOf(): never {
+              outer(failure(new InvalidId('outer leave')))
+              throw new Error('not reached')
+            },
+          },
+        ) as unknown as Result<string, InvalidId>
+        collect({ p: trap })
+        return 'body completed'
+      })
+      expect(r).toBe('body completed')
+    })
+  })
+
+  describe('the checks use the intrinsics captured when the module loaded', () => {
+    it('Array.isArray replaced afterwards changes nothing', () => {
+      const bad = new InvalidId('bad')
+      const original = Array.isArray
+      Array.isArray = (() => true) as unknown as typeof Array.isArray
+      try {
+        expect(collect({ a: bad })).toBe(bad)
+        expect(collect([bad])).toBe(bad)
+      } finally {
+        Array.isArray = original
+      }
+    })
+
+    it('Object.keys replaced afterwards changes nothing', () => {
+      const bad = new InvalidId('bad')
+      const original = Object.keys
+      Object.keys = () => []
+      try {
+        expect(collect({ a: bad })).toBe(bad)
+      } finally {
+        Object.keys = original
+      }
+    })
+
+    it('Object.hasOwn replaced afterwards changes nothing', () => {
+      const bad = new InvalidId('bad')
+      const original = Object.hasOwn
+      Object.hasOwn = () => false
+      try {
+        expect(collect([bad])).toBe(bad)
+      } finally {
+        Object.hasOwn = original
+      }
+    })
+  })
+
   it('refuses an argument that is not an object', () => {
     for (const bad of [undefined, null, 1, 'a', true, Symbol('s')]) {
       // @ts-expect-error - the runtime check is the case under test
@@ -525,26 +608,48 @@ describe('attempt', () => {
 
     it('replacing the brand check on the caught token constructor changes nothing for later attempts', () => {
       const token = caughtToken()
+      const original = token.constructor.ownedBy
       try {
-        token.constructor.ownedBy = () => true
-      } catch {
-        // frozen: the write throws in strict mode
+        try {
+          token.constructor.ownedBy = () => true
+        } catch {
+          // frozen: the write throws in strict mode
+        }
+        laterAttemptsStillSeeOnlyTheirOwn()
+      } finally {
+        try {
+          token.constructor.ownedBy = original
+        } catch {
+          // frozen: nothing was changed
+        }
       }
-      laterAttemptsStillSeeOnlyTheirOwn()
       expect(Object.isFrozen(token.constructor)).toBe(true)
     })
 
     it('changing the prototype of a caught token changes nothing for later attempts', () => {
       const token = caughtToken()
-      const prototype = Object.getPrototypeOf(token) as object
-      expect(Object.isFrozen(prototype)).toBe(true)
-      expect(() => {
-        Object.setPrototypeOf(prototype, Error.prototype)
-      }).toThrow(TypeError)
-      expect(() =>
-        Object.defineProperty(prototype, 'then', { value: 1 }),
-      ).toThrow(TypeError)
-      laterAttemptsStillSeeOnlyTheirOwn()
+      const prototype = Object.getPrototypeOf(token) as Record<string, unknown>
+      const parent = Object.getPrototypeOf(prototype) as object | null
+      try {
+        expect(Object.isFrozen(prototype)).toBe(true)
+        expect(() => {
+          Object.setPrototypeOf(prototype, Error.prototype)
+        }).toThrow(TypeError)
+        expect(() =>
+          Object.defineProperty(prototype, 'then', {
+            value: 1,
+            configurable: true,
+          }),
+        ).toThrow(TypeError)
+        laterAttemptsStillSeeOnlyTheirOwn()
+      } finally {
+        try {
+          Object.setPrototypeOf(prototype, parent)
+          delete prototype['then']
+        } catch {
+          // frozen: nothing was changed
+        }
+      }
     })
 
     it('a token is frozen even when Object.freeze was replaced after the module loaded', () => {

@@ -925,23 +925,30 @@ swapped for one of another type inside `build` does not compile.
 - What shipped differently from the #59 amendment's description:
   - `Take`'s constraint is `Result<unknown, E> | null | undefined | void`,
     not `Result<unknown, E>`: `Result<unknown, E>` alone rejects a Result
-    whose value type includes `undefined`.
+    whose value type includes `undefined`. It also accepts a part typed
+    `object`, `{}` or `void`, and an Error such a part holds at run time
+    leaves the `attempt` whatever `E` says; whether to close that is #120's
+    question (item 5).
   - The guard on an `attempt` body refuses a thenable (`NotAPromise`) and a
     generator or async generator (`NotAGenerator`), as far as the body's
-    return type shows. It does not refuse any other iterator, and an async
-    function typed as returning `void` or `unknown` is not caught
-    (`tryCatch` shares that gap), and neither is a generator function
-    annotated as returning an iterator type such as `IterableIterator`;
-    tightening the guard is #120's. A body that returns `any` is accepted.
-  - The leave token is a fresh frozen object per `take`, carrying its
-    Failure and naming its `attempt` by a private field, where the #59
-    amendment's description is a token per `attempt`. A `take` given a
-    Failure while an earlier leave is still propagating (in a `finally`)
-    replaces that leave if its own throw goes uncaught, as any throw does;
-    caught there, it leaves the first leave's Failure unchanged. A body
-    that catches a token cannot change it, nor replace the check that
-    recognises it: the class and its prototype are frozen when the module
-    loads.
+    return type shows. A plain iterator (`[1, 2].values()`) is accepted:
+    that is the implementer's choice, from narrowing the guard to
+    generators so that the diagnostic does not call an iterator a
+    generator, and a body that returns `any` is accepted. A generator
+    function annotated as returning an iterator type (`IterableIterator`,
+    `AsyncIterableIterator`, `Iterator`) is not caught, and neither
+    `tryCatch` nor `attempt` refuses it; that is #120's item 3. An async
+    function typed as returning `void` or `unknown` passes `attempt` and
+    `tryCatch` alike; that is #120's item 6.
+  - The leave token is a fresh frozen object per `take` given a Failure,
+    carrying that Failure and naming its `attempt` by a private field,
+    where the #59 amendment's description is a token per `attempt`. A
+    `take` given a Failure while an earlier leave is still propagating (in
+    a `finally`) replaces that leave if its own throw goes uncaught, as any
+    throw does; caught there, it leaves the first leave's Failure
+    unchanged. A body that catches a token cannot change it, nor replace
+    the check that recognises it: the class and its prototype are frozen
+    when the module loads.
   - A value that `body` returns and that is an `Error` is the `attempt`'s
     Failure at run time, whatever `T` says. With no type arguments a
     `return failure(…)` puts its type in `T`, with `E` still `Error`, and
@@ -949,13 +956,22 @@ swapped for one of another type inside `build` does not compile.
     arguments, or a `T` that admits an Error such as `unknown`, its type is
     not in the result, and `isFailure` narrows it to `E`. Whether `attempt`
     should guard `T` is #120's question.
-  - `collect` keeps `readonly` in its value type, reads an object of parts
-    by its own enumerable string keys and a list by index, and refuses a
-    symbol-keyed or `__proto__` member of an object literal in the types.
-    A plain member whose type may hold an Error (`unknown`, `object`) adds
-    nothing to the error type, but an Error there at run time is returned
-    as the Failure; whether `Failed` should give such a member `Error`, as
-    `ErrorArmOf` does, is #120's question.
+  - `collect` keeps `readonly` in its value type, one level deep, reads an
+    object of parts by its own enumerable string keys and a list by its own
+    indices (every index below its length, holes included, so a sparse list
+    with a huge length is slow), and refuses a symbol-keyed or `__proto__`
+    member of an object literal in the types. A plain member whose type may
+    hold an Error (`unknown`, `object`) adds nothing to the error type, but
+    an Error there at run time is returned as the Failure; whether `Failed`
+    should give such a member `Error`, as `ErrorArmOf` does, is #120's
+    question. `collect` treats a Promise member as a plain value: it adds
+    nothing to the error type, and a Failure it resolves to is never seen;
+    whether to refuse a PromiseLike member in the types is #120's question.
+  - `collect` and `take` read a part through `isError`, as `isFailure` does,
+    so a part whose prototype chain cannot be read (a Proxy whose
+    `getPrototypeOf` trap throws, a revoked Proxy) counts as not an `Error`,
+    and whatever the trap threw is dropped, a leave from an enclosing
+    `attempt` included.
   - A `take` given a Failure after its own `attempt` has returned still
     throws the token, a non-`Error`, to its caller, and a `take` inside a
     callback whose caller catches throws (a Promise executor, an

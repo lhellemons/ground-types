@@ -42,6 +42,10 @@ declare const alias: { id: Result<Id, InvalidId> }
 declare const shape: ShapeOfId
 declare const unknownPart: unknown
 declare const pending: Promise<Result<Id, InvalidId>>
+declare const asObject: object
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the case under test: a part typed {}
+declare const asEmpty: {}
+declare const asVoid: void
 declare const idList: Result<Id, InvalidId>[]
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the case under test: a part typed any
 declare const loose: any
@@ -307,7 +311,7 @@ describe('attempt', () => {
     void swapped
   })
 
-  it('takes a nullish Success, and rejects a plain value', () => {
+  it('takes a nullish Success, and rejects a primitive that is not a Result', () => {
     const from = (): Result<Id | undefined, InvalidId> =>
       attempt((take) => take(maybeId))
     expectTypeOf(from).returns.toEqualTypeOf<
@@ -315,9 +319,22 @@ describe('attempt', () => {
     >()
     attempt<undefined, InvalidId>((take) => take(undefined))
     attempt<number, InvalidId>((take) =>
-      // @ts-expect-error - a plain value is not a Result
+      // @ts-expect-error - a primitive is not a Result
       take(5),
     )
+  })
+
+  it('takes a part typed object, {} or void, whatever E says', () => {
+    // The constraint admits them, so an Error in one leaves the attempt typed
+    // as E although it is outside E.
+    const lenient = (): Result<number, InvalidId> =>
+      attempt((take) => {
+        take(asObject)
+        take(asEmpty)
+        take(asVoid)
+        return 1
+      })
+    expectTypeOf(lenient).returns.toEqualTypeOf<Result<number, InvalidId>>()
   })
 
   it('rejects a take of a part whose error is outside E', () => {
@@ -410,6 +427,15 @@ describe('attempt', () => {
     expectTypeOf(r).toEqualTypeOf<Result<Result<Id, InvalidName>, InvalidId>>()
     // The Failure is an InvalidName at run time, and the type says InvalidId.
     if (isFailure(r)) expectTypeOf(r.kind).toEqualTypeOf<'InvalidId'>()
+  })
+
+  it('under an annotation whose value type admits an Error, a returned Failure of another type compiles', () => {
+    const from = (raw: string): Result<unknown, InvalidId> =>
+      attempt((take) => {
+        take(id(raw))
+        return failure(new InvalidName('x'))
+      })
+    expectTypeOf(from).returns.toEqualTypeOf<Result<unknown, InvalidId>>()
   })
 
   it('a generic wrapper repeats the constraint with NotAPromise and NotAGenerator', () => {

@@ -76,8 +76,8 @@ success(undefined)` and `success(null)` no longer compile. Checked on
 - Add `SuccessArm`, the marked part of a `Success`, exported from `/result`:
   consumers whose declarations mention a `Success` need a name to emit.
 - Add `collect` and `attempt` to `/result`, with the types `Parts`,
-  `Collected`, `Failed`, `Take` and `NotAGenerator`: fan-in over unboxed Results that
-  keeps each part's error type. Nothing that exists changes.
+  `Collected`, `Failed`, `Take` and `NotAGenerator`: fan-in over unboxed
+  Results that keeps each part's error type. Nothing that exists changes.
   - `collect(parts)` takes an object of parts, a tuple or a list whose
     members are Results (a member that is not an `Error` passes through) and
     returns the first Failure among them, or the argument itself. Its type
@@ -85,9 +85,15 @@ success(undefined)` and `success(null)` no longer compile. Checked on
     `readonly`, and the union of the members' error types, inferred with no
     annotation. A plain member whose type may hold an Error (`unknown`,
     `object`) adds nothing to the error type, but an Error there at run time
-    is returned as the Failure. It catches nothing, so a throw while it reads
-    a part propagates. A symbol-keyed or `__proto__` member of an object
-    literal is a type error, and only own enumerable string keys are read.
+    is returned as the Failure, and a Promise member is a plain value whose
+    Failure is never seen. `any` as a part makes the whole result `any`. An
+    object is read by its own enumerable string keys, a list by its own
+    indices. A symbol-keyed or `__proto__` member of an object literal is a
+    type error, and so is an interface type or a class instance type. It
+    catches nothing, so a throw while it reads a part propagates; a part
+    whose prototype chain cannot be read (a Proxy whose `getPrototypeOf`
+    trap throws, a revoked Proxy) counts as not an `Error`, as it does for
+    `isFailure`, and what the trap threw is dropped.
   - `collect(parts, build)` runs `build` on the parts when none failed and
     returns what it returns, a plain value or a Result. Its parameter is
     typed from the parts, which the callback of `map` and `andThen` after a
@@ -95,8 +101,9 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   - `attempt((take) => …)` runs the body with a `take` that unboxes a part
     or leaves the `attempt` with the part's Failure, by throwing a token
     private to that call, so a `take` works inside `.map` and a Maybe `map`
-    callback. It catches that token and nothing else: any other throw
-    propagates. `E` comes from the enclosing return annotation, and is
+    callback. It catches that token and nothing else: a throw that is not
+    its own leave propagates, unless something in the body catches it. `E`
+    comes from the enclosing return annotation, and is
     `Error` where there is none. A body whose return type is a thenable or a
     generator is a type error, as far as its type shows. Whatever in the
     body catches the leave (a `try`/`catch`, a `finally` that returns, a

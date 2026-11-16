@@ -854,18 +854,20 @@ function isInstanceOfAny(error: Error, classes: readonly unknown[]): boolean {
  * member that is a {@link Result} is a part; any other member passes through.
  * The object form is constrained to string keys: a symbol-keyed member and a
  * `__proto__` member must have the type `never`, so a literal that has one
- * is refused. The tuple arm makes a tuple literal infer as a tuple.
+ * is refused.
  */
 export type Parts =
   | (Readonly<Record<string, unknown>> &
       Readonly<Record<symbol, never>> & { readonly __proto__?: never })
   | readonly unknown[]
+  // makes a tuple literal infer as a tuple
   | readonly [unknown, ...unknown[]]
 
 /**
  * The value `collect` returns on success: the parts with each member
- * unboxed, `readonly` throughout. `{ id: Result<PieceId, E1> }` reads as
- * `{ readonly id: PieceId }`, `[Result<A, E1>, Result<B, E2>]` as
+ * unboxed and `readonly`, one level deep: a member's own value keeps its
+ * type, so a `string[]` member stays writable. `{ id: Result<PieceId, E1> }`
+ * reads as `{ readonly id: PieceId }`, `[Result<A, E1>, Result<B, E2>]` as
  * `readonly [A, B]` and `Result<P, E>[]` as `readonly P[]`. An object of
  * parts is described by its string and number keys.
  */
@@ -893,16 +895,20 @@ export type Failed<P> = [
   : never
 
 /* Called through local bindings, so they are the intrinsics captured when
-   the module loads. */
+   the module loads: replacing one afterwards changes nothing here. The
+   errors `collect` throws for a bad argument are built when it is called,
+   and only choose which error object is thrown. */
 const hasOwn = Object.hasOwn
 const ownKeys = Object.keys
 const freeze = Object.freeze
+const isArray = Array.isArray
 
 /* The first Failure among the parts, or `undefined` when there is none (a
    Failure is an `Error`, so it is never `undefined` itself). A list is read
-   by its own indices, an object of parts by the keys `Object.keys` gives. */
+   by its own indices, every index below its length, holes included; an
+   object of parts by the keys `Object.keys` gives. */
 function firstFailure(parts: object): Error | undefined {
-  if (Array.isArray(parts)) {
+  if (isArray(parts)) {
     for (let index = 0; index < parts.length; index++) {
       if (!hasOwn(parts, index)) continue
       const part: unknown = parts[index]
@@ -921,11 +927,7 @@ function firstFailure(parts: object): Error | undefined {
  * Fans several parts in: the first {@link Failure} among them, or the parts
  * themselves as a {@link Success}. `parts` is an object of parts, a tuple or
  * a list whose members are Results; a member that is not an `Error` counts
- * as a Success, so a plain value passes through as it is. A plain member
- * whose type may hold an Error (`unknown`, `object`) adds nothing to the
- * error type, but an Error there at run time is returned as the Failure. A
- * Promise member is a plain value too: a Failure inside it is never seen.
- * The Success type
+ * as a Success, so a plain value passes through as it is. The Success type
  * is {@link Collected}, each member unboxed and `readonly`; the error type
  * is {@link Failed}, the union of the members' error types, inferred with no
  * annotation:
@@ -934,16 +936,27 @@ function firstFailure(parts: object): Error | undefined {
  * collect({ id: PieceId.from(dto.id), at: Position.from(dto.at) })
  * // Result<{ readonly id: PieceId; readonly at: Position },
  * //   InvalidPieceId | InvalidCoordinate>
- * collect(dto.path.map(Position.from)) // Result<readonly Position[], InvalidCoordinate>
+ * collect(dto.path.map(Position.from))
+ * // Result<readonly Position[], InvalidCoordinate>
  * ```
+ *
+ * A plain member whose type may hold an Error (`unknown`, `object`) adds
+ * nothing to the error type, but an Error there at run time is returned as
+ * the Failure. A Promise member is a plain value too: it adds nothing to the
+ * error type, and a Failure it resolves to is never seen (open, #120). A
+ * part typed `any`, or a `build` that returns `any`, makes the result's
+ * types `any`, error type included: the compiler then checks nothing for it.
  *
  * The Success is the argument itself, not a copy: `readonly` in the type
  * does not freeze it, so a later change to the caller's object or list shows
  * through, and a frozen argument comes back frozen. The parts are evaluated
  * by the caller before `collect` runs, so one part cannot depend on another.
- * The first Failure is the first in order: a list's own indices, or the
- * keys `Object.keys` gives for an object. `collect`
- * catches nothing: a throw from a part's getter or from `build` propagates.
+ * The first Failure is the first in order: a list's own indices, or the keys
+ * `Object.keys` gives for an object. `collect` catches nothing: a throw from
+ * a part's getter or from `build` propagates. A part whose prototype chain
+ * cannot be read (a Proxy whose `getPrototypeOf` trap throws, a revoked
+ * Proxy) counts as not an `Error`: it passes through, and whatever the trap
+ * threw is dropped, a leave from an enclosing `attempt` included.
  *
  * With `build`, when no part failed `build` runs on the argument and
  * `collect` returns what it returns, as {@link map} and {@link andThen} do:
@@ -956,15 +969,13 @@ function firstFailure(parts: object): Error | undefined {
  *
  * Only an object's own enumerable string-keyed members and a list's own
  * indices are parts: an inherited member, a non-enumerable one, a hole in a
- * list and an extra property on a list are not read. The object form takes an object literal's type or
- * a type alias of one, and not an interface type or a class instance type. A
- * symbol-keyed member is a type
- * error, and so is a `__proto__` member, which an object literal would use
- * to set the prototype instead of defining a part; an own `__proto__` key
+ * list and an extra property on a list are not read. A list is visited index
+ * by index up to its `length`, so a sparse list with a huge `length` is
+ * slow. The object form takes an object literal's type or a type alias of
+ * one, and not an interface type or a class instance type. A symbol-keyed
+ * member and a `__proto__` member are type errors; an own `__proto__` key
  * that `JSON.parse` creates, typed through a string index signature, is read
- * like any other. A part typed `any`, or a `build` that returns `any`, makes
- * the result's types `any`, error type included: the compiler then checks
- * nothing for it.
+ * like any other.
  *
  * `attempt` is the imperative counterpart, and a part can be a nested
  * `collect`.
@@ -998,7 +1009,9 @@ export function collect(
 /**
  * Unboxes a part inside an {@link attempt}, or leaves that `attempt` with the
  * part's Failure. `take(part)` is the part's value when it is a Success.
- * Only a part whose error type fits `E` is accepted.
+ * A part whose error type is outside `E` is rejected; a part typed `object`,
+ * `{}` or `void` is accepted, and an Error it holds at run time leaves the
+ * `attempt` whatever `E` says.
  */
 export type Take<E extends Error> = <
   R extends Result<unknown, E> | null | undefined | void,
@@ -1072,7 +1085,9 @@ const tokenOwnedBy = Leave.ownedBy
  * `Error` or not.
  *
  * ```ts
- * static from(dto: DoorDTO): Result<Door, InvalidPieceId | InvalidCoordinate> {
+ * static from(
+ *   dto: DoorDTO,
+ * ): Result<Door, InvalidPieceId | InvalidCoordinate> {
  *   return attempt((take) =>
  *     new Door(take(PieceId.from(dto.id)), take(Position.from(dto.at))),
  *   )
@@ -1080,7 +1095,8 @@ const tokenOwnedBy = Leave.ownedBy
  * ```
  *
  * `E` is found from the contextual return type (an enclosing return
- * annotation), and `take` rejects a part whose error is outside it; with no
+ * annotation), and `take` rejects a part whose error type is outside it
+ * (see {@link Take} for the parts it accepts regardless); with no
  * contextual type `E` is `Error`, and `attempt<T, E>` names both. A
  * factory's own failure is `take(failure(…))` or an early return ahead of
  * the `attempt`. A value that `body` returns and that is an `Error` is the
@@ -1088,9 +1104,10 @@ const tokenOwnedBy = Leave.ownedBy
  * a `return failure(…)` puts its type in `T`, with `E` still `Error`, and
  * under a return annotation it is a type error; with explicit type
  * arguments, or a `T` that admits an Error such as `unknown`, its type is
- * not in the result, and `isFailure` narrows it to `E`. `take` works in code that `body` calls
- * synchronously and that lets the throw propagate, `.map` and a Maybe `map`
- * callback included, and a later `take` can depend on an earlier one. A
+ * not in the result, and `isFailure` narrows it to `E`. `take` works in code
+ * that `body` calls synchronously and that lets the throw propagate, `.map`
+ * and a Maybe `map` callback included, and a later `take` can depend on an
+ * earlier one. A
  * callback whose caller catches throws (a Promise executor, an `EventTarget`
  * or `AbortSignal` listener) swallows the leave: the `attempt` returns the
  * body's value and the token goes on as a rejection or an uncaught
@@ -1112,7 +1129,11 @@ const tokenOwnedBy = Leave.ownedBy
  * thrown value: the default handler returns a {@link ThrownError} holding
  * the token, a function handler returns whatever it builds from the token
  * (`() => 7` makes the leave a Success of 7), and `catchOnly` or a class
- * list rethrows it, so it goes on leaving the `attempt`.
+ * list rethrows it, so it goes on leaving the `attempt`. `take` reads a part
+ * through the same check as {@link isFailure}: a part whose prototype chain
+ * cannot be read (a Proxy whose `getPrototypeOf` trap throws, a revoked
+ * Proxy) counts as not an `Error`, and whatever the trap threw is dropped, a
+ * leave from an enclosing `attempt` included.
  *
  * `collect` is the declarative counterpart.
  */
