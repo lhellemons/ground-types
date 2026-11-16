@@ -712,7 +712,8 @@ InvalidCoordinate>`. The parts are evaluated by the caller, eagerly, so
   Arm A's factories and line counts are measured without those
   annotations; what to do about it (document the annotation, a
   `collect(parts, build)` form, or a change to `map` and `andThen`) is
-  #115's. The early-return form re-wraps the Failure (`if
+  #115's. **Update, 2026-11-16:** #115 chose the `collect(parts, build)`
+  form; see the amendment below (#115). The early-return form re-wraps the Failure (`if
 (isFailure(parts)) return failure(parts)`), which leaks the nested
   `Failure` into an un-annotated return type; an un-annotated factory
   that mixes early returns with a combinator returns a union of Results
@@ -740,7 +741,8 @@ InvalidCoordinate>`. The parts are evaluated by the caller, eagerly, so
   falls to `Error` (not `never`, as the ticket's first probe had it); from
   the enclosing return annotation it is found, and `take` then rejects a
   part whose error is outside it (`take` is `<R extends Result<unknown,
-E>>(part: R) => ValueOf<R>`). So a typed union at the boundary is the
+E>>(part: R) => ValueOf<R>`; **Update, 2026-11-16:** the shipped
+  constraint is wider, see the amendment below (#115)). So a typed union at the boundary is the
   annotation's, written by hand; under slider's own `Result<X, Error>`
   annotation `E` is `Error`, no better than today. An explicit
   `attempt<T, E>` serves where there is no annotation. A factory's own
@@ -758,6 +760,8 @@ E>>(part: R) => ValueOf<R>`). So a typed union at the boundary is the
   `attempt` has returned; and a plain `return failure(…)` in the
   body lands in `T`, with `E` still `Error`, where under an annotation it
   is a type error. The guards and docblocks for these are #115's.
+  **Update, 2026-11-16:** shipped by #115 with differences; see the
+  amendment below (#115).
 
 The third candidate, `gen`/`yield* take` (generator do-notation), infers
 the exact union with no annotation and catches nothing, but a `yield*`
@@ -891,8 +895,9 @@ fallback)` turns a Failure into the fallback value with the error
 The #59 amendment left open what to do about the construction step after a
 `collect`: `map` and `andThen` infer their callback's parameter from the
 callback alone, so over a `collect` it is `unknown` when plain and `any`
-when destructured, and swapped constructor arguments compile. #115 chose
-the second of its three remedies: **`collect(parts, build)`**, whose
+when destructured, and swapped constructor arguments compile. The owner
+did not rule on it: the implementer of #115 chose, under the ticket, the
+second of its three remedies: **`collect(parts, build)`**, whose
 `build` is typed from the parts. `build` returns a plain value or a Result,
 and the result is `Result<ValueOf<R>, Failed<P> | ErrorOf<R>>`, so one form
 serves where `map` and `andThen` would; the arity decides which form of
@@ -910,13 +915,33 @@ constructor argument inside `build` does not compile.
   `/result` for one caller, where `build` adds one overload to
   `collect`.
 - The early-return and `map`/`andThen` forms stay as the #59 amendment
-  describes them, and `build` is the typed alternative to both; the
-  `map` step after a `collect` still types its parameter only where the
-  caller annotates it. `attempt`/`take` types its values with nothing
-  written by hand and needs no `build`.
-- The shipped `collect` keeps `readonly` in its value type, reads an object
-  of parts by its own enumerable string keys and a list by index, refuses a
-  symbol-keyed or `__proto__` member of an object literal in the types, and
-  refuses an async or generator `attempt` body in the types. A `take` given
-  a Failure after its own `attempt` has returned still throws the token, a
-  non-`Error`, to its caller.
+  describes them. `build` is the typed alternative to `map` and `andThen`;
+  the early-return form already types each member. The `map` step after a
+  `collect` still types its parameter only where the caller annotates it.
+  `attempt`/`take` types its values with nothing written by hand and needs
+  no `build`.
+- What shipped differently from the #59 amendment's description:
+  - `Take`'s constraint is `Result<unknown, E> | null | undefined | void`,
+    not `Result<unknown, E>`: `Result<unknown, E>` alone rejects a Result
+    whose value type includes `undefined`.
+  - The guard on an `attempt` body refuses a thenable (`NotAPromise`) and a
+    generator or async generator (`NotAGenerator`), as far as the body's
+    return type shows. It does not refuse any other iterator, and an async
+    function typed as returning `void` or `unknown` is not caught
+    (`tryCatch` shares that gap). A body that returns `any` is accepted.
+  - The leave token is a fresh frozen object per `take`, carrying its
+    Failure and naming its `attempt` by a private field, where the #59
+    amendment's description is a token per `attempt`. A second `take` given
+    a Failure cannot replace the Failure of the first leave, and a body
+    that catches a token cannot change it.
+  - `collect` keeps `readonly` in its value type, reads an object of parts
+    by its own enumerable string keys and a list by index, and refuses a
+    symbol-keyed or `__proto__` member of an object literal in the types.
+    A plain member whose type may hold an Error (`unknown`, `object`) adds
+    nothing to the error type, but an Error there at run time is returned
+    as the Failure; whether `Failed` should give such a member `Error`, as
+    `ErrorArmOf` does, is left to a later ticket.
+  - A `take` given a Failure after its own `attempt` has returned still
+    throws the token, a non-`Error`, to its caller, and a `take` inside a
+    callback whose caller catches throws (a Promise executor, an
+    `EventTarget` or `AbortSignal` listener) loses the leave.

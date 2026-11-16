@@ -7,7 +7,7 @@ import * as result from '../../src/result/index.js'
  * symbol being added, removed or renamed along the way, which is what this
  * file exists to catch. Imports from source rather than `dist` so it runs
  * under plain vitest without a build. `Result`, `Success`, `Failure`,
- * `NotAResult`, `NotAPromise`, `Collected`, `Failed` and `Take` are
+ * `NotAResult`, `NotAPromise`, `NotAGenerator`, `Collected`, `Failed` and `Take` are
  * type-only and so invisible here — see
  * `src/result/api-surface.test-d.ts`. `ThrownError` is a class, so it is a
  * runtime value and listed below even though it is also usable as a type.

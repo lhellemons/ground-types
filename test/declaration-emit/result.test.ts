@@ -101,6 +101,11 @@ export function collectedBuildAnnotated(
 }
 export const attempted = (raw: string) =>
   attempt((take) => new Door(take(id(raw)), take(countOf(1))))
+export function wrapped<P extends Record<string, unknown>>(
+  parts: P & Record<symbol, never>,
+) {
+  return collect(parts)
+}
 export function attemptedAnnotated(
   raw: string,
 ): Result<Door, InvalidId | InvalidCount> {
@@ -108,7 +113,10 @@ export function attemptedAnnotated(
 }
 `
 
-function declarationDiagnostics(): string[] {
+function compile(emit: boolean): {
+  diagnostics: string[]
+  declarations: string
+} {
   const options: ts.CompilerOptions = {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.NodeNext,
@@ -117,7 +125,8 @@ function declarationDiagnostics(): string[] {
     strict: true,
     declaration: true,
     skipLibCheck: false,
-    noEmit: true,
+    noEmit: !emit,
+    emitDeclarationOnly: emit,
   }
   const host = ts.createCompilerHost(options)
   const { readFile, fileExists, getSourceFile } = host
@@ -127,9 +136,14 @@ function declarationDiagnostics(): string[] {
     file === consumerPath
       ? ts.createSourceFile(file, consumer, languageVersion, true)
       : getSourceFile(file, languageVersion, ...rest)
+  let declarations = ''
+  host.writeFile = (file, text) => {
+    if (file.endsWith('consumer.d.ts')) declarations = text
+  }
   const program = ts.createProgram([consumerPath], options, host)
   const source = program.getSourceFile(consumerPath)
-  return [
+  if (emit) program.emit(source, undefined, undefined, true)
+  const diagnostics = [
     ...program.getSyntacticDiagnostics(source),
     ...program.getSemanticDiagnostics(source),
     ...program.getDeclarationDiagnostics(source),
@@ -137,10 +151,19 @@ function declarationDiagnostics(): string[] {
     (d) =>
       `TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText, ' ')}`,
   )
+  return { diagnostics, declarations }
 }
 
 describe('declaration emit for a consumer', () => {
   it('can name the types success(), failure(), isSuccess(), collect() and attempt() infer', () => {
-    expect(declarationDiagnostics()).toEqual([])
+    expect(compile(false).diagnostics).toEqual([])
+  })
+
+  it('writes the exported Failed, not the module-private ErrorOf, for a generic collect', () => {
+    const { diagnostics, declarations } = compile(true)
+    expect(diagnostics).toEqual([])
+    expect(declarations).toContain('export declare function wrapped')
+    expect(declarations).toMatch(/\.Failed</)
+    expect(declarations).not.toContain('internal')
   })
 })

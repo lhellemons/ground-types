@@ -8,6 +8,7 @@ import type {
   Collected,
   Failed,
   Failure,
+  NotAGenerator,
   NotAPromise,
   NotAResult,
   NotPossiblyAnError,
@@ -114,6 +115,13 @@ describe('fan-in type exports', () => {
       Failed<{ a: Result<number, RangeError>; b: Result<string, TypeError> }>
     >().toEqualTypeOf<RangeError | TypeError>()
     expectTypeOf<Failed<{ a: number }>>().toEqualTypeOf<never>()
+  })
+
+  it('NotAGenerator names the fix for a body that returns a generator', () => {
+    expectTypeOf<
+      NotAGenerator<Generator<number, void, undefined>>
+    >().toEqualTypeOf<'This body returns a generator — attempt runs its body to completion, so write a plain function'>()
+    expectTypeOf<NotAGenerator<number[]>>().toEqualTypeOf<unknown>()
   })
 
   it('Take unboxes a part whose error fits E', () => {

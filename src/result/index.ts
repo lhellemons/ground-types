@@ -882,11 +882,15 @@ export type Collected<P> = P extends readonly unknown[]
  * read through `ErrorOf`. A list contributes its element type, an object of
  * parts its string-keyed and number-keyed members.
  */
-export type Failed<P> = ErrorOf<
-  P extends readonly unknown[]
-    ? P[number]
-    : P[Extract<keyof P, string | number>]
->
+export type Failed<P> = [
+  ErrorOf<
+    P extends readonly unknown[]
+      ? P[number]
+      : P[Extract<keyof P, string | number>]
+  >,
+] extends [infer F extends Error]
+  ? F
+  : never
 
 /* Called through a local binding, so it is the intrinsic captured when the
    module loads. */
@@ -916,7 +920,11 @@ function firstFailure(parts: object): Error | undefined {
  * Fans several parts in: the first {@link Failure} among them, or the parts
  * themselves as a {@link Success}. `parts` is an object of parts, a tuple or
  * a list whose members are Results; a member that is not an `Error` counts
- * as a Success, so a plain value passes through as it is. The Success type
+ * as a Success, so a plain value passes through as it is. A plain member
+ * whose type may hold an Error (`unknown`, `object`) adds nothing to the
+ * error type, but an Error there at run time is returned as the Failure. A
+ * Promise member is a plain value too: a Failure inside it is never seen.
+ * The Success type
  * is {@link Collected}, each member unboxed and `readonly`; the error type
  * is {@link Failed}, the union of the members' error types, inferred with no
  * annotation:
@@ -939,9 +947,8 @@ function firstFailure(parts: object): Error | undefined {
  * With `build`, when no part failed `build` runs on the argument and
  * `collect` returns what it returns, as {@link map} and {@link andThen} do:
  * a plain value or a Result, whose error joins the union. Its parameter is
- * typed from the parts, which the `map` or `andThen` step after a `collect`
- * cannot do, because those infer their callback's parameter from the
- * callback alone. `build` must resolve synchronously (see
+ * typed from the parts, where the callback of a `map` or `andThen` step
+ * after a `collect` is not. `build` must resolve synchronously (see
  * {@link NotAPromise}). Which form applies is decided by arity. A `parts`
  * that is `null` or whose `typeof` is not `'object'` throws a `TypeError`,
  * and so does a `build` that is not a function, before any part is read.
@@ -949,12 +956,14 @@ function firstFailure(parts: object): Error | undefined {
  * Only an object's own enumerable string-keyed members and a list's indices
  * are parts: an inherited member, a non-enumerable one and an extra property
  * on a list are not read. The object form takes an object literal's type or
- * a type alias of one, and not an interface. A symbol-keyed member is a type
+ * a type alias of one, and not an interface type or a class instance type. A
+ * symbol-keyed member is a type
  * error, and so is a `__proto__` member, which an object literal would use
  * to set the prototype instead of defining a part; an own `__proto__` key
  * that `JSON.parse` creates, typed through a string index signature, is read
- * like any other. A part typed `any` makes the result's types `any`, error
- * type included: the compiler then checks nothing for it.
+ * like any other. A part typed `any`, or a `build` that returns `any`, makes
+ * the result's types `any`, error type included: the compiler then checks
+ * nothing for it.
  *
  * `attempt` is the imperative counterpart, and a part can be a nested
  * `collect`.
@@ -996,30 +1005,50 @@ export type Take<E extends Error> = <
   part: R,
 ) => ValueOf<R>
 
-/* True when `T` is an iterator: a `next` method and an iterable or async
-   iterable, which is what a generator object is. */
-type IsIterator<T> = T extends { next(...args: never[]): unknown } & (
-  { [Symbol.iterator](): unknown } | { [Symbol.asyncIterator](): unknown }
-)
-  ? true
-  : false
+/* True when `T` is a generator object (sync or async). `any` and `unknown`
+   are not: nothing is known of them. */
+type IsGenerator<T> = unknown extends T
+  ? false
+  : T extends
+        | Generator<unknown, unknown, never>
+        | AsyncGenerator<unknown, unknown, never>
+    ? true
+    : false
 
 /**
- * Rejects a body return type with an iterator arm (a generator function's
- * result), surfacing the diagnostic as a readable string. The iterator
- * counterpart of {@link NotAPromise}.
+ * Rejects a body return type with a generator arm (a generator function's
+ * result), surfacing the diagnostic as a readable string. The generator
+ * counterpart of {@link NotAPromise}; `attempt` takes both.
  */
-type NotAnIterator<R> = [
-  Extract<R extends unknown ? IsIterator<R> : never, true>,
+export type NotAGenerator<R> = [
+  Extract<R extends unknown ? IsGenerator<R> : never, true>,
 ] extends [never]
   ? unknown
-  : 'This body returns a generator or other iterator — attempt runs its body to completion, so write a plain function'
+  : 'This body returns a generator — attempt runs its body to completion, so write a plain function'
 
-/* The token one `attempt` call throws from `take`. It is not an `Error`, so
-   no `Error` check mistakes it for a Failure, and it is compared by
-   identity, so only the call that made it recognises it. */
+/* The token a `take` given a Failure throws: one fresh, frozen object per
+   throw, carrying that Failure. It is not an `Error`, so no `Error` check
+   mistakes it for a Failure. It names its `attempt` by a private field, so
+   only that `attempt` recognises it, and nothing that holds the token can
+   change its Failure or build another for the same `attempt`. */
 class Leave {
-  failure: Error | undefined
+  readonly #owner: object
+  readonly failure: Error
+
+  constructor(owner: object, failure: Error) {
+    this.#owner = owner
+    this.failure = failure
+    Object.freeze(this)
+  }
+
+  static ownedBy(thrown: unknown, owner: object): thrown is Leave {
+    return (
+      typeof thrown === 'object' &&
+      thrown !== null &&
+      #owner in thrown &&
+      thrown.#owner === owner
+    )
+  }
 }
 
 /**
@@ -1043,17 +1072,22 @@ class Leave {
  * factory's own failure is `take(failure(…))` or an early return ahead of
  * the `attempt`. A `return failure(…)` in `body` returns that Failure at run
  * time, but its type lands in `T` with `E` still `Error`, and under an
- * annotation it is a type error. `take` works wherever code runs while the
- * `attempt` is running, inside `.map` and a Maybe `map` callback included,
- * and a later `take` can depend on an earlier one.
+ * annotation it is a type error. `take` works in code that `body` calls
+ * synchronously and that lets the throw propagate, `.map` and a Maybe `map`
+ * callback included, and a later `take` can depend on an earlier one. A
+ * callback whose caller catches throws (a Promise executor, an `EventTarget`
+ * or `AbortSignal` listener) swallows the leave: the `attempt` returns the
+ * body's value and the token goes on as a rejection or an uncaught
+ * exception.
  *
- * `body` must resolve synchronously: a body that returns a Promise or an
- * iterator (an async function, a generator) is a type error (see
- * {@link NotAPromise}). At run time an async body returns a promise that
- * rejects with the token when a `take` is given a Failure. A `take` given a
- * Failure after its own `attempt` has returned throws the token, which is
- * not an `Error`, to its caller. A `take` from an enclosing `attempt` that
- * is still running leaves that one.
+ * `body` must resolve synchronously. A body whose return type is a thenable
+ * (see {@link NotAPromise}) or a generator (see {@link NotAGenerator}) is a
+ * type error, as far as its type shows; an async function typed as
+ * returning `void` or `unknown` is not caught. At run time an async body
+ * returns a promise that rejects with the token when a `take` is given a
+ * Failure. A `take` given a Failure after its own `attempt` has returned
+ * throws the token, which is not an `Error`, to its caller. A `take` from an
+ * enclosing `attempt` that is still running leaves that one.
  *
  * Whatever in `body` catches the leave swallows it: a `try`/`catch`, and a
  * `finally` that returns. A {@link tryCatch} inside `body` sees it as a
@@ -1065,22 +1099,21 @@ class Leave {
  * `collect` is the declarative counterpart.
  */
 export function attempt<
-  T extends NotAPromise<T> & NotAnIterator<T>,
+  T extends NotAPromise<T> & NotAGenerator<T>,
   E extends Error = Error,
 >(body: (take: Take<E>) => T): Result<T, E> {
-  const leave = new Leave()
+  const owner = {}
   const take = ((part: unknown): unknown => {
     if (isError(part)) {
-      leave.failure = part
       // eslint-disable-next-line @typescript-eslint/only-throw-error -- the token is deliberately not an Error: no Error check mistakes it for a Failure
-      throw leave
+      throw new Leave(owner, part)
     }
     return part
   }) as Take<E>
   try {
     return body(take) as Result<T, E>
   } catch (thrown) {
-    if (thrown === leave) return leave.failure as Failure<T, E>
+    if (Leave.ownedBy(thrown, owner)) return thrown.failure as Failure<T, E>
     throw thrown
   }
 }

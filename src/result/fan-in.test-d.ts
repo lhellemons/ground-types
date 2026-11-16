@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from 'vitest'
 import { attempt, collect, failure, isFailure, map, success } from './index.js'
-import type { Result, Take } from './index.js'
+import type { NotAGenerator, NotAPromise, Result, Take } from './index.js'
 import type { Branded } from '../brand/index.js'
 import { map as mapMaybe } from '../maybe/index.js'
 
@@ -34,6 +34,8 @@ declare const withOptional: {
 declare const maybeId: Result<Id | undefined, InvalidId>
 declare const alias: { id: Result<Id, InvalidId> }
 declare const shape: ShapeOfId
+declare const unknownPart: unknown
+declare const pending: Promise<Result<Id, InvalidId>>
 declare const idList: Result<Id, InvalidId>[]
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the case under test: a part typed any
 declare const loose: any
@@ -72,10 +74,11 @@ describe('collect', () => {
     expectTypeOf(collect(readonlyList)).toEqualTypeOf<
       Result<readonly Id[], InvalidId>
     >()
-    const r = collect(withOptional)
-    void r
-    expectTypeOf<Extract<typeof r, Error>>().toExtend<
-      InvalidId | InvalidCount
+    expectTypeOf(collect(withOptional)).toEqualTypeOf<
+      Result<
+        { readonly id: Id; readonly n?: Count | undefined },
+        InvalidId | InvalidCount
+      >
     >()
   })
 
@@ -159,6 +162,18 @@ describe('collect', () => {
     collect(new Map())
   })
 
+  it('a plain member whose type may hold an Error adds nothing to the error type', () => {
+    expectTypeOf(collect({ x: unknownPart })).toEqualTypeOf<
+      Result<{ readonly x: unknown }, never>
+    >()
+  })
+
+  it('a Promise member is a plain member, its Failure never seen', () => {
+    expectTypeOf(collect({ p: pending })).toEqualTypeOf<
+      Result<{ readonly p: Promise<Result<Id, InvalidId>> }, never>
+    >()
+  })
+
   it('an any part makes the whole result any', () => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- the case under test
     const r = collect({ id: id('a'), loose })
@@ -193,6 +208,12 @@ describe('collect with a build step', () => {
       }>()
       return 0
     })
+  })
+
+  it('a build that returns any makes the whole result any', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return -- the case under test: an any result
+    const r = collect({ id: id('a') }, () => loose)
+    expectTypeOf(r).toBeAny()
   })
 
   it('a build that returns a Result adds its error to the union, like andThen', () => {
@@ -328,22 +349,60 @@ describe('attempt', () => {
     void leaving
   })
 
-  it('refuses an async body and a generator body', () => {
+  it('refuses an async body and a generator body, with the diagnostic of its type', () => {
+    const asyncBody = async (take: Take<InvalidId>) => take(id('a'))
+    const generatorBody = function* (take: Take<InvalidId>) {
+      yield take(id('a'))
+    }
+    const asyncGeneratorBody = async function* (take: Take<InvalidId>) {
+      yield take(id('a'))
+    }
     // @ts-expect-error - resolve first, then compose with .then()
-    attempt(async (take) => take(id('a')))
+    attempt(asyncBody)
     // @ts-expect-error - attempt runs its body to completion
-    attempt(function* (take) {
-      yield take(id('a'))
-    })
+    attempt(generatorBody)
     // @ts-expect-error - attempt runs its body to completion
-    attempt(async function* (take) {
-      yield take(id('a'))
-    })
+    attempt(asyncGeneratorBody)
+    expectTypeOf<
+      NotAPromise<ReturnType<typeof asyncBody>>
+    >().toEqualTypeOf<'This callback returns a Promise (or thenable) — resolve it first with promise/resultify or call/resultify, then compose with .then()'>()
+    expectTypeOf<
+      NotAGenerator<ReturnType<typeof generatorBody>>
+    >().toEqualTypeOf<'This body returns a generator — attempt runs its body to completion, so write a plain function'>()
+    expectTypeOf<
+      NotAGenerator<ReturnType<typeof asyncGeneratorBody>>
+    >().toEqualTypeOf<'This body returns a generator — attempt runs its body to completion, so write a plain function'>()
   })
 
-  it('accepts a body that returns a plain array, an any, or a Result', () => {
+  it('accepts a body that returns a plain array, an iterator that is not a generator, an any or a Result', () => {
     const arr = attempt((take) => [take(id('a'))])
     expectTypeOf(arr).toEqualTypeOf<Result<Id[], Error>>()
+    const values = attempt(() => [1, 2].values())
+    expectTypeOf(values).toEqualTypeOf<
+      Result<ReturnType<number[]['values']>, Error>
+    >()
+    const parsed = attempt((take) => JSON.parse(take(id('a'))) as unknown)
+    expectTypeOf(parsed).toEqualTypeOf<Result<unknown, Error>>()
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return -- the case under test: an any result
+    const loosely = attempt((take) => JSON.parse(take(id('a'))))
+    expectTypeOf(loosely).toBeAny()
+    const returnsResult = attempt<Result<Id, InvalidName>, InvalidId>((take) =>
+      take(id('a')) === 'a'
+        ? failure(new InvalidName('x'))
+        : success(take(id('b'))),
+    )
+    expectTypeOf(returnsResult).toEqualTypeOf<
+      Result<Result<Id, InvalidName>, InvalidId>
+    >()
+  })
+
+  it('a generic wrapper repeats the constraint with NotAPromise and NotAGenerator', () => {
+    const wrap = <T extends NotAPromise<T> & NotAGenerator<T>>(
+      body: (take: Take<Error>) => T,
+    ) => attempt(body)
+    expectTypeOf(wrap((take) => take(id('a')))).toEqualTypeOf<
+      Result<Id, Error>
+    >()
   })
 
   it('take works inside a list map and a Maybe map callback', () => {

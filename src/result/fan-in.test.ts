@@ -323,8 +323,9 @@ describe('attempt', () => {
         kept?.(id('BAD'))
         return 1
       })
-    expect(thrownBy(run)).toBe(thrown === undefined ? undefined : thrownBy(run))
-    expect(thrownBy(run)).not.toBeInstanceOf(Error)
+    const reached = thrownBy(run)
+    expect(reached).not.toBeInstanceOf(Error)
+    expect((reached as { failure: unknown }).failure).toBeInstanceOf(InvalidId)
   })
 
   it('a take given a Success after its own attempt has returned returns the value', () => {
@@ -376,6 +377,97 @@ describe('attempt', () => {
       return take(count(raw.length - 2))
     })
     expect(r).toBeInstanceOf(InvalidCount)
+  })
+
+  describe('the token', () => {
+    it('the Failure of the first take that leaves is the result, whatever a later take does', () => {
+      const first = new InvalidId('first')
+      const second = new InvalidId('second')
+      const r = attempt<number, InvalidId>((take) => {
+        try {
+          take(failure(first))
+          return 1
+        } finally {
+          try {
+            take(failure(second))
+          } catch {
+            // swallowed: the first leave is still propagating
+          }
+        }
+      })
+      expect(r).toBe(first)
+    })
+
+    it('a body that catches the token cannot change its Failure', () => {
+      const real = new InvalidId('real')
+      const r = attempt<number, InvalidId>((take) => {
+        try {
+          take(failure(real))
+        } catch (token) {
+          try {
+            ;(token as { failure: unknown }).failure = 'forged'
+          } catch {
+            // frozen: the write throws in strict mode
+          }
+          throw token
+        }
+        return 1
+      })
+      expect(r).toBe(real)
+    })
+
+    it('a token another attempt threw is not recognised: it propagates', () => {
+      let foreign: unknown
+      attempt<number, InvalidId>((take) => {
+        try {
+          take(failure(new InvalidId('inner')))
+        } catch (token) {
+          foreign = token
+        }
+        return 0
+      })
+      const thrown = thrownBy(() =>
+        attempt<number, InvalidId>(() => {
+          throw foreign
+        }),
+      )
+      expect(thrown).toBe(foreign)
+    })
+
+    it('a token is frozen and is not an Error', () => {
+      let token: unknown
+      attempt<number, InvalidId>((take) => {
+        try {
+          take(failure(new InvalidId('x')))
+        } catch (caught) {
+          token = caught
+        }
+        return 0
+      })
+      expect(Object.isFrozen(token)).toBe(true)
+      expect(token).not.toBeInstanceOf(Error)
+    })
+  })
+
+  describe('a callback whose caller catches throws swallows the leave', () => {
+    it('a Promise executor: the attempt returns the body value and the promise rejects with the token', async () => {
+      let pending: Promise<unknown> | undefined
+      const r = attempt<string, InvalidId>((take) => {
+        pending = new Promise(() => {
+          take(failure(new InvalidId('inside the executor')))
+        })
+        return 'body completed'
+      })
+      expect(r).toBe('body completed')
+      let rejection: unknown
+      try {
+        await pending
+      } catch (error) {
+        rejection = error
+      }
+      expect(rejection).toBeDefined()
+      expect(rejection).not.toBeInstanceOf(Error)
+    })
   })
 
   describe('what in the body swallows or rewrites the leave', () => {

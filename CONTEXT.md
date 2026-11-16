@@ -70,13 +70,13 @@ _Avoid_: Reason, fault, err.
 ### Collect
 
 To **collect** is to fan several Results in, whether they come as an
-**object of parts** (an object whose own string-keyed members are the
-parts), a tuple or a list: the first Failure among them, or the parts
-themselves with every member unboxed. A part that is not an Error counts as
-a Success and passes through. The error type is the union of the parts'
-error types. A Collect catches nothing, and the parts are evaluated before
-it runs, so one part cannot depend on another; the step that builds from the
-parts follows, or is the Collect's own `build` argument. The imperative
+**object of parts** (an object whose members are the parts), a tuple or a
+list: the first Failure among them, or the parts themselves with every
+member unboxed. A part that is not an Error
+counts as a Success and passes through. The error type is the union of the
+parts' error types. A Collect catches nothing, and the parts are evaluated
+before it runs, so one part cannot depend on another; the step that builds
+from the parts follows, or is the Collect with a build step. The imperative
 counterpart is **Attempt**.
 
 _Avoid_: all, sequence, traverse (a fan-in that needs a container; see
@@ -86,10 +86,11 @@ docs/adr/0001-unboxed-maybe-and-result.md).
 
 To **attempt** is to run a body that unboxes Results with **Take** and
 leaves with the first Failure it is given: the Attempt is that Failure, or
-the body's return value. The leave is a throw of a token private to the
-Attempt, and only that Attempt catches it: any other throw is a bug and
-propagates, which separates an Attempt from `tryCatch`, which turns a throw
-into a Failure. The declarative counterpart is **Collect**.
+the body's return value. Of all Attempts only that one recognises its leave,
+though anything in the body that catches throws can swallow it. Any other
+throw is a bug and propagates, which separates an Attempt from `tryCatch`,
+which turns a throw into a Failure. The declarative counterpart is
+**Collect**.
 
 _Avoid_: try, do-notation.
 
@@ -97,8 +98,7 @@ _Avoid_: try, do-notation.
 
 To **take** a part is to unbox its value inside an **Attempt**, or to leave
 that Attempt with the part's Failure. Each Attempt hands out its own Take,
-and a Take is only accepted for parts whose error fits the Attempt's error
-type.
+and a Take accepts only parts whose error fits the Attempt's error type.
 
 _Avoid_: unwrap, await, yield, assertSuccess (which throws the Failure for
 any catcher to see).
