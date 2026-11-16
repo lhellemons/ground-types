@@ -1,6 +1,12 @@
 import { describe, expectTypeOf, it } from 'vitest'
 import { attempt, collect, failure, isFailure, map, success } from './index.js'
-import type { NotAGenerator, NotAPromise, Result, Take } from './index.js'
+import type {
+  NotAGenerator,
+  NotAPromise,
+  Parts,
+  Result,
+  Take,
+} from './index.js'
 import type { Branded } from '../brand/index.js'
 import { map as mapMaybe } from '../maybe/index.js'
 
@@ -142,6 +148,13 @@ describe('collect', () => {
     const parsed = JSON.parse('{}') as Record<string, Result<Id, InvalidId>>
     expectTypeOf(collect(parsed)).toEqualTypeOf<
       Result<{ readonly [key: string]: Id }, InvalidId>
+    >()
+  })
+
+  it('a generic wrapper names its constraint with Parts', () => {
+    const wrap = <P extends Parts>(parts: P) => collect(parts)
+    expectTypeOf(wrap([id('a')])).toEqualTypeOf<
+      Result<readonly [Id], InvalidId>
     >()
   })
 
@@ -374,7 +387,7 @@ describe('attempt', () => {
     >().toEqualTypeOf<'This body returns a generator — attempt runs its body to completion, so write a plain function'>()
   })
 
-  it('accepts a body that returns a plain array, an iterator that is not a generator, an any or a Result', () => {
+  it('accepts a body that returns a plain array, an iterator that is not a generator or an any', () => {
     const arr = attempt((take) => [take(id('a'))])
     expectTypeOf(arr).toEqualTypeOf<Result<Id[], Error>>()
     const values = attempt(() => [1, 2].values())
@@ -386,14 +399,17 @@ describe('attempt', () => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return -- the case under test: an any result
     const loosely = attempt((take) => JSON.parse(take(id('a'))))
     expectTypeOf(loosely).toBeAny()
-    const returnsResult = attempt<Result<Id, InvalidName>, InvalidId>((take) =>
+  })
+
+  it("with explicit type arguments the body's Error is not in the result, and isFailure narrows it to E", () => {
+    const r = attempt<Result<Id, InvalidName>, InvalidId>((take) =>
       take(id('a')) === 'a'
         ? failure(new InvalidName('x'))
         : success(take(id('b'))),
     )
-    expectTypeOf(returnsResult).toEqualTypeOf<
-      Result<Result<Id, InvalidName>, InvalidId>
-    >()
+    expectTypeOf(r).toEqualTypeOf<Result<Result<Id, InvalidName>, InvalidId>>()
+    // The Failure is an InvalidName at run time, and the type says InvalidId.
+    if (isFailure(r)) expectTypeOf(r.kind).toEqualTypeOf<'InvalidId'>()
   })
 
   it('a generic wrapper repeats the constraint with NotAPromise and NotAGenerator', () => {

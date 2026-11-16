@@ -856,7 +856,7 @@ function isInstanceOfAny(error: Error, classes: readonly unknown[]): boolean {
  * `__proto__` member must have the type `never`, so a literal that has one
  * is refused. The tuple arm makes a tuple literal infer as a tuple.
  */
-type Parts =
+export type Parts =
   | (Readonly<Record<string, unknown>> &
       Readonly<Record<symbol, never>> & { readonly __proto__?: never })
   | readonly unknown[]
@@ -892,24 +892,25 @@ export type Failed<P> = [
   ? F
   : never
 
-/* Called through a local binding, so it is the intrinsic captured when the
-   module loads. */
+/* Called through local bindings, so they are the intrinsics captured when
+   the module loads. */
 const hasOwn = Object.hasOwn
+const ownKeys = Object.keys
+const freeze = Object.freeze
 
 /* The first Failure among the parts, or `undefined` when there is none (a
    Failure is an `Error`, so it is never `undefined` itself). A list is read
-   by index, an object of parts by its own enumerable string keys, each
-   once, in the order `Object.keys` gives. */
+   by its own indices, an object of parts by the keys `Object.keys` gives. */
 function firstFailure(parts: object): Error | undefined {
   if (Array.isArray(parts)) {
     for (let index = 0; index < parts.length; index++) {
+      if (!hasOwn(parts, index)) continue
       const part: unknown = parts[index]
       if (isError(part)) return part
     }
     return undefined
   }
-  for (const key in parts) {
-    if (!hasOwn(parts, key)) continue
+  for (const key of ownKeys(parts)) {
     const part: unknown = (parts as Record<string, unknown>)[key]
     if (isError(part)) return part
   }
@@ -940,8 +941,8 @@ function firstFailure(parts: object): Error | undefined {
  * does not freeze it, so a later change to the caller's object or list shows
  * through, and a frozen argument comes back frozen. The parts are evaluated
  * by the caller before `collect` runs, so one part cannot depend on another.
- * The first Failure is the first in order: a list's indices, or an object's
- * own enumerable string keys in the order `Object.keys` gives. `collect`
+ * The first Failure is the first in order: a list's own indices, or the
+ * keys `Object.keys` gives for an object. `collect`
  * catches nothing: a throw from a part's getter or from `build` propagates.
  *
  * With `build`, when no part failed `build` runs on the argument and
@@ -953,9 +954,9 @@ function firstFailure(parts: object): Error | undefined {
  * that is `null` or whose `typeof` is not `'object'` throws a `TypeError`,
  * and so does a `build` that is not a function, before any part is read.
  *
- * Only an object's own enumerable string-keyed members and a list's indices
- * are parts: an inherited member, a non-enumerable one and an extra property
- * on a list are not read. The object form takes an object literal's type or
+ * Only an object's own enumerable string-keyed members and a list's own
+ * indices are parts: an inherited member, a non-enumerable one, a hole in a
+ * list and an extra property on a list are not read. The object form takes an object literal's type or
  * a type alias of one, and not an interface type or a class instance type. A
  * symbol-keyed member is a type
  * error, and so is a `__proto__` member, which an object literal would use
@@ -1016,8 +1017,9 @@ type IsGenerator<T> = unknown extends T
     : false
 
 /**
- * Rejects a body return type with a generator arm (a generator function's
- * result), surfacing the diagnostic as a readable string. The generator
+ * Rejects a body return type with a generator arm (the result of a generator
+ * function or an async generator function), surfacing the diagnostic as a
+ * readable string. The generator
  * counterpart of {@link NotAPromise}; `attempt` takes both.
  */
 export type NotAGenerator<R> = [
@@ -1028,9 +1030,11 @@ export type NotAGenerator<R> = [
 
 /* The token a `take` given a Failure throws: one fresh, frozen object per
    throw, carrying that Failure. It is not an `Error`, so no `Error` check
-   mistakes it for a Failure. It names its `attempt` by a private field, so
-   only that `attempt` recognises it, and nothing that holds the token can
-   change its Failure or build another for the same `attempt`. */
+   mistakes it for a Failure. It names its `attempt` by a private field. The
+   class and its prototype are frozen when the module loads, and `attempt`
+   calls the brand check through the binding captured then, so a body that
+   catches a token can neither change it nor replace the check; a token a body
+   did not receive cannot be built, as the owner is private to its `attempt`. */
 class Leave {
   readonly #owner: object
   readonly failure: Error
@@ -1038,10 +1042,10 @@ class Leave {
   constructor(owner: object, failure: Error) {
     this.#owner = owner
     this.failure = failure
-    Object.freeze(this)
+    freeze(this)
   }
 
-  static ownedBy(thrown: unknown, owner: object): thrown is Leave {
+  static ownedBy(this: void, thrown: unknown, owner: object): thrown is Leave {
     return (
       typeof thrown === 'object' &&
       thrown !== null &&
@@ -1049,12 +1053,21 @@ class Leave {
       thrown.#owner === owner
     )
   }
+
+  static {
+    freeze(this)
+    freeze(this.prototype)
+  }
 }
+
+const tokenOwnedBy = Leave.ownedBy
 
 /**
  * Runs `body` with a `take` that leaves on the first Failure: `attempt`
  * returns `body`'s return value, or, once a `take` is given a Failure, that
- * Failure, with the rest of `body` not run. Only that leave is caught, and
+ * Failure, with the rest of `body` not run, apart from its `finally` blocks;
+ * a throw from one, another leave or a bug, replaces the leave. Only that
+ * leave is caught, and
  * only by the `attempt` whose `take` it was; any other throw propagates, an
  * `Error` or not.
  *
@@ -1070,9 +1083,12 @@ class Leave {
  * annotation), and `take` rejects a part whose error is outside it; with no
  * contextual type `E` is `Error`, and `attempt<T, E>` names both. A
  * factory's own failure is `take(failure(…))` or an early return ahead of
- * the `attempt`. A `return failure(…)` in `body` returns that Failure at run
- * time, but its type lands in `T` with `E` still `Error`, and under an
- * annotation it is a type error. `take` works in code that `body` calls
+ * the `attempt`. A value that `body` returns and that is an `Error` is the
+ * `attempt`'s Failure at run time, whatever `T` says. With no type arguments
+ * a `return failure(…)` puts its type in `T`, with `E` still `Error`, and
+ * under a return annotation it is a type error; with explicit type
+ * arguments, or a `T` that admits an Error such as `unknown`, its type is
+ * not in the result, and `isFailure` narrows it to `E`. `take` works in code that `body` calls
  * synchronously and that lets the throw propagate, `.map` and a Maybe `map`
  * callback included, and a later `take` can depend on an earlier one. A
  * callback whose caller catches throws (a Promise executor, an `EventTarget`
@@ -1083,7 +1099,9 @@ class Leave {
  * `body` must resolve synchronously. A body whose return type is a thenable
  * (see {@link NotAPromise}) or a generator (see {@link NotAGenerator}) is a
  * type error, as far as its type shows; an async function typed as
- * returning `void` or `unknown` is not caught. At run time an async body
+ * returning `void` or `unknown` is not caught, and neither is a generator
+ * function annotated as returning an iterator type, such as
+ * `IterableIterator`. At run time an async body
  * returns a promise that rejects with the token when a `take` is given a
  * Failure. A `take` given a Failure after its own `attempt` has returned
  * throws the token, which is not an `Error`, to its caller. A `take` from an
@@ -1113,7 +1131,7 @@ export function attempt<
   try {
     return body(take) as Result<T, E>
   } catch (thrown) {
-    if (Leave.ownedBy(thrown, owner)) return thrown.failure as Failure<T, E>
+    if (tokenOwnedBy(thrown, owner)) return thrown.failure as Failure<T, E>
     throw thrown
   }
 }

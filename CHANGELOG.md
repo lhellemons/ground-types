@@ -75,8 +75,8 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   TypeScript 5.4, 5.9 and 7.0.
 - Add `SuccessArm`, the marked part of a `Success`, exported from `/result`:
   consumers whose declarations mention a `Success` need a name to emit.
-- Add `collect` and `attempt` to `/result`, with the types `Collected`,
-  `Failed`, `Take` and `NotAGenerator`: fan-in over unboxed Results that
+- Add `collect` and `attempt` to `/result`, with the types `Parts`,
+  `Collected`, `Failed`, `Take` and `NotAGenerator`: fan-in over unboxed Results that
   keeps each part's error type. Nothing that exists changes.
   - `collect(parts)` takes an object of parts, a tuple or a list whose
     members are Results (a member that is not an `Error` passes through) and

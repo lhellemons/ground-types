@@ -121,6 +121,32 @@ describe('collect', () => {
     expect(isFailure((collected as typeof live).id)).toBe(true)
   })
 
+  it('does not read a hole in a list through the prototype', () => {
+    const inherited = new InvalidId('inherited')
+    // eslint-disable-next-line no-sparse-arrays -- the case under test: a hole
+    const list = [success(1), , success(3)] as Result<number, InvalidId>[]
+    ;(Array.prototype as unknown as Record<number, unknown>)[1] = inherited
+    try {
+      expect(collect(list)).toBe(list)
+    } finally {
+      delete (Array.prototype as unknown as Record<number, unknown>)[1]
+    }
+  })
+
+  it('does not walk the prototype chain of an object of parts', () => {
+    const prototype = new Proxy(
+      {},
+      {
+        ownKeys(): never {
+          throw new TypeError('walked')
+        },
+      },
+    )
+    const parts = Object.create(prototype) as { own: Result<string, InvalidId> }
+    parts.own = id('a')
+    expect(collect(parts)).toBe(parts)
+  })
+
   it('reads an object by its own enumerable string keys only', () => {
     const bad = new InvalidId('bad')
     const symbol = Symbol('part')
@@ -380,7 +406,7 @@ describe('attempt', () => {
   })
 
   describe('the token', () => {
-    it('the Failure of the first take that leaves is the result, whatever a later take does', () => {
+    it('a later take caught in a finally leaves the first Failure as the result', () => {
       const first = new InvalidId('first')
       const second = new InvalidId('second')
       const r = attempt<number, InvalidId>((take) => {
@@ -396,6 +422,37 @@ describe('attempt', () => {
         }
       })
       expect(r).toBe(first)
+    })
+
+    it('a take whose throw goes uncaught in a finally replaces the first leave', () => {
+      const first = new InvalidId('first')
+      const second = new InvalidId('second')
+      const r = attempt<number, InvalidId>((take) => {
+        try {
+          take(failure(first))
+          return 1
+        } finally {
+          take(failure(second))
+        }
+      })
+      expect(r).toBe(second)
+    })
+
+    it('a bug thrown from a finally replaces the leave', () => {
+      const bug = new TypeError('bug')
+      expect(
+        thrownBy(() =>
+          attempt<number, InvalidId>((take) => {
+            try {
+              take(failure(new InvalidId('first')))
+              return 1
+            } finally {
+              // eslint-disable-next-line no-unsafe-finally -- the case under test
+              throw bug
+            }
+          }),
+        ),
+      ).toBe(bug)
     })
 
     it('a body that catches the token cannot change its Failure', () => {
@@ -432,6 +489,81 @@ describe('attempt', () => {
         }),
       )
       expect(thrown).toBe(foreign)
+    })
+
+    /* A body that has caught a token holds the `Leave` class through it. */
+    function caughtToken(): { constructor: Record<string, unknown> } {
+      let token: unknown
+      attempt<number, InvalidId>((take) => {
+        try {
+          take(failure(new InvalidId('x')))
+        } catch (caught) {
+          token = caught
+        }
+        return 0
+      })
+      return token as { constructor: Record<string, unknown> }
+    }
+    const laterAttemptsStillSeeOnlyTheirOwn = (): void => {
+      const bug = new TypeError('bug')
+      expect(
+        thrownBy(() =>
+          attempt(() => {
+            throw bug
+          }),
+        ),
+      ).toBe(bug)
+      const lookalike = { failure: 42 }
+      expect(
+        thrownBy(() =>
+          attempt(() => {
+            throw lookalike
+          }),
+        ),
+      ).toBe(lookalike)
+    }
+
+    it('replacing the brand check on the caught token constructor changes nothing for later attempts', () => {
+      const token = caughtToken()
+      try {
+        token.constructor.ownedBy = () => true
+      } catch {
+        // frozen: the write throws in strict mode
+      }
+      laterAttemptsStillSeeOnlyTheirOwn()
+      expect(Object.isFrozen(token.constructor)).toBe(true)
+    })
+
+    it('changing the prototype of a caught token changes nothing for later attempts', () => {
+      const token = caughtToken()
+      const prototype = Object.getPrototypeOf(token) as object
+      expect(Object.isFrozen(prototype)).toBe(true)
+      expect(() => {
+        Object.setPrototypeOf(prototype, Error.prototype)
+      }).toThrow(TypeError)
+      expect(() =>
+        Object.defineProperty(prototype, 'then', { value: 1 }),
+      ).toThrow(TypeError)
+      laterAttemptsStillSeeOnlyTheirOwn()
+    })
+
+    it('a token is frozen even when Object.freeze was replaced after the module loaded', () => {
+      const { freeze } = Object
+      Object.freeze = ((value: unknown) => value) as typeof Object.freeze
+      let token: unknown
+      try {
+        attempt<number, InvalidId>((take) => {
+          try {
+            take(failure(new InvalidId('x')))
+          } catch (caught) {
+            token = caught
+          }
+          return 0
+        })
+      } finally {
+        Object.freeze = freeze
+      }
+      expect(Object.isFrozen(token)).toBe(true)
     })
 
     it('a token is frozen and is not an Error', () => {

@@ -10,6 +10,7 @@ import type {
   Failure,
   NotAGenerator,
   NotAPromise,
+  Parts,
   NotAResult,
   NotPossiblyAnError,
   Result,
@@ -101,6 +102,13 @@ describe('/result type exports', () => {
 
 declare const take: Take<RangeError>
 describe('fan-in type exports', () => {
+  it('Parts is what collect accepts: an object of parts, a tuple or a list', () => {
+    expectTypeOf<{ a: number }>().toExtend<Parts>()
+    expectTypeOf<readonly [number, string]>().toExtend<Parts>()
+    expectTypeOf<Result<number, RangeError>[]>().toExtend<Parts>()
+    expectTypeOf<number>().not.toExtend<Parts>()
+  })
+
   it('Collected unboxes each member of the parts, readonly', () => {
     expectTypeOf<
       Collected<{ a: Result<number, RangeError>; b: string }>

@@ -712,8 +712,9 @@ InvalidCoordinate>`. The parts are evaluated by the caller, eagerly, so
   Arm A's factories and line counts are measured without those
   annotations; what to do about it (document the annotation, a
   `collect(parts, build)` form, or a change to `map` and `andThen`) is
-  #115's. **Update, 2026-11-16:** #115 chose the `collect(parts, build)`
-  form; see the amendment below (#115). The early-return form re-wraps the Failure (`if
+  #115's. **Update, 2026-11-16:** the implementer of #115 chose the
+  `collect(parts, build)` form under the ticket; see the amendment below
+  (#115). The early-return form re-wraps the Failure (`if
 (isFailure(parts)) return failure(parts)`), which leaks the nested
   `Failure` into an un-annotated return type; an un-annotated factory
   that mixes early returns with a combinator returns a union of Results
@@ -760,8 +761,9 @@ E>>(part: R) => ValueOf<R>`; **Update, 2026-11-16:** the shipped
   `attempt` has returned; and a plain `return failure(…)` in the
   body lands in `T`, with `E` still `Error`, where under an annotation it
   is a type error. The guards and docblocks for these are #115's.
-  **Update, 2026-11-16:** shipped by #115 with differences; see the
-  amendment below (#115).
+  **Update, 2026-11-16:** shipped by #115 with differences, among them
+  that a body's `return failure(…)` is a Failure at run time whatever `T`
+  says and is not always a type error; see the amendment below (#115).
 
 The third candidate, `gen`/`yield* take` (generator do-notation), infers
 the exact union with no annotation and catches nothing, but a `yield*`
@@ -901,8 +903,8 @@ second of its three remedies: **`collect(parts, build)`**, whose
 `build` is typed from the parts. `build` returns a plain value or a Result,
 and the result is `Result<ValueOf<R>, Failed<P> | ErrorOf<R>>`, so one form
 serves where `map` and `andThen` would; the arity decides which form of
-`collect` applies, as for the curryable combinators (ADR 0003). A swapped
-constructor argument inside `build` does not compile.
+`collect` applies, as for the curryable combinators (ADR 0003). An argument
+swapped for one of another type inside `build` does not compile.
 
 - **Documenting a hand-written parameter type** was not chosen: it leaves
   the unsafe form the one that needs no annotation.
@@ -928,19 +930,32 @@ constructor argument inside `build` does not compile.
     generator or async generator (`NotAGenerator`), as far as the body's
     return type shows. It does not refuse any other iterator, and an async
     function typed as returning `void` or `unknown` is not caught
-    (`tryCatch` shares that gap). A body that returns `any` is accepted.
+    (`tryCatch` shares that gap), and neither is a generator function
+    annotated as returning an iterator type such as `IterableIterator`;
+    tightening the guard is #120's. A body that returns `any` is accepted.
   - The leave token is a fresh frozen object per `take`, carrying its
     Failure and naming its `attempt` by a private field, where the #59
-    amendment's description is a token per `attempt`. A second `take` given
-    a Failure cannot replace the Failure of the first leave, and a body
-    that catches a token cannot change it.
+    amendment's description is a token per `attempt`. A `take` given a
+    Failure while an earlier leave is still propagating (in a `finally`)
+    replaces that leave if its own throw goes uncaught, as any throw does;
+    caught there, it leaves the first leave's Failure unchanged. A body
+    that catches a token cannot change it, nor replace the check that
+    recognises it: the class and its prototype are frozen when the module
+    loads.
+  - A value that `body` returns and that is an `Error` is the `attempt`'s
+    Failure at run time, whatever `T` says. With no type arguments a
+    `return failure(…)` puts its type in `T`, with `E` still `Error`, and
+    under a return annotation it is a type error; with explicit type
+    arguments, or a `T` that admits an Error such as `unknown`, its type is
+    not in the result, and `isFailure` narrows it to `E`. Whether `attempt`
+    should guard `T` is #120's question.
   - `collect` keeps `readonly` in its value type, reads an object of parts
     by its own enumerable string keys and a list by index, and refuses a
     symbol-keyed or `__proto__` member of an object literal in the types.
     A plain member whose type may hold an Error (`unknown`, `object`) adds
     nothing to the error type, but an Error there at run time is returned
     as the Failure; whether `Failed` should give such a member `Error`, as
-    `ErrorArmOf` does, is left to a later ticket.
+    `ErrorArmOf` does, is #120's question.
   - A `take` given a Failure after its own `attempt` has returned still
     throws the token, a non-`Error`, to its caller, and a `take` inside a
     callback whose caller catches throws (a Promise executor, an
