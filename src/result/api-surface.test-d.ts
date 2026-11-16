@@ -100,7 +100,15 @@ describe('/result type exports', () => {
   })
 })
 
-declare const take: Take<RangeError>
+class FailA extends Error {
+  readonly kind = 'FailA' as const
+}
+class FailB extends Error {
+  readonly kind = 'FailB' as const
+}
+declare const take: Take<FailA>
+declare const successA: Success<number, FailA>
+declare const resultB: Result<number, FailB>
 describe('fan-in type exports', () => {
   it('Parts is what collect accepts: an object of parts, a tuple or a list', () => {
     expectTypeOf<{ a: number }>().toExtend<Parts>()
@@ -120,8 +128,8 @@ describe('fan-in type exports', () => {
 
   it('Failed is the union of the members error types, and never for parts that cannot fail', () => {
     expectTypeOf<
-      Failed<{ a: Result<number, RangeError>; b: Result<string, TypeError> }>
-    >().toEqualTypeOf<RangeError | TypeError>()
+      Failed<{ a: Result<number, FailA>; b: Result<string, FailB> }>
+    >().toEqualTypeOf<FailA | FailB>()
     expectTypeOf<Failed<{ a: number }>>().toEqualTypeOf<never>()
   })
 
@@ -133,7 +141,9 @@ describe('fan-in type exports', () => {
   })
 
   it('Take unboxes a part whose error fits E', () => {
-    expectTypeOf(take(s)).toEqualTypeOf<number>()
+    expectTypeOf(take(successA)).toEqualTypeOf<number>()
+    // @ts-expect-error - FailB is outside FailA
+    take(resultB)
   })
 })
 

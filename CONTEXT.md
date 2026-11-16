@@ -76,7 +76,8 @@ member unboxed. A part that is not an Error counts as a Success and passes
 through. The error type is the union of the parts' error types. A Collect
 catches no throw, though a part whose prototype chain cannot be read counts
 as a Success and what its trap threw is dropped. One part cannot depend on
-another, except through a getter, which the Collect runs as it reads. The
+another, except through a getter or a Proxy's traps, which the Collect runs
+as it reads. The
 step that builds from the parts follows, or is the Collect with a build
 step. The imperative counterpart is **Attempt**.
 

@@ -362,6 +362,7 @@ describe('attempt', () => {
     // as E although it is outside E.
     const lenient = (): Result<number, InvalidId> =>
       attempt((take) => {
+        take(loose)
         take(asDictionary)
         take(numberDictionary)
         take(asBigObject)

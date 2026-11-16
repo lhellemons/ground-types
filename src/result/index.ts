@@ -904,8 +904,9 @@ const isArray = Array.isArray
 
 /* The first Failure among the parts, or `undefined` when there is none (a
    Failure is an `Error`, so it is never `undefined` itself). A list is read
-   by its own indices, every index below its length, holes included; an
-   object of parts by the keys `Object.keys` gives. */
+   by its own indices: every index below its length is visited, and a hole
+   is skipped, not read; an object of parts by the keys `Object.keys`
+   gives. */
 function firstFailure(parts: object): Error | undefined {
   if (isArray(parts)) {
     for (let index = 0; index < parts.length; index++) {
@@ -944,17 +945,19 @@ function firstFailure(parts: object): Error | undefined {
  * nothing to the error type, but an Error there at run time is returned as
  * the Failure (open, #120 item 1). A Promise member is a plain value too: it
  * adds nothing to the error type, and a Failure it resolves to is never seen
- * (open, #120 item 4). A
- * part typed `any`, or a `build` that returns `any`, makes the result's
- * types `any`, error type included: the compiler then checks nothing for it.
+ * (open, #120 item 4). A part typed `any`, or a `build` that returns `any`,
+ * makes the result's types `any`, error type included: the compiler then
+ * checks nothing for it.
  *
  * The Success is the argument itself, not a copy: `readonly` in the type
  * does not freeze it, so a later change to the caller's object or list shows
  * through, and a frozen argument comes back frozen. A part is a value the
- * caller has already computed, apart from a getter. A getter is run by
- * `collect` as it reads the object, in order, and not after the first
- * Failure; since the Success is the argument itself, each later read runs it
- * again, and only the value `collect` read was checked (open, #120 item 7).
+ * caller has already computed, apart from a getter or a Proxy's traps. A
+ * getter is run by `collect` as it reads the object, in order, and not after
+ * the first Failure; a Proxy's traps run caller code as it reads. Since the
+ * Success is the argument itself, each later read runs them again, and only
+ * the value `collect` read was checked (open, #120 item 7).
+ *
  * The first Failure is the first in order: a list's own indices, or the keys
  * `Object.keys` gives for an object. `collect` catches nothing: a throw from
  * a part's getter or from `build` propagates. A part whose prototype chain
@@ -1005,20 +1008,21 @@ export function collect(
   }
   const failed = firstFailure(parts)
   if (failed !== undefined) return failed
-  return build.length === 0
-    ? parts
-    : (build[0] as (parts: object) => unknown)(parts)
+  if (build.length === 0) return parts
+  const fn = build[0] as (parts: object) => unknown
+  return fn(parts)
 }
 
 /**
  * Unboxes a part inside an {@link attempt}, or leaves that `attempt` with the
  * part's Failure. `take(part)` is the part's value when it is a Success.
- * A part whose error type is outside `E` is rejected. A part whose type
- * declares no properties of its own (`object`, `Object`, `{}`, an empty
- * interface or class instance type, or a type made only of index signatures
- * such as `Record<string, X>` or `Record<number, X>`), a type parameter
- * constrained to one, or `void`, is accepted, and an Error it holds at run
- * time leaves the `attempt` whatever `E` says (open, #120 item 5).
+ * `take` rejects a Result part whose error type is outside `E`; error types
+ * compare structurally, so an Error subclass with no members of its own
+ * counts as `Error` (see ADR 0001). Some non-Result parts are accepted too,
+ * for example one typed `any`, `object`, `Object`, `{}`, `void`, a
+ * `Record<string, X>`, or a type parameter constrained to one of these; an
+ * Error such a part holds leaves the `attempt` whatever `E` says (open,
+ * #120 item 5).
  */
 export type Take<E extends Error> = <
   R extends Result<unknown, E> | null | undefined | void,
@@ -1101,38 +1105,37 @@ const tokenOwnedBy = Leave.ownedBy
  * }
  * ```
  *
- * `E` is found from the contextual return type (an enclosing return
- * annotation), and `take` rejects a part whose error type is outside it
- * (see {@link Take} for the parts it accepts regardless); with no
- * contextual type `E` is `Error`, and `attempt<T, E>` names both. A
- * factory's own failure is `take(failure(…))` or an early return ahead of
- * the `attempt`. A value that `body` returns and that is an `Error` is the
- * `attempt`'s Failure at run time, whatever `T` says. With no type arguments
- * a `return failure(…)` puts its type in `T`, with `E` still `Error`, and
- * under a return annotation it is a type error; with explicit type
- * arguments, or a `T` that admits an Error such as `unknown`, its type is
- * not in the result, and `isFailure` narrows it to `E` (open, #120 item 2).
- * `take` works in code
- * that `body` calls synchronously and that lets the throw propagate, `.map`
- * and a Maybe `map` callback included, and a later `take` can depend on an
- * earlier one. A
- * callback whose caller catches throws (a Promise executor, an `EventTarget`
- * or `AbortSignal` listener) swallows the leave: the `attempt` returns the
- * body's value and the token goes on as a rejection or an uncaught
- * exception.
+ * `E` is found from the contextual type (an enclosing return annotation, a
+ * variable annotation or a parameter type), and `take` rejects a part whose
+ * error type is outside it (see {@link Take} for the parts it accepts
+ * regardless); with no contextual type `E` is `Error`, and `attempt<T, E>`
+ * names both. A factory's own failure is `take(failure(…))` or an early
+ * return ahead of the `attempt`. A value that `body` returns and that is an
+ * `Error` is the `attempt`'s Failure at run time, whatever `T` says. With no
+ * type arguments a `return failure(…)` puts its type in `T`, with `E` still
+ * `Error`, and under a return annotation it is a type error; with explicit
+ * type arguments, or a `T` that admits an Error such as `unknown`, its type
+ * is not in the result, and `isFailure` narrows it to `E` (open, #120 item
+ * 2). `take` works in code that `body` calls synchronously and that lets the
+ * throw propagate, `.map` and a Maybe `map` callback included, and a later
+ * `take` can depend on an earlier one. A callback whose caller catches
+ * throws (a Promise executor, an `EventTarget` or `AbortSignal` listener)
+ * swallows the leave: the `attempt` returns the body's value and the token
+ * goes on as a rejection or an uncaught exception.
  *
  * `body` must resolve synchronously. A body whose return type is a thenable
  * (see {@link NotAPromise}) or a generator (see {@link NotAGenerator}) is a
- * type error, as far as its type shows. An async function typed as
- * returning a type a Promise fits (`void`, `unknown`, `object`, `Object`,
- * `{}`), or
- * given such a `T` explicitly, is not caught (open, #120 item 6), and neither
- * is a generator function annotated as returning an iterator type, such as
- * `IterableIterator` (open, #120 item 3). At run time an async body returns
- * a promise that rejects with the token when a `take` is given a
- * Failure. A `take` given a Failure after its own `attempt` has returned
- * throws the token, which is not an `Error`, to its caller. A `take` from an
- * enclosing `attempt` that is still running leaves that one.
+ * type error. The guard sees only the body's declared return type: a body
+ * typed more widely than a Promise or a generator is not refused, for
+ * example a generator function annotated as an iterator type, or one typed
+ * as returning, or given a `T` such as, `void`, `unknown`, `object` or `any`
+ * (open, #120 items 3 and 6). A body that only passes through a part of an
+ * unresolved generic type is refused, as `success` refuses an unresolved
+ * type parameter. At run time an async body returns a promise that rejects
+ * with the token when a `take` is given a Failure. A `take` given a Failure
+ * after its own `attempt` has returned throws the token, which is not an
+ * `Error`, to its caller. A `take` from an enclosing `attempt` that is still
+ * running leaves that one.
  *
  * Whatever in `body` catches the leave swallows it: a `try`/`catch`, and a
  * `finally` that returns. A {@link tryCatch} inside `body` sees it as a

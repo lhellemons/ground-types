@@ -86,7 +86,10 @@ success(undefined)` and `success(null)` no longer compile. Checked on
     annotation. A plain member whose type may hold an Error (`unknown`,
     `object`) adds nothing to the error type, but an Error there at run time
     is returned as the Failure, and a Promise member is a plain value whose
-    Failure is never seen. `any` as a part makes the whole result `any`. An
+    Failure is never seen. `any` as a part makes the whole result `any`. A
+    getter, or a Proxy's traps, runs when `collect` reads the object and
+    again on each later read of the Success, which was checked only once.
+    Several of these gaps are open questions, recorded in #120. An
     object is read by its own enumerable string keys, a list by its own
     indices. A symbol-keyed or `__proto__` member of an object literal is a
     type error, and so is an interface type or a class instance type. It
@@ -103,9 +106,11 @@ success(undefined)` and `success(null)` no longer compile. Checked on
     private to that call, so a `take` works inside `.map` and a Maybe `map`
     callback. It catches that token and nothing else: a throw that is not
     its own leave propagates, unless something in the body catches it. `E`
-    comes from the enclosing return annotation, and is
-    `Error` where there is none. A body whose return type is a thenable or a
-    generator is a type error, as far as its type shows. Whatever in the
+    comes from the contextual type (an enclosing return annotation, a
+    variable annotation or a parameter type), and is `Error` where there is
+    none. A body whose return type is a thenable or a generator is a type
+    error; the guard sees only the declared return type. `take`, like
+    `collect`, drops what a `getPrototypeOf` trap throws. Whatever in the
     body catches the leave (a `try`/`catch`, a `finally` that returns, a
     `tryCatch` with the default handler or a function handler, a callback
     whose caller catches throws, such as a Promise executor or an
