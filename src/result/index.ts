@@ -867,7 +867,7 @@ export type Parts =
  * The value `collect` returns on success: the parts with each member unboxed
  * and `readonly`, one level deep. `{ id: Result<PieceId, E1> }` reads as
  * `{ readonly id: PieceId }`, `[Result<A, E1>, Result<B, E2>]` as
- * `readonly [A, B]` and `Result<P, E>[]` as `readonly P[]`.
+ * `readonly [A, B]` and `Result<V, E>[]` as `readonly V[]`.
  *
  * Open type questions: #120.
  */
@@ -880,7 +880,7 @@ export type Collected<P> = P extends readonly unknown[]
     }
 
 /**
- * The error `collect` may fail with: the union of the error types of its
+ * The error type of `collect(parts)`: the union of the error types of its
  * parts.
  *
  * Open type questions: #120.
@@ -962,7 +962,9 @@ function firstFailure(parts: object): Error | undefined {
  * own enumerable string keys: for example, a symbol-keyed or a `__proto__`
  * Result member is refused in the types. For example, a part typed `any`
  * makes the result `any`, and an object of parts typed as an interface (say
- * `interface Shape { id: Result<…> }`) is refused: use a type alias.
+ * `interface Shape { id: Result<…> }`) is refused: use a type alias. For
+ * example, an object of parts with string `name` and `message` members has
+ * no Success type, as `success` refuses such a value (open, #120 item 9).
  *
  * With a second argument, `build`, a Success runs `build` on the parts and
  * `collect` returns what it returns, a plain value or a Result. `build` is
@@ -1074,9 +1076,9 @@ const tokenOwnedBy = Leave.ownedBy
 /**
  * Runs `body` with a `take` that unboxes a part or leaves the `attempt` with
  * the part's Failure. `attempt` returns `body`'s return value, or the
- * Failure of the `take` whose leave reaches it. Only the `attempt` whose
- * `take` it was catches the leave; any other throw that reaches it
- * propagates.
+ * Failure of the `take` whose leave reaches it. Of all attempts, only the
+ * one whose `take` it was recognises the leave; any other throw that reaches
+ * it propagates.
  *
  * ```ts
  * static from(
@@ -1092,8 +1094,8 @@ const tokenOwnedBy = Leave.ownedBy
  * `finally` that returns, swallows the leave. A {@link tryCatch} inside the
  * body turns a `take` into a {@link ThrownError} with the default handler,
  * gives a function handler the token, and lets the leave through with
- * `catchOnly` or a class list. A `take` used after its `attempt` returned
- * throws the token, which is not an `Error`. Under, for example, a
+ * `catchOnly` or a class list. A `take` given a Failure after its `attempt`
+ * returned throws the token, which is not an `Error`. Under, for example, a
  * `Result<Id, InvalidId>` annotation, a `return failure(…)` in the body is a
  * type error: use `take(failure(…))`.
  *

@@ -687,7 +687,9 @@ readability and fit with the Result Box. The owner chose **A + B**:
 - **`collect(parts)`**: an object of parts, a tuple or a list whose members are
   `Result`s (a plain member passes through). It returns the first
   `Failure` among the parts, or the parts themselves: on success no result
-  object is built, and nothing is caught. Its value type is the parts with
+  object is built, and nothing is caught (**Update, 2026-11-16:** a part
+  whose prototype chain cannot be read counts as not an `Error`, and what
+  its trap threw is dropped; fan-in tests). Its value type is the parts with
   each member unboxed; its error type is the union of the members' error
   types, read through `ErrorOf`, inferred with no annotation: with
   `Position.from` annotated `Result<Position, InvalidCoordinate>`,
@@ -698,8 +700,9 @@ readability and fit with the Result Box. The owner chose **A + B**:
   and `collect(dto.path.map(Position.from))` is `Result<Position[],
 InvalidCoordinate>` (**Update, 2026-11-16:** `Result<readonly Position[],
 InvalidCoordinate>` as shipped). The parts are evaluated by the caller,
-  eagerly, so a part cannot depend on another part: the construction step
-  follows,
+  eagerly, so a part cannot depend on another part (**Update,
+  2026-11-16:** except through a getter or a Proxy's traps, which `collect`
+  runs as it reads; #120 item 7): the construction step follows,
   through `map`, `andThen` or an early return. The `map`/`andThen` form
   carries a typed `E` across a factory boundary with nothing written by
   hand, but not the value: `/result`'s `map<A, U, T extends A, E>(fn:
@@ -740,7 +743,8 @@ InvalidCoordinate>` as shipped). The parts are evaluated by the caller,
   a bug propagates (an `Error` or a bare string alike); a `take` from an
   enclosing `attempt` that is still running leaves that one, and a `take`
   called after its own `attempt` has returned throws the token, a
-  non-`Error`, to its caller. `take` works inside `.map`
+  non-`Error`, to its caller (**Update, 2026-11-16:** given a Failure;
+  given a Success it returns the value (#115)). `take` works inside `.map`
   and inside a Maybe `map` callback, and a step can depend on an earlier
   one. `E` has no inference site in the body: with no contextual type it
   falls to `Error` (not `never`, as the ticket's first probe had it); from
@@ -764,7 +768,9 @@ E>>(part: R) => ValueOf<R>`; **Update, 2026-11-16:** the shipped
   before its first `await` included, and a `take` after it runs once the
   `attempt` has returned; and a plain `return failure(…)` in the
   body lands in `T`, with `E` still `Error`, where under an annotation it
-  is a type error. The guards and docblocks for these are #115's.
+  is a type error (**Update, 2026-11-16:** not under every annotation: with
+  a value type that admits an `Error`, such as `unknown`, it compiles; #120
+  item 2). The guards and docblocks for these are #115's.
   **Update, 2026-11-16:** shipped by #115; see the amendment below (#115).
 
 The third candidate, `gen`/`yield* take` (generator do-notation), infers
@@ -929,9 +935,9 @@ does not compile.
     private field, where the 2026-11-15 text has one per `attempt`.
   - `Take`'s constraint is `Result<unknown, E> | null | undefined | void`,
     so a `Result<X | undefined, E>` is accepted.
-  - `collect`'s value type is `readonly` one level deep.
-  - A plain iterator is accepted by the guard on an `attempt` body, which
-    `NotAGenerator` narrows to generators.
   - An object of parts is read by its own enumerable string keys.
+- Also shipped: `collect`'s value type is `readonly` one level deep, and a
+  plain iterator is accepted by the guard on an `attempt` body, which
+  `NotAGenerator` narrows to generators.
 
 Open type questions are ticket 120.

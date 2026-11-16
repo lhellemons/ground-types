@@ -71,7 +71,7 @@ describe('collect', () => {
     expect(isSuccess(ok)).toBe(true)
   })
 
-  it('catches nothing: a part that throws while collect reads it propagates', () => {
+  it('a part that throws while collect reads it propagates', () => {
     // A getter runs inside `collect`'s own iteration, not while the
     // arguments are evaluated.
     const bug = new TypeError('bug')

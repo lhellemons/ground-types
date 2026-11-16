@@ -245,6 +245,10 @@ describe('collect', () => {
     >()
   })
 
+  it('an object of parts with string name and message members has no Success type', () => {
+    expectTypeOf(collect({ name: 'n', message: 'm', level: 1 })).toBeNever()
+  })
+
   it('an unknown member does not erase the other parts error types', () => {
     expectTypeOf(collect({ id: id('a'), x: unknownPart })).toEqualTypeOf<
       Result<{ readonly id: Id; readonly x: unknown }, InvalidId>
