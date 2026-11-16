@@ -86,9 +86,12 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   with TS4023 or TS4058 before. An object spread still fails the same way,
   for a `Success` (`{ ...success({ id: 'x' }) }`, and `{ ...r, extra: 1 }`
   after `isSuccess(r)`) and for a `Failure`
-  (`{ ...failure(new Invalid()) }`): give the exported value an explicit
-  type, as the README shows. Pinned in `test/declaration-emit/result.test.ts`
-  and `src/result/api-surface.test-d.ts`.
+  (`{ ...failure(new Invalid()) }`), and so does an object rest
+  destructuring of a `Success` (`const { id, ...others } = r` after
+  `isSuccess(r)`): give the exported value an explicit type, as the README
+  shows. The narrowed cases are pinned in
+  `test/declaration-emit/result.test.ts`, which also pins each spread and rest
+  case as failing and each workaround as emitting.
 - Add `collect` and `attempt` to `/result`, with the types `Collected`,
   `Failed`, `Take`, `Parts` and `NotAGenerator`: fan-in over unboxed
   Results. `collect(parts)` returns the first Failure among the parts, or

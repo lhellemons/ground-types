@@ -80,7 +80,7 @@ describe('/result type exports', () => {
     >()
   })
 
-  it('a Success of an object type fits an index signature; a Failure does not', () => {
+  it('a Success of an object literal type fits an index signature; a Failure does not', () => {
     expectTypeOf<SuccessArm<{ id: string }, Error>>().toExtend<
       Record<string, unknown>
     >()
@@ -91,6 +91,18 @@ describe('/result type exports', () => {
     log(success({ id: 'x', name: 'n' }))
     const record = null as unknown as Result<{ id: string }, Error>
     if (isSuccess(record)) log(record)
+    void new URLSearchParams(success({ a: '1' }))
+    const checked = success({ a: 1 }) satisfies Record<string, unknown>
+    void checked
+  })
+
+  it('a Success of an interface type does not fit an index signature', () => {
+    interface User {
+      id: string
+    }
+    expectTypeOf<SuccessArm<User, Error>>().not.toExtend<
+      Record<string, unknown>
+    >()
   })
 
   it('Failure is usable as an Error — the unboxed encoding', () => {

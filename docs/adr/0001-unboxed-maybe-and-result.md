@@ -1016,9 +1016,9 @@ repository changed to make this pass, and `src/result/api-surface.test-d.ts`
 gained the assertions for the two aliases, for the `_error` marker and for the
 index signature.
 
-**An object spread stays open.** The spread copies the marker properties into
-a fresh object type, and that type is written out with its symbol keys. The
-three spread cases above still fail with TS4023 or TS4058; they are pinned as
+**An object spread, and an object rest, stay open.** The spread copies the
+marker properties into a fresh object type, and that type is written out with
+its symbol keys. The three spread cases and the rest case above still fail with TS4023 or TS4058; they are pinned as
 failing, with the explicit-type workaround pinned as emitting, in the tests of
 `test/declaration-emit/result.test.ts` named "still fails with TS4023 or
 TS4058" and "emits with an explicit type on the exported value", so that a
@@ -1029,27 +1029,31 @@ on the exported value or function.
 `SuccessMarkers` and `FailureMarkers` classes whose markers are optional
 methods (`[_phantom]?(): E | undefined`). An object spread does not copy a
 method declared in a class, so the spread cases emitted. It was dropped
-because a class instance type has no implicit index signature, so a `Success`
-of an object type stopped fitting `Record<string, unknown>`: on that
+because a class instance type has no implicit index signature, so a
+`SuccessArm<{ id: string }, E>` stopped fitting `Record<string, unknown>`: on that
 prototype (commit 6441a31's tree, `tsc` from `typescript@5.9.3` on a
 consumer file) `log(success({ id: 'x', name: 'n' }))` for `log(meta:
 Record<string, unknown>)`, `if (isSuccess(r)) log(r)` for `r: Result<{ id:
 string }, Error>`, `new URLSearchParams(success({ a: '1' }))` and
 `success({ a: 1 }) satisfies Record<string, unknown>` fail with TS2345 or
 TS1360, and compile on main. A breaking change for those calls was not worth
-the spread. With this decision they compile, pinned by the test "a Success of
-an object type fits an index signature; a Failure does not" in
-`src/result/api-surface.test-d.ts`.
+the spread. With this decision all four compile, pinned by the test "a Success
+of an object literal type fits an index signature; a Failure does not" in
+`src/result/api-surface.test-d.ts`. A `Success` of an `interface` type does not
+fit `Record<string, unknown>` under either design; the test "a Success of an
+interface type does not fit an index signature" pins that for `interface User
+{ id: string }`.
 
 Also tried, on the same TypeScript: a named interface with the same optional
 properties fixed the narrowing cases and not the spread, and exporting
-`_phantom` from `/result` fixed neither spread case.
+`_phantom` from `/result` fixed none of the three spread cases.
 
 Checked with `tsc` from `typescript@5.4.5`, `typescript@5.9.3` and
 `typescript@7.0.2` (each installed with `npm` in a scratch directory, run as
 `node node_modules/typescript/lib/tsc.js -p .` on a consumer file per case):
 the `typeof`, `in` and `instanceof` cases and the index-signature calls
-compile and emit, and the three spread cases fail with TS4023 or TS4058. The
+compile and emit, the three spread cases and the rest case fail with TS4023 or
+TS4058, and the explicit-type workarounds emit. The
 test file itself runs on the repository's TypeScript, 5.9.3.
 
 Costs: two more type names on `/result`; the object spread of a `Success` or a

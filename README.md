@@ -329,14 +329,16 @@ A `Success` is statically prevented from being an `Error`, so the
 prototype-chain discrimination cannot be fooled by a success value that
 merely happens to be Error-shaped.
 
-### Declaration emit and an object spread of a `Success`
+### Declaration emit and an object spread of a `Success` or a `Failure`
 
 A consumer with `declaration: true` can emit its own `.d.ts` for a function
 that returns a `Success` narrowed with `typeof` or `in`, or a `Failure`
-narrowed with `instanceof` or `in` (pinned in the same test file). An object
-spread of a `Success` or a `Failure` is still open: for `declare const record: Result<{ id: string }, Invalid>`,
-each of these fails with TS4023 or TS4058 ("has or is using name '_phantom'
-… but cannot be named"):
+narrowed with `instanceof` or `in`; `test/declaration-emit/result.test.ts`
+pins these. An object spread of a `Success` or a `Failure`, and an object
+rest destructuring of a `Success`, are still open. For
+`declare const record: Result<{ id: string }, Invalid>`, each of these fails
+with TS4023 or TS4058 ("has or is using name '_phantom' … but cannot be
+named"):
 
 ```ts
 export const copy = { ...success({ id: 'x' }) }
@@ -344,13 +346,22 @@ export function withExtra() {
   if (isSuccess(record)) return { ...record, extra: 1 }
 }
 export const spreadError = { ...failure(new Invalid()) }
+export function rest() {
+  if (isSuccess(record)) {
+    const { id, ...others } = record
+    return { id, others }
+  }
+}
 ```
 
 Give the exported value or function an explicit type, and each emits:
-`export const copy: { id: string } = { ...success({ id: 'x' }) }`. The cases
-are pinned in `test/declaration-emit/result.test.ts`, in the tests named
-"still fails with TS4023 or TS4058" and "emits with an explicit type on the
-exported value"; a fix flips the first.
+`export const copy: { id: string } = { ...success({ id: 'x' }) }`. A spread
+`Failure` is a plain object at run time, not an `Error`: `{ ...new Invalid() }`
+has only its own members, so annotate it with those
+(`{ readonly code: 'invalid' }`), not with `Error`. The same file pins each
+case in a test named "still fails with TS4023 or TS4058, naming a marker
+symbol" and each workaround in "emits with an explicit type on the exported
+value"; a later fix flips the first.
 
 ## Status
 

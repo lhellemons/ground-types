@@ -9,8 +9,9 @@ import * as result from '../../src/result/index.js'
  * under plain vitest without a build. `Result`, `Success`, `Failure`,
  * `NotAResult`, `NotAPromise`, `NotAGenerator`, `Parts`, `Collected`,
  * `Failed`, `Take`, `SuccessMarkers` and `FailureMarkers` are type-only and
- * so invisible here — see `src/result/api-surface.test-d.ts`. `ThrownError` is a class, so it is a
- * runtime value and listed below even though it is also usable as a type.
+ * so invisible here — see `src/result/api-surface.test-d.ts`. `ThrownError`
+ * is a class, so it is a runtime value and listed below even though it is
+ * also usable as a type.
  *
  * To change intentionally: add/remove/rename the export in
  * `src/result/index.ts`, update the list below to match, and update the

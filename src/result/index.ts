@@ -25,8 +25,7 @@ declare const _phantom: unique symbol
 /**
  * The phantom markers of a {@link SuccessArm}: `SuccessArm<T, E>` is `T`
  * without its `Error`, `null`, `undefined` and `void` members, intersected
- * with `SuccessMarkers<T, E>`. A type alias of an object type, so a
- * `SuccessArm` of an object type fits `Record<string, unknown>`.
+ * with `SuccessMarkers<T, E>`.
  */
 export type SuccessMarkers<T, E extends Error> = {
   readonly [_phantom]?: E

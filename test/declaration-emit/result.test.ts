@@ -157,12 +157,40 @@ class Invalid extends Error {
 declare const record: Result<{ id: string }, Invalid>
 `
 const spreadCases = {
-  'a Success spread into an object': `export const spreadSuccess = { ...success({ id: 'x' }) }`,
-  'a narrowed Success spread with an extra member': `export function spreadNarrowed() {
+  'a Success spread into an object': {
+    code: `export const spreadSuccess = { ...success({ id: 'x' }) }`,
+    typed: `export const spreadSuccess: { id: string } = { ...success({ id: 'x' }) }`,
+  },
+  'a narrowed Success spread with an extra member': {
+    code: `export function spreadNarrowed() {
   if (isSuccess(record)) return { ...record, extra: 1 }
   return undefined
 }`,
-  'a Failure spread into an object': `export const spreadFailure = { ...failure(new Invalid()) }`,
+    typed: `export function spreadNarrowed(): { id: string; extra: number } | undefined {
+  if (isSuccess(record)) return { ...record, extra: 1 }
+  return undefined
+}`,
+  },
+  'a Failure spread into an object': {
+    code: `export const spreadFailure = { ...failure(new Invalid()) }`,
+    typed: `export const spreadFailure: { readonly code: 'invalid' } = { ...failure(new Invalid()) }`,
+  },
+  'a narrowed Success read with object rest': {
+    code: `export function rest() {
+  if (isSuccess(record)) {
+    const { id, ...others } = record
+    return { id, others }
+  }
+  return undefined
+}`,
+    typed: `export function rest(): { id: string; others: object } | undefined {
+  if (isSuccess(record)) {
+    const { id, ...others } = record
+    return { id, others }
+  }
+  return undefined
+}`,
+  },
 }
 
 function compile(
@@ -227,22 +255,17 @@ describe('declaration emit for a consumer', () => {
     expect(declarations).not.toContain('_phantom')
   })
 
-  describe.each(Object.entries(spreadCases))('%s', (_name, code) => {
-    it('still fails with TS4023 or TS4058: the spread copies marker properties whose symbol keys cannot be named', () => {
+  describe.each(Object.entries(spreadCases))('%s', (_name, { code, typed }) => {
+    it('still fails with TS4023 or TS4058, naming a marker symbol: the spread copies marker properties whose symbol keys cannot be named', () => {
       const { diagnostics } = compile(true, header + code)
       expect(diagnostics.length).toBeGreaterThan(0)
       for (const diagnostic of diagnostics)
-        expect(diagnostic).toMatch(/^TS40(23|58): .*cannot be named/)
+        expect(diagnostic).toMatch(
+          /^TS40(23|58): .*name '_(phantom|value|error)' from .*cannot be named/,
+        )
     })
 
     it('emits with an explicit type on the exported value', () => {
-      const typed = code
-        .replace('spreadSuccess =', 'spreadSuccess: { id: string } =')
-        .replace('spreadFailure =', 'spreadFailure: Error =')
-        .replace(
-          'function spreadNarrowed()',
-          'function spreadNarrowed(): { id: string; extra: number } | undefined',
-        )
       expect(compile(true, header + typed).diagnostics).toEqual([])
     })
   })
