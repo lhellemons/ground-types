@@ -121,6 +121,19 @@ describe('collect', () => {
     expect(isFailure((collected as typeof live).id)).toBe(true)
   })
 
+  it('reads all own string keys of an object passed through a narrower type, and a non-enumerable getter', () => {
+    const wider = { id: id('a'), n: count(-1) }
+    const view: { id: Result<string, InvalidId> } = wider
+    const r = collect(view)
+    expect(r).toBeInstanceOf(InvalidCount)
+    const hiddenGetter = { shown: id('a') }
+    Object.defineProperty(hiddenGetter, 'hidden', {
+      get: () => new InvalidId('from a getter'),
+      enumerable: false,
+    })
+    expect(collect(hiddenGetter)).toBeInstanceOf(InvalidId)
+  })
+
   it('does not read a hole in a list through the prototype', () => {
     const inherited = new InvalidId('inherited')
     // eslint-disable-next-line no-sparse-arrays -- the case under test: a hole
@@ -824,14 +837,22 @@ describe('attempt', () => {
         )(),
       )
       expect(seven).toBe(7)
+      let received: unknown
       const own = attempt<Result<number, InvalidId>, InvalidId>((take) =>
         tryCatch(
           () => take(id('BAD')).length,
-          (thrown) => failure(new InvalidId(typeof thrown)),
+          (thrown) => {
+            received = thrown
+            return failure(new InvalidId(typeof thrown))
+          },
         )(),
       )
       expect(own).toBeInstanceOf(InvalidId)
       expect((own as InvalidId).message).toBe('object')
+      expect(received).not.toBeInstanceOf(Error)
+      expect((received as { failure: unknown }).failure).toBeInstanceOf(
+        InvalidId,
+      )
     })
 
     it('a tryCatch with catchOnly or a class list lets it through', () => {

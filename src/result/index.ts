@@ -960,7 +960,10 @@ function firstFailure(parts: object): Error | undefined {
  * deep: for example, a later change to the caller's object shows through,
  * and a frozen argument comes back frozen. An object of parts is read by its
  * own string keys: for example, a symbol-keyed or a `__proto__`
- * Result member is refused in the types. For example, a part typed `any`
+ * Result member is refused in the types. For example, an object of parts
+ * passed through a narrower type is read by all its own string keys, so a
+ * failing undeclared member comes back typed as a declared error (open,
+ * #120 item 10). For example, a part typed `any`
  * makes the result `any`, and an object of parts typed as an interface (say
  * `interface Shape { id: Result<…> }`) is refused: use a type alias. For
  * example, an object of parts with string `name` and `message` members has
@@ -970,8 +973,8 @@ function firstFailure(parts: object): Error | undefined {
  * `collect` returns what it returns, a plain value or a Result. `build` is
  * typed from the parts: for example, a swapped `Id` and `Count` constructor
  * argument does not compile. `build` must resolve synchronously: for
- * example, an inline `async` build with no type arguments is refused (gaps:
- * #120 item 6).
+ * example, an inline `async` arrow or function used as `build`, with no type
+ * arguments, is refused (gaps: #120 items 6 and 11).
  *
  * `attempt` is the imperative counterpart.
  *
@@ -1006,9 +1009,9 @@ export function collect(
 /**
  * Unboxes a part inside an {@link attempt}, or leaves that `attempt` with the
  * part's Failure: `take(part)` is the part's value when it is a Success. For
- * example, a Result whose error is `InvalidCount` is rejected under
- * `E = InvalidId` when the two classes differ in a member, say a `kind`;
- * error classes compare structurally (#120 item 5).
+ * example, under `E = InvalidId` a Result whose error is `InvalidCount` is
+ * rejected when `InvalidCount` is not assignable to `InvalidId`, as when each
+ * declares a `kind` of its own literal type (#120 item 5).
  *
  * Open type questions: #120.
  */
@@ -1018,8 +1021,8 @@ export type Take<E extends Error> = <
   part: R,
 ) => ValueOf<R>
 
-/* True when `T` is a generator object (sync or async). `any` and `unknown`
-   are not: nothing is known of them. */
+/* True when `T` is structurally a `Generator` or an `AsyncGenerator`. `any`
+   and `unknown` are not: nothing is known of them. */
 type IsGenerator<T> = unknown extends T
   ? false
   : T extends
@@ -1101,9 +1104,9 @@ const tokenOwnedBy = Leave.ownedBy
  * `Result<Id, InvalidId>` annotation, a `return failure(…)` in the body is a
  * type error: use `take(failure(…))`.
  *
- * `body` must resolve synchronously: for example, an `async` arrow or
- * function, or a `function*` with no return annotation, is refused (gaps:
- * #120 items 3 and 6).
+ * `body` must resolve synchronously: for example, an inline `async` arrow or
+ * function, or an inline `function*` with no return annotation, is refused
+ * when no type arguments are given (gaps: #120 items 3 and 6).
  *
  * `collect` is the declarative counterpart.
  *

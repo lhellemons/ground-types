@@ -71,8 +71,8 @@ _Avoid_: Reason, fault, err.
 
 To **collect** is to fan several Results in, whether they come as an
 **object of parts** (an object whose members are the parts), a tuple or a
-list: the first Failure among its members, or the parts themselves with
-every member unboxed. The imperative counterpart is **Attempt**.
+list: the first Failure among the members of the object, tuple or list, or
+the parts themselves with every member unboxed. The imperative counterpart is **Attempt**.
 
 _Avoid_: all, sequence, traverse (a fan-in that needs a container; see
 docs/adr/0001-unboxed-maybe-and-result.md).

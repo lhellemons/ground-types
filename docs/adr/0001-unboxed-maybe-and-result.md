@@ -771,7 +771,8 @@ E>>(part: R) => ValueOf<R>`; **Update, 2026-11-16:** the shipped
   is a type error (**Update, 2026-11-16:** not under every annotation: with
   a value type that the returned Failure fits, such as `unknown`, it
   compiles; #120 item 2). The guards and docblocks for these are #115's.
-  **Update, 2026-11-16:** shipped by #115; see the amendment below (#115).
+  **Update, 2026-11-16:** shipped by #115; see the amendment below (#115)
+  (gaps: #120 items 3 and 6).
 
 The third candidate, `gen`/`yield* take` (generator do-notation), infers
 the exact union with no annotation and catches nothing, but a `yield*`
@@ -940,7 +941,7 @@ does not compile.
 - Also shipped: `collect`'s value type is `readonly` one level deep. The
   guard on an `attempt` body compares the body's type with `Generator` and
   `AsyncGenerator` structurally: for example, `[1, 2].values()` is
-  accepted, and an iterator that declares `next`, `return`, `throw` and
-  `[Symbol.iterator]` is refused (#120 item 3).
+  accepted, and with the ES2022 lib an iterator that declares `next`,
+  `return`, `throw` and `[Symbol.iterator]` is refused (#120 item 3).
 
 Open type questions are ticket 120.

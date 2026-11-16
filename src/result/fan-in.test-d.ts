@@ -75,6 +75,11 @@ declare const stringIndexed: Record<string, Result<Count, InvalidCount>>
 declare const underlyingError: Result<number, Error>
 class MemberlessB extends Error {}
 declare const memberlessB: Result<number, MemberlessB>
+class WithKind extends Error {
+  readonly kind = 'WithKind' as const
+}
+declare const withKind: Result<number, WithKind>
+declare const narrowView: { id: Result<string, InvalidId> }
 declare const idList: Result<Id, InvalidId>[]
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the case under test: a part typed any
 declare const loose: any
@@ -438,6 +443,17 @@ describe('attempt', () => {
   it('error types compare structurally: an Error subclass with no members counts as Error', () => {
     class Plain extends Error {}
     attempt<number, Plain>((take) => take(underlyingError))
+  })
+
+  it('a class that adds members to the memberless E is accepted: assignability is one-sided', () => {
+    class Memberless extends Error {}
+    attempt<number, Memberless>((take) => take(withKind))
+  })
+
+  it('an object of parts passed through a narrower type types only the declared error', () => {
+    expectTypeOf(collect(narrowView)).toEqualTypeOf<
+      Result<{ readonly id: string }, InvalidId>
+    >()
   })
 
   it('rejects a take of a part whose error is outside E', () => {
