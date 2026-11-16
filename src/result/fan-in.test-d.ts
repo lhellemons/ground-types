@@ -83,6 +83,8 @@ declare const narrowView: { id: Result<string, InvalidId> }
 declare const narrowestView: { id: string }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the case under test: a Result whose value type is any
 declare const anyResult: Result<any, InvalidCount>
+declare function nameOf(raw: string): Result<string, InvalidName>
+const collectNamed = () => collect({ name: nameOf('a'), message: nameOf('b') })
 declare const idList: Result<Id, InvalidId>[]
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the case under test: a part typed any
 declare const loose: any
@@ -266,6 +268,7 @@ describe('collect', () => {
 
   it('an object of parts with string name and message members has no Success type', () => {
     expectTypeOf(collect({ name: 'n', message: 'm', level: 1 })).toBeNever()
+    expectTypeOf<Exclude<ReturnType<typeof collectNamed>, Error>>().toBeNever()
   })
 
   it('an unknown member does not erase the other parts error types', () => {
@@ -467,8 +470,18 @@ describe('attempt', () => {
   })
 
   it('takes a Result whose value type is any, whatever its error', () => {
+    expectTypeOf<Result<any, InvalidCount>>().toBeAny() // eslint-disable-line @typescript-eslint/no-explicit-any -- the case under test
     attempt<number, InvalidId>((take) => {
       take(anyResult)
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- the case under test: tryCatch(() => JSON.parse(raw))() is any
+      take(tryCatch(() => JSON.parse('{'))())
+      return 1
+    })
+  })
+
+  it('rejects a take of a part with no type argument, and take<any> accepts it', () => {
+    attempt<number, InvalidId>((take) => {
+      take<any>(count(-1)) // eslint-disable-line @typescript-eslint/no-explicit-any -- the case under test
       return 1
     })
   })
@@ -587,6 +600,24 @@ describe('attempt', () => {
     }
     // @ts-expect-error - structurally a Generator
     attempt(() => new Countdown())
+  })
+
+  it('accepts an iterator class whose Symbol.iterator is annotated IterableIterator', () => {
+    class Listing implements Iterator<number, undefined, undefined> {
+      next(): IteratorResult<number, undefined> {
+        return { done: true, value: undefined }
+      }
+      return(): IteratorResult<number, undefined> {
+        return { done: true, value: undefined }
+      }
+      throw(): IteratorResult<number, undefined> {
+        return { done: true, value: undefined }
+      }
+      [Symbol.iterator](): IterableIterator<number> {
+        return this
+      }
+    }
+    attempt(() => new Listing())
   })
 
   it('refuses a body whose return type is a union with a generator', () => {

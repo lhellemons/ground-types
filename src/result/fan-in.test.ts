@@ -350,6 +350,12 @@ describe('collect', () => {
     })
   })
 
+  it('rows.map(collect) throws a TypeError, since map passes the index as build', () => {
+    const rows = [{ a: 1 }, { a: 2 }]
+    expect(() => rows.map(collect)).toThrow(TypeError)
+    expect(rows.map((row) => collect(row))).toEqual(rows)
+  })
+
   it('refuses an argument that is not an object', () => {
     for (const bad of [undefined, null, 1, 'a', true, Symbol('s')]) {
       // @ts-expect-error - the runtime check is the case under test

@@ -956,6 +956,9 @@ function firstFailure(parts: object): Error | undefined {
  * //   InvalidPieceId | InvalidCoordinate>
  * ```
  *
+ * In an Array `map`, pass `(r) => collect(r)`: `rows.map(collect)` throws a
+ * `TypeError`, since `map` passes the index as `build`.
+ *
  * The Success is the argument itself, not a copy, and `readonly` one level
  * deep: for example, a later change to the caller's object shows through,
  * and a frozen argument comes back frozen. An object of parts is read by its
@@ -963,12 +966,12 @@ function firstFailure(parts: object): Error | undefined {
  * Result member is refused in the types. For example, an object of parts
  * passed through a narrower type is read by all its own string keys, so a
  * failing undeclared member's error is outside `Failed`: it comes back typed
- * as a declared error, or as the Success when no declared member can fail
- * (open, #120 item 10). For example, a part typed `any`
+ * as a declared error, or as the Success when no declared member has an
+ * error type (open, #120 item 10). For example, a part typed `any`
  * makes the result `any`, and an object of parts typed as an interface (say
  * `interface Shape { id: Result<…> }`) is refused: use a type alias. For
- * example, an object of parts with string `name` and `message` members has
- * no Success type, as `success` refuses such a value (open, #120 item 9).
+ * example, an object of parts with `name` and `message` members that are, or
+ * unbox to, strings has no Success type, as `success` refuses such a value (open, #120 item 9).
  *
  * With a second argument, `build`, a Success runs `build` on the parts and
  * `collect` returns what it returns, a plain value or a Result. `build` is
@@ -1013,8 +1016,9 @@ export function collect(
  * example, under `E = InvalidId` a Result whose error is `InvalidCount` is
  * rejected when `InvalidCount` is not assignable to `InvalidId`, as when each
  * declares a `kind` of its own literal type. A Result whose value type is
- * `any` is itself `any`, and `take` accepts it whatever its error (#120 item
- * 5).
+ * `any` is itself `any`, and `take` accepts it whatever its error. The
+ * rejection holds with no type argument: `take<any>(part)` is accepted (#120
+ * item 5).
  *
  * Open type questions: #120.
  */
@@ -1100,7 +1104,7 @@ const tokenOwnedBy = Leave.ownedBy
  *
  * For example, a `try`/`catch` in the body that does not rethrow, or a
  * `finally` that returns, swallows the leave. A {@link tryCatch} inside the
- * body turns a `take` into a {@link ThrownError} with the default handler,
+ * body turns a `take` given a Failure into a {@link ThrownError} with the default handler,
  * gives a function handler the token, and lets the leave through with
  * `catchOnly` or a class list. A `take` given a Failure after its `attempt`
  * returned throws the token, which is not an `Error`. Under, for example, a

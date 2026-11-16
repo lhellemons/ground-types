@@ -751,7 +751,10 @@ InvalidCoordinate>` as shipped). The parts are evaluated by the caller,
   the enclosing return annotation it is found, and `take` then rejects a
   part whose error is outside it (`take` is `<R extends Result<unknown,
 E>>(part: R) => ValueOf<R>`; **Update, 2026-11-16:** the shipped
-  constraint is wider, see the amendment below (#115)). So a typed union at
+  constraint is wider, see the amendment below (#115); `take` also accepts,
+  whatever its error, for example a Result whose value type is `any`, such
+  as `tryCatch(() => JSON.parse(raw))()`, and a part typed `object`, `{}`,
+  `void` or `Record<string, X>` (open, #120 item 5)). So a typed union at
   the boundary is the annotation's, written by hand; under slider's own
   `Result<X, Error>` annotation `E` is `Error`, no better than today. An explicit
   `attempt<T, E>` serves where there is no annotation. A factory's own
@@ -941,7 +944,9 @@ does not compile.
 - Also shipped: `collect`'s value type is `readonly` one level deep. The
   guard on an `attempt` body compares the body's type with `Generator` and
   `AsyncGenerator` structurally: for example, `[1, 2].values()` is
-  accepted, and with the ES2022 lib an iterator that declares `next`,
-  `return`, `throw` and `[Symbol.iterator]` is refused (#120 item 3).
+  accepted, and with the ES2022 lib an iterator class whose
+  `[Symbol.iterator]()` returns the class itself, such as the type tests'
+  `Countdown`, is refused, and one whose `[Symbol.iterator]()` is annotated
+  `IterableIterator<number>` is accepted (#120 item 3).
 
 Open type questions are ticket 120.
