@@ -1,0 +1,357 @@
+import { describe, expectTypeOf, it } from 'vitest'
+import { attempt, collect, failure, isFailure, map, success } from './index.js'
+import type { Result, Take } from './index.js'
+import type { Branded } from '../brand/index.js'
+import { map as mapMaybe } from '../maybe/index.js'
+
+/** One typed error per part, as a domain would have. */
+class InvalidId extends Error {
+  readonly kind = 'InvalidId' as const
+}
+class InvalidCount extends Error {
+  readonly kind = 'InvalidCount' as const
+}
+class InvalidName extends Error {
+  readonly kind = 'InvalidName' as const
+}
+
+type Id = Branded<string, 'Id'>
+type Count = Branded<number, 'Count'>
+type Name = Branded<string, 'Name'>
+
+declare function id(raw: string): Result<Id, InvalidId>
+declare function count(raw: number): Result<Count, InvalidCount>
+declare function name(raw: string): Result<Name, InvalidName>
+
+interface ShapeOfId {
+  id: Result<Id, InvalidId>
+}
+declare const readonlyList: readonly Result<Id, InvalidId>[]
+declare const withOptional: {
+  id: Result<Id, InvalidId>
+  n?: Result<Count, InvalidCount>
+}
+declare const maybeId: Result<Id | undefined, InvalidId>
+declare const alias: { id: Result<Id, InvalidId> }
+declare const shape: ShapeOfId
+declare const idList: Result<Id, InvalidId>[]
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- the case under test: a part typed any
+declare const loose: any
+
+/** Every member of `Expected` is in `Actual` and nothing else is. */
+type SameMembers<Actual, Expected> = [Actual] extends [Expected]
+  ? [Expected] extends [Actual]
+    ? true
+    : false
+  : false
+
+describe('collect', () => {
+  it('reads an object of parts: unboxed readonly value, exact error union', () => {
+    const r = collect({ id: id('a'), n: count(1), label: name('x') })
+    expectTypeOf(r).toEqualTypeOf<
+      Result<
+        { readonly id: Id; readonly n: Count; readonly label: Name },
+        InvalidId | InvalidCount | InvalidName
+      >
+    >()
+  })
+
+  it('reads a tuple', () => {
+    const r = collect([id('a'), count(1)])
+    expectTypeOf(r).toEqualTypeOf<
+      Result<readonly [Id, Count], InvalidId | InvalidCount>
+    >()
+  })
+
+  it('reads a list', () => {
+    const r = collect(['a', 'b'].map(id))
+    expectTypeOf(r).toEqualTypeOf<Result<readonly Id[], InvalidId>>()
+  })
+
+  it('reads a readonly list and an object of parts with an optional member', () => {
+    expectTypeOf(collect(readonlyList)).toEqualTypeOf<
+      Result<readonly Id[], InvalidId>
+    >()
+    const r = collect(withOptional)
+    void r
+    expectTypeOf<Extract<typeof r, Error>>().toExtend<
+      InvalidId | InvalidCount
+    >()
+  })
+
+  it('pins every member of the union: none missing, none extra, no collapse to never', () => {
+    const o = collect({ id: id('a'), n: count(1) })
+    const t = collect([id('a'), count(1)])
+    const l = collect(idList)
+    void [o, t, l]
+    type OError = Extract<typeof o, Error>
+    type TError = Extract<typeof t, Error>
+    type LError = Extract<typeof l, Error>
+    expectTypeOf<
+      SameMembers<OError, InvalidId | InvalidCount>
+    >().toEqualTypeOf<true>()
+    expectTypeOf<
+      SameMembers<TError, InvalidId | InvalidCount>
+    >().toEqualTypeOf<true>()
+    expectTypeOf<SameMembers<LError, InvalidId>>().toEqualTypeOf<true>()
+    expectTypeOf<OError>().not.toBeNever()
+  })
+
+  it('passes a plain member through, in the value type and with no error of its own', () => {
+    const r = collect({ id: id('a'), version: 2, tags: ['a'] })
+    expectTypeOf(r).toEqualTypeOf<
+      Result<
+        { readonly id: Id; readonly version: number; readonly tags: string[] },
+        InvalidId
+      >
+    >()
+    expectTypeOf(collect([id('a'), 5])).toEqualTypeOf<
+      Result<readonly [Id, number], InvalidId>
+    >()
+  })
+
+  it('an object whose parts cannot fail is a Result with a never error', () => {
+    const r = collect({ n: 1, s: 'x' })
+    expectTypeOf(r).toEqualTypeOf<
+      Result<{ readonly n: number; readonly s: string }, never>
+    >()
+  })
+
+  it('nests: a collect is a part of another', () => {
+    const r = collect({ id: id('a'), inner: collect([count(1), name('x')]) })
+    expectTypeOf(r).toEqualTypeOf<
+      Result<
+        { readonly id: Id; readonly inner: readonly [Count, Name] },
+        InvalidId | InvalidCount | InvalidName
+      >
+    >()
+  })
+
+  it('refuses a symbol-keyed member of an object of parts', () => {
+    const key = Symbol('part')
+    // @ts-expect-error - a symbol-keyed member is neither read nor typed
+    collect({ id: id('a'), [key]: id('b') })
+  })
+
+  it('refuses a __proto__ member, which a literal would use to set the prototype', () => {
+    // @ts-expect-error - a literal's __proto__ is not a member
+    collect({ id: id('a'), __proto__: id('b') })
+    const parsed = JSON.parse('{}') as Record<string, Result<Id, InvalidId>>
+    expectTypeOf(collect(parsed)).toEqualTypeOf<
+      Result<{ readonly [key: string]: Id }, InvalidId>
+    >()
+  })
+
+  it('takes the type of an object literal or a type alias, not an interface', () => {
+    expectTypeOf(collect(alias)).toEqualTypeOf<
+      Result<{ readonly id: Id }, InvalidId>
+    >()
+    // @ts-expect-error - an interface has no implicit index signature
+    collect(shape)
+  })
+
+  it('refuses a non-parts argument', () => {
+    // @ts-expect-error - a number is not an object of parts
+    collect(1)
+    // @ts-expect-error - a string is not an object of parts
+    collect('a')
+    // @ts-expect-error - a Map is not an object of parts
+    collect(new Map())
+  })
+
+  it('an any part makes the whole result any', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- the case under test
+    const r = collect({ id: id('a'), loose })
+    expectTypeOf(r).toBeAny()
+  })
+})
+
+describe('collect with a build step', () => {
+  class Door {
+    constructor(
+      readonly n: Count,
+      readonly id: Id,
+    ) {}
+  }
+
+  it('types the build parameter from the parts: a swapped constructor argument does not compile', () => {
+    const ok = collect(
+      { id: id('a'), n: count(1) },
+      ({ id, n }) => new Door(n, id),
+    )
+    expectTypeOf(ok).toEqualTypeOf<Result<Door, InvalidId | InvalidCount>>()
+    const swapped = collect(
+      { id: id('a'), n: count(1) },
+      // @ts-expect-error - Id is not a Count
+      ({ id, n }) => new Door(id, n),
+    )
+    void swapped
+    collect({ id: id('a'), n: count(1) }, (parts) => {
+      expectTypeOf(parts).toEqualTypeOf<{
+        readonly id: Id
+        readonly n: Count
+      }>()
+      return 0
+    })
+  })
+
+  it('a build that returns a Result adds its error to the union, like andThen', () => {
+    const r = collect(
+      { id: id('a'), n: count(1) },
+      ({ id, n }): Result<Door, InvalidName> =>
+        n > 0 ? success(new Door(n, id)) : failure(new InvalidName('x')),
+    )
+    expectTypeOf(r).toEqualTypeOf<
+      Result<Door, InvalidId | InvalidCount | InvalidName>
+    >()
+  })
+
+  it('types a tuple and a list parameter', () => {
+    collect([id('a'), count(1)], ([i, n]) => {
+      expectTypeOf(i).toEqualTypeOf<Id>()
+      expectTypeOf(n).toEqualTypeOf<Count>()
+      return 0
+    })
+    collect(['a'].map(id), (ids) => {
+      expectTypeOf(ids).toEqualTypeOf<readonly Id[]>()
+      return 0
+    })
+  })
+
+  it('refuses a build that returns a Promise', () => {
+    // @ts-expect-error - resolve first, then compose with .then()
+    collect({ id: id('a') }, async ({ id }) => id)
+  })
+
+  it('the map step after a collect stays untyped: the gap the build form closes', () => {
+    class D {
+      constructor(
+        readonly n: Count,
+        readonly id: Id,
+      ) {}
+    }
+    const parts = collect({ id: id('a'), n: count(1) })
+    // `map` infers its callback's parameter from the callback alone, so the
+    // swapped arguments compile: the parameter is `any` once destructured.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- the case under test
+    const swapped = map(({ id, n }) => new D(id, n), parts)
+    expectTypeOf(swapped).toEqualTypeOf<Result<D, InvalidId | InvalidCount>>()
+    // The early-return form types each member.
+    if (!isFailure(parts)) {
+      expectTypeOf(parts.id).toEqualTypeOf<Id>()
+      expectTypeOf(parts.n).toEqualTypeOf<Count>()
+    }
+  })
+})
+
+describe('attempt', () => {
+  it('finds E in the enclosing return annotation, and take types its value', () => {
+    const from = (raw: string): Result<Id, InvalidId> =>
+      attempt((take) => {
+        const found = take(id(raw))
+        expectTypeOf(found).toEqualTypeOf<Id>()
+        return found
+      })
+    expectTypeOf(from).returns.toEqualTypeOf<Result<Id, InvalidId>>()
+  })
+
+  it('takes several parts under a union annotation', () => {
+    class Door {
+      constructor(
+        readonly n: Count,
+        readonly id: Id,
+      ) {}
+    }
+    const from = (raw: string): Result<Door, InvalidId | InvalidCount> =>
+      attempt((take) => new Door(take(count(1)), take(id(raw))))
+    expectTypeOf(from).returns.toEqualTypeOf<
+      Result<Door, InvalidId | InvalidCount>
+    >()
+    const swapped = (raw: string): Result<Door, InvalidId | InvalidCount> =>
+      // @ts-expect-error - Id is not a Count
+      attempt((take) => new Door(take(id(raw)), take(count(1))))
+    void swapped
+  })
+
+  it('takes a nullish Success, and rejects a plain value', () => {
+    const from = (): Result<Id | undefined, InvalidId> =>
+      attempt((take) => take(maybeId))
+    expectTypeOf(from).returns.toEqualTypeOf<
+      Result<Id | undefined, InvalidId>
+    >()
+    attempt<undefined, InvalidId>((take) => take(undefined))
+    attempt<number, InvalidId>((take) =>
+      // @ts-expect-error - a plain value is not a Result
+      take(5),
+    )
+  })
+
+  it('rejects a take of a part whose error is outside E', () => {
+    const from = (raw: string): Result<Id, InvalidId> =>
+      attempt((take) => {
+        // @ts-expect-error - InvalidCount is outside InvalidId
+        take(count(1))
+        return take(id(raw))
+      })
+    void from
+  })
+
+  it('with no contextual type E is Error', () => {
+    const r = attempt((take) => take(id('a')))
+    expectTypeOf(r).toEqualTypeOf<Result<Id, Error>>()
+  })
+
+  it('takes an explicit E where there is no annotation', () => {
+    const r = attempt<Id, InvalidId>((take) => take(id('a')))
+    expectTypeOf(r).toEqualTypeOf<Result<Id, InvalidId>>()
+  })
+
+  it('a take is the Take of its E, and can be passed on', () => {
+    const useIt = (take: Take<InvalidId>): Id => take(id('a'))
+    const r: Result<Id, InvalidId> = attempt(useIt)
+    void r
+  })
+
+  it('under an annotation a return of a failure() in the body is a type error', () => {
+    const from = (raw: string): Result<Id, InvalidId> =>
+      // @ts-expect-error - a returned Failure is a value of the body; use take(failure(…))
+      attempt((take) => {
+        if (raw === '') return failure(new InvalidId('empty'))
+        return take(id(raw))
+      })
+    void from
+    const leaving = (raw: string): Result<Id, InvalidId> =>
+      attempt((take) => {
+        if (raw === '') take(failure(new InvalidId('empty')))
+        return take(id(raw))
+      })
+    void leaving
+  })
+
+  it('refuses an async body and a generator body', () => {
+    // @ts-expect-error - resolve first, then compose with .then()
+    attempt(async (take) => take(id('a')))
+    // @ts-expect-error - attempt runs its body to completion
+    attempt(function* (take) {
+      yield take(id('a'))
+    })
+    // @ts-expect-error - attempt runs its body to completion
+    attempt(async function* (take) {
+      yield take(id('a'))
+    })
+  })
+
+  it('accepts a body that returns a plain array, an any, or a Result', () => {
+    const arr = attempt((take) => [take(id('a'))])
+    expectTypeOf(arr).toEqualTypeOf<Result<Id[], Error>>()
+  })
+
+  it('take works inside a list map and a Maybe map callback', () => {
+    const ids = (raws: string[]): Result<Id[], InvalidId> =>
+      attempt((take) => raws.map((raw) => take(id(raw))))
+    expectTypeOf(ids).returns.toEqualTypeOf<Result<Id[], InvalidId>>()
+    const opt = (raw: string | undefined): Result<Id | undefined, InvalidId> =>
+      attempt((take) => mapMaybe((r: string) => take(id(r)), raw))
+    expectTypeOf(opt).returns.toEqualTypeOf<Result<Id | undefined, InvalidId>>()
+  })
+})

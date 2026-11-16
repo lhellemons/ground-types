@@ -7,7 +7,8 @@ import * as result from '../../src/result/index.js'
  * symbol being added, removed or renamed along the way, which is what this
  * file exists to catch. Imports from source rather than `dist` so it runs
  * under plain vitest without a build. `Result`, `Success`, `Failure`,
- * `NotAResult` and `NotAPromise` are type-only and so invisible here — see
+ * `NotAResult`, `NotAPromise`, `Collected`, `Failed` and `Take` are
+ * type-only and so invisible here — see
  * `src/result/api-surface.test-d.ts`. `ThrownError` is a class, so it is a
  * runtime value and listed below even though it is also usable as a type.
  *
@@ -20,7 +21,9 @@ describe('/result runtime exports', () => {
     expect(Object.keys(result).sort((a, b) => a.localeCompare(b))).toEqual([
       'andThen',
       'assertSuccess',
+      'attempt',
       'catchOnly',
+      'collect',
       'failure',
       'fallback',
       'fromMaybe',

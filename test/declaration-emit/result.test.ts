@@ -17,7 +17,15 @@ const resultEntry = resolve(here, '../../src/result/index.js')
 const consumerPath = resolve(here, 'consumer.ts')
 
 const consumer = `
-import { failure, isSuccess, success } from ${JSON.stringify(resultEntry)}
+import {
+  andThen,
+  attempt,
+  collect,
+  failure,
+  isSuccess,
+  map,
+  success,
+} from ${JSON.stringify(resultEntry)}
 import type { Result } from ${JSON.stringify(resultEntry)}
 
 class Invalid extends Error {
@@ -33,6 +41,70 @@ export function parse(n: number) {
 export function narrowed() {
   if (isSuccess(r)) return r
   return undefined
+}
+
+class InvalidId extends Error {
+  readonly kind = 'InvalidId' as const
+}
+class InvalidCount extends Error {
+  readonly kind = 'InvalidCount' as const
+}
+declare function id(raw: string): Result<string, InvalidId>
+declare function countOf(raw: number): Result<number, InvalidCount>
+class Door {
+  constructor(
+    readonly id: string,
+    readonly count: number,
+  ) {}
+}
+
+export function annotated(raw: string): Result<Door, InvalidId | InvalidCount> {
+  return map(
+    ({ id, count }: { id: string; count: number }) => new Door(id, count),
+    collect({ id: id(raw), count: countOf(1) }),
+  )
+}
+export function collectedUnannotated(raw: string) {
+  return map(
+    ({ id, count }: { id: string; count: number }) => new Door(id, count),
+    collect({ id: id(raw), count: countOf(1) }),
+  )
+}
+export function collectedAndThen(raw: string) {
+  return andThen(
+    ({ id }: { id: string }) => success(new Door(id, 0)),
+    collect({ id: id(raw) }),
+  )
+}
+export function collectedParts(raw: string) {
+  return collect({ id: id(raw), count: countOf(1) })
+}
+export function collectedTuple(raw: string) {
+  return collect([id(raw), countOf(1)])
+}
+export function collectedList(raws: string[]) {
+  return collect(raws.map(id))
+}
+export function collectedBuild(raw: string) {
+  return collect(
+    { id: id(raw), count: countOf(1) },
+    ({ id, count }) => new Door(id, count),
+  )
+}
+export function collectedBuildAnnotated(
+  raw: string,
+): Result<Door, InvalidId | InvalidCount> {
+  return collect(
+    { id: id(raw), count: countOf(1) },
+    ({ id, count }) => new Door(id, count),
+  )
+}
+export const attempted = (raw: string) =>
+  attempt((take) => new Door(take(id(raw)), take(countOf(1))))
+export function attemptedAnnotated(
+  raw: string,
+): Result<Door, InvalidId | InvalidCount> {
+  return attempt((take) => new Door(take(id(raw)), take(countOf(1))))
 }
 `
 
@@ -68,7 +140,7 @@ function declarationDiagnostics(): string[] {
 }
 
 describe('declaration emit for a consumer', () => {
-  it('can name the types success(), failure() and isSuccess() infer', () => {
+  it('can name the types success(), failure(), isSuccess(), collect() and attempt() infer', () => {
     expect(declarationDiagnostics()).toEqual([])
   })
 })

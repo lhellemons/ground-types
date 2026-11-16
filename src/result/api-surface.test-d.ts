@@ -5,6 +5,8 @@ import { definePrimitiveValueObject } from '../value-object/index.js'
 import type { Branded } from '../brand/index.js'
 import { describe, expectTypeOf, it } from 'vitest'
 import type {
+  Collected,
+  Failed,
   Failure,
   NotAPromise,
   NotAResult,
@@ -12,6 +14,7 @@ import type {
   Result,
   Success,
   SuccessArm,
+  Take,
 } from './index.js'
 
 /**
@@ -92,6 +95,29 @@ describe('/result type exports', () => {
     expectTypeOf<
       NotAPromise<Promise<number>>
     >().toEqualTypeOf<'This callback returns a Promise (or thenable) — resolve it first with promise/resultify or call/resultify, then compose with .then()'>()
+  })
+})
+
+declare const take: Take<RangeError>
+describe('fan-in type exports', () => {
+  it('Collected unboxes each member of the parts, readonly', () => {
+    expectTypeOf<
+      Collected<{ a: Result<number, RangeError>; b: string }>
+    >().toEqualTypeOf<{ readonly a: number; readonly b: string }>()
+    expectTypeOf<
+      Collected<readonly [Result<number, RangeError>, string]>
+    >().toEqualTypeOf<readonly [number, string]>()
+  })
+
+  it('Failed is the union of the members error types, and never for parts that cannot fail', () => {
+    expectTypeOf<
+      Failed<{ a: Result<number, RangeError>; b: Result<string, TypeError> }>
+    >().toEqualTypeOf<RangeError | TypeError>()
+    expectTypeOf<Failed<{ a: number }>>().toEqualTypeOf<never>()
+  })
+
+  it('Take unboxes a part whose error fits E', () => {
+    expectTypeOf(take(s)).toEqualTypeOf<number>()
   })
 })
 

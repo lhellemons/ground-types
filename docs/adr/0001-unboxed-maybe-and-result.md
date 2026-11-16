@@ -885,3 +885,38 @@ fallback)` turns a Failure into the fallback value with the error
   which the standing "No `all`/`sequence`" bullet bans, and if so whether
   it can ship, is that ticket's to decide. `Failures<E>` as measured in
   `prototypes/59/fan-in.ts` is the recorded shape until then.
+
+### 2026-11-16 — `collect(parts, build)` types the construction step (#115)
+
+The #59 amendment left open what to do about the construction step after a
+`collect`: `map` and `andThen` infer their callback's parameter from the
+callback alone, so over a `collect` it is `unknown` when plain and `any`
+when destructured, and swapped constructor arguments compile. #115 chose
+the second of its three remedies: **`collect(parts, build)`**, whose
+`build` is typed from the parts. `build` returns a plain value or a Result,
+and the result is `Result<ValueOf<R>, Failed<P> | ErrorOf<R>>`, so one form
+serves where `map` and `andThen` would; the arity decides which form of
+`collect` applies, as for the curryable combinators (ADR 0003). A swapped
+constructor argument inside `build` does not compile.
+
+- **Documenting a hand-written parameter type** was not chosen: it leaves
+  the unsafe form the one that needs no annotation.
+- **Changing `map` and `andThen` so `T` is inferred from `value`** was not
+  chosen. A probe showed the applied form can infer its callback's
+  parameter from the value (`(fn: (value: T) => U, value: Result<T, E>)`),
+  but the curried form `map(fn)`, which is what `pipe` runs (ADR 0004), has
+  no value to infer from, so only the applied form would be typed. The
+  change would also reach every applied `map` and `andThen` signature in
+  `/result` for one caller, where `build` adds one overload to
+  `collect`.
+- The early-return and `map`/`andThen` forms stay as the #59 amendment
+  describes them, and `build` is the typed alternative to both; the
+  `map` step after a `collect` still types its parameter only where the
+  caller annotates it. `attempt`/`take` types its values with nothing
+  written by hand and needs no `build`.
+- The shipped `collect` keeps `readonly` in its value type, reads an object
+  of parts by its own enumerable string keys and a list by index, refuses a
+  symbol-keyed or `__proto__` member of an object literal in the types, and
+  refuses an async or generator `attempt` body in the types. A `take` given
+  a Failure after its own `attempt` has returned still throws the token, a
+  non-`Error`, to its caller.
