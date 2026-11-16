@@ -22,6 +22,32 @@ const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor
 
 declare const _phantom: unique symbol
 
+/* `SuccessMarks` and `FailureMarks` are classes, with optional methods for
+   markers, and not object types with optional properties: see the 2026-11-16
+   amendment in docs/adr/0001-unboxed-maybe-and-result.md. */
+
+/**
+ * The phantom markers of a {@link SuccessArm}, as a type of its own.
+ * Type-only: no value of this type exists, and the type is not exported as a
+ * value.
+ */
+declare class SuccessMarks<T, E extends Error> {
+  [_phantom]?(): E | undefined
+  [_value]?(): T | undefined
+  [_error]?(): undefined
+}
+
+/**
+ * The phantom markers of a {@link Failure}, as a type of its own. Type-only,
+ * like {@link SuccessMarks}.
+ */
+declare class FailureMarks<T, E extends Error> {
+  [_phantom]?(): T | undefined
+  [_error]?(): E | undefined
+}
+
+export type { SuccessMarks, FailureMarks }
+
 /**
  * The value-carrying case of a {@link Result}, unboxed — a `Success<T>`
  * *is* the `T`. A `Success` can never itself be an `Error`: an `Error`
@@ -41,21 +67,15 @@ export type Success<T, E extends Error = Error> =
 export type SuccessArm<T, E extends Error = Error> = Exclude<
   T,
   Error | null | undefined | void
-> & {
-  readonly [_phantom]?: E
-  readonly [_value]?: T
-  readonly [_error]?: never
-}
+> &
+  SuccessMarks<T, E>
 
 /**
  * The `Error`-carrying case of a {@link Result}, unboxed — a `Failure` *is*
  * the `Error`, keeping its concrete subclass so a caller can branch on the
  * specific error type it was given.
  */
-export type Failure<T, E extends Error = Error> = E & {
-  readonly [_phantom]?: T
-  readonly [_error]?: E
-}
+export type Failure<T, E extends Error = Error> = E & FailureMarks<T, E>
 
 /**
  * The outcome of a fallible operation: either a {@link Success} carrying

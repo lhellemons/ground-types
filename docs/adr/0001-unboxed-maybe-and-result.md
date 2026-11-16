@@ -960,3 +960,84 @@ does not compile.
   `IterableIterator<number>`) are accepted (#120 item 3).
 
 Open type questions are ticket 120.
+
+### 2026-11-16 — The markers are optional methods of a class, so a narrowed or spread Success emits (#99)
+
+#93 made `success(1)`, a ternary of `success` and `failure`, and a value
+narrowed by `isSuccess` emit in a consumer's `.d.ts`, by reaching the arm
+through the exported `SuccessArm`. Four consumer cases still failed with
+TS4023 or TS4058 ("cannot be named" for `_phantom`, `_value` and `_error`),
+measured on TypeScript 5.4.5, 5.9.3 and 7.0.2, and a `Failure` failed the
+same way:
+
+- An exported function returning a `Success` narrowed by `typeof`: for `u:
+Result<number | string, Invalid>`, `if (isSuccess(u) && typeof u ===
+'number') return u`.
+- One narrowed by `in`: for `o: Result<{ id: string } | { name: string },
+Invalid>`, `if (isSuccess(o) && 'id' in o) return o`.
+- An object spread of a `Success`: `export const s2 = { ...success({ id: 'x'
+}) }`, and `return { ...r, extra: 1 }` after `isSuccess(r)`.
+- A `Failure` narrowed by `instanceof Invalid` or `'code' in`, and `{
+...failure(new Invalid()) }`.
+
+`SuccessArm<T, E>` is `Exclude<T, …> & { markers }`, which distributes over a
+union `T`, so `typeof` and `in` narrowing pick one constituent,
+`number & { markers }`, that no longer carries the alias; the marker object
+is then written out in the declaration, and its symbol keys cannot be named.
+An object spread copies the markers into a fresh object type, with the same
+result.
+
+**Decision: name the markers, and make them optional methods of a class.**
+
+```ts
+declare class SuccessMarks<T, E extends Error> {
+  [_phantom]?(): E | undefined
+  [_value]?(): T | undefined
+  [_error]?(): undefined
+}
+declare class FailureMarks<T, E extends Error> {
+  [_phantom]?(): T | undefined
+  [_error]?(): E | undefined
+}
+export type { SuccessMarks, FailureMarks }
+
+type SuccessArm<T, E extends Error = Error> = Exclude<T, …> & SuccessMarks<T, E>
+type Failure<T, E extends Error = Error> = E & FailureMarks<T, E>
+```
+
+- **A name** (`SuccessMarks`, `FailureMarks`, type-only exports of `/result`)
+  fixes the `typeof`, `in` and `instanceof` cases: the declaration writes
+  `number & import("…/result").SuccessMarks<string | number, Invalid>`.
+- **A class, with methods**, fixes the spread: an object spread does not copy
+  a method declared in a class, so `{ ...success({ id: 'x' }) }` is `{ id:
+string }` and `{ ...r, extra: 1 }` is `{ id: string; extra: number }`,
+  which is also what the run-time spread produces. A named interface with the
+  same properties fixed the narrowing cases but not the spread, and exporting
+  `_phantom` from `/result` did not fix the spread either (both measured on
+  5.9.3).
+- **The return type is `X | undefined`**, which is what an optional
+  property's type is without `exactOptionalPropertyTypes`: with a bare `T`,
+  `SuccessArm<number | undefined, E>` stopped being assignable to
+  `SuccessArm<number, E>` and two `Result<number, E>` cases in
+  `src/result/nullish-success.test-d.ts` failed (measured).
+  `ValueOf` and `ErrorOf` read the markers with `infer U | undefined` and
+  `infer F | undefined` as the return type, which strips the added
+  `undefined` as the optional property did; reading `infer U` bare, 68 tests
+  failed (measured).
+
+Kept: every assertion that existed in `src/result/*.test-d.ts` and
+`src/fn/*.test-d.ts` passes without an edit, and the whole project typechecks on TypeScript
+5.4.5, 5.9.3 and 7.0.2. The guarantees of the amendments above are pinned by
+those tests, so they are the measure of what is kept. Pinned by
+`test/declaration-emit/result.test.ts`, which runs on the repository's
+TypeScript (5.9); the 5.4.5 and 7.0.2 results are from the same consumer run
+by hand.
+
+Costs:
+
+- `SuccessMarks` and `FailureMarks` are two more names on the type surface of
+  `/result`. They are type-only: using one as a value is a compile error.
+- The markers are methods, so a `Success` is not a plain-property type any
+  more: the spread of a `Success` has no markers, and a type that reads the
+  markers (`ValueOf`, `ErrorOf`) must read them as methods.
+- Not measured: a consumer with `exactOptionalPropertyTypes` on.

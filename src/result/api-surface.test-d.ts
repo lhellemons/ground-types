@@ -1,4 +1,4 @@
-import { catchOnly, tryCatch } from './index.js'
+import { catchOnly, success, tryCatch } from './index.js'
 import { resultify } from '../promise/index.js'
 import { resultify as callResultify } from '../call/index.js'
 import { definePrimitiveValueObject } from '../value-object/index.js'
@@ -8,6 +8,7 @@ import type {
   Collected,
   Failed,
   Failure,
+  FailureMarks,
   NotAGenerator,
   NotAPromise,
   NotAResult,
@@ -16,6 +17,7 @@ import type {
   Result,
   Success,
   SuccessArm,
+  SuccessMarks,
   Take,
 } from './index.js'
 
@@ -56,6 +58,28 @@ describe('/result type exports', () => {
     expectTypeOf(plain(optional)).toEqualTypeOf<
       [string | undefined, RangeError]
     >()
+  })
+
+  it('SuccessMarks and FailureMarks are the markers of a SuccessArm and a Failure', () => {
+    expectTypeOf<SuccessArm<number, RangeError>>().toExtend<
+      SuccessMarks<number, RangeError>
+    >()
+    expectTypeOf<Failure<number, RangeError>>().toExtend<
+      FailureMarks<number, RangeError>
+    >()
+    expectTypeOf<Failure<number, RangeError>>().not.toExtend<
+      SuccessMarks<number, RangeError>
+    >()
+    expectTypeOf<SuccessArm<number, RangeError>>().not.toExtend<
+      FailureMarks<number, RangeError>
+    >()
+  })
+
+  it('an object spread of a Success is a plain object, still assignable to a Result', () => {
+    const spread = { ...success({ id: 'x' }), extra: 1 }
+    expectTypeOf(spread).toEqualTypeOf<{ id: string; extra: number }>()
+    const back: Result<{ id: string; extra: number }, RangeError> = spread
+    expectTypeOf(back).toExtend<{ id: string }>()
   })
 
   it('Failure is usable as an Error — the unboxed encoding', () => {

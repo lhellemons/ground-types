@@ -22,6 +22,7 @@ import {
   attempt,
   collect,
   failure,
+  isFailure,
   isSuccess,
   map,
   success,
@@ -30,6 +31,9 @@ import type { Result } from ${JSON.stringify(resultEntry)}
 
 class Invalid extends Error {
   readonly code = 'invalid' as const
+}
+class Other extends Error {
+  readonly other = 1 as const
 }
 declare const r: Result<number | undefined, Invalid>
 
@@ -42,6 +46,34 @@ export function narrowed() {
   if (isSuccess(r)) return r
   return undefined
 }
+
+declare const mixed: Result<number | string, Invalid>
+declare const shapes: Result<{ id: string } | { name: string }, Invalid>
+declare const record: Result<{ id: string }, Invalid>
+
+export function narrowedByTypeof() {
+  if (isSuccess(mixed) && typeof mixed === 'number') return mixed
+  return undefined
+}
+export function narrowedByIn() {
+  if (isSuccess(shapes) && 'id' in shapes) return shapes
+  return undefined
+}
+export const spreadSuccess = { ...success({ id: 'x' }) }
+export function spreadNarrowed() {
+  if (isSuccess(record)) return { ...record, extra: 1 }
+  return undefined
+}
+declare const failed: Result<number | string, Invalid | Other>
+export function failureNarrowedByInstanceof() {
+  if (isFailure(failed) && failed instanceof Invalid) return failed
+  return undefined
+}
+export function failureNarrowedByIn() {
+  if (isFailure(failed) && 'code' in failed) return failed
+  return undefined
+}
+export const spreadFailure = { ...failure(new Invalid()) }
 
 class InvalidId extends Error {
   readonly kind = 'InvalidId' as const
@@ -161,6 +193,27 @@ function compile(emit: boolean): {
 }
 
 describe('declaration emit for a consumer', () => {
+  it('writes a narrowed Success as SuccessMarks, and a spread Success as a plain object', () => {
+    const { diagnostics, declarations } = compile(true)
+    expect(diagnostics).toEqual([])
+    const declared = (name: string) => {
+      const start = declarations.indexOf(`export declare function ${name}(`)
+      expect(start).toBeGreaterThanOrEqual(0)
+      const next = declarations.slice(start).search(/\n(export )?declare /)
+      return declarations.slice(start, next === -1 ? undefined : start + next)
+    }
+    expect(declared('narrowedByTypeof')).toMatch(
+      /number & import\(.*\)\.SuccessMarks</,
+    )
+    expect(declared('narrowedByIn')).toMatch(/\.SuccessMarks</)
+    expect(declared('failureNarrowedByInstanceof')).toMatch(/\.FailureMarks</)
+    expect(declarations).toMatch(
+      /export declare const spreadSuccess: \{\s*id: string;\s*\};/,
+    )
+    expect(declarations).toMatch(/export declare const spreadFailure: \{/)
+    expect(declarations).not.toContain('_phantom')
+  })
+
   it('can name the types success(), failure(), isSuccess(), collect() and attempt() infer', () => {
     expect(compile(false).diagnostics).toEqual([])
   })
