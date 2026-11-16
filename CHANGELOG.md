@@ -77,20 +77,25 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   consumers whose declarations mention a `Success` need a name to emit.
 - A consumer with `declaration` on can emit its own `.d.ts` for more values
   typed through a `Success` or a `Failure`, measured on TypeScript 5.4.5,
-  5.9.3 and 7.0.2: a `Success` narrowed by `typeof` (`isSuccess(u) &&
-typeof u === 'number'` for `u: Result<number | string, Invalid>`) or by `in`
-  (`'id' in o` for `o: Result<{ id: string } | { name: string }, Invalid>`), a
-  `Success` spread into an object (`{ ...success({ id: 'x' }) }`, `{ ...r,
-extra: 1 }` after `isSuccess(r)`), and a `Failure` narrowed by `instanceof`
-  or `in` or spread (`{ ...failure(new Invalid()) }`) no longer fail with
-  TS4023 or TS4058. The spread of a `Success` is now a plain object: `{
-...success({ id: 'x' }), extra: 1 }` is `{ id: string; extra: number }`,
-  with no marker properties. `SuccessArm` and `Failure` now use the new
+  5.9.3 and 7.0.2. These no longer fail with TS4023 or TS4058:
+  - a `Success` narrowed by `typeof`
+    (`isSuccess(u) && typeof u === 'number'`, with
+    `u: Result<number | string, Invalid>`) or by `in` (`'id' in o`, with
+    `o: Result<{ id: string } | { name: string }, Invalid>`);
+  - a `Success` spread into an object (`{ ...success({ id: 'x' }) }`, and
+    `{ ...r, extra: 1 }` after `isSuccess(r)`);
+  - a `Failure` narrowed by `instanceof` or `in`, or spread
+    (`{ ...failure(new Invalid()) }`).
+
+  The spread of a `Success` is now a plain object, with no marker
+  properties: `{ ...success({ id: 'x' }), extra: 1 }` is
+  `{ id: string; extra: number }`. `SuccessArm` and `Failure` now use the new
   type-only exports `SuccessMarks` and `FailureMarks`, whose markers are
   optional methods of a class; see ADR 0001, amendment 2026-11-16 (#99).
   Pinned in `test/declaration-emit/result.test.ts` and
   `src/result/api-surface.test-d.ts`. The assertions that existed in
   `src/result/*.test-d.ts` and `src/fn/*.test-d.ts` pass unedited.
+
 - Add `collect` and `attempt` to `/result`, with the types `Collected`,
   `Failed`, `Take`, `Parts` and `NotAGenerator`: fan-in over unboxed
   Results. `collect(parts)` returns the first Failure among the parts, or
