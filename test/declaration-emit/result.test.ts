@@ -12,9 +12,10 @@ import ts from 'typescript'
  * source of `/result`, standing in for `dist`, with `declaration` on and
  * `skipLibCheck` off and expects no declaration diagnostics.
  *
- * An object spread of a `Success` or a `Failure` is the open case: the
- * spread copies the marker properties into a fresh object type, whose symbol
- * keys cannot be named. `spreadCases` pins it, so that a later fix flips it.
+ * An object spread, or an object rest destructuring, of a `Success` or a
+ * `Failure` is the open case: it copies the marker properties into a fresh
+ * object type, whose symbol keys cannot be named. `spreadCases` pins it, so
+ * that a later fix flips it.
  */
 const here = dirname(fileURLToPath(import.meta.url))
 const resultEntry = resolve(here, '../../src/result/index.js')
@@ -149,7 +150,7 @@ export function attemptedAnnotated(
 `
 
 const header = `
-import { failure, isSuccess, success } from ${JSON.stringify(resultEntry)}
+import { failure, isFailure, isSuccess, success } from ${JSON.stringify(resultEntry)}
 import type { Result } from ${JSON.stringify(resultEntry)}
 class Invalid extends Error {
   readonly code = 'invalid' as const
@@ -174,6 +175,22 @@ const spreadCases = {
   'a Failure spread into an object': {
     code: `export const spreadFailure = { ...failure(new Invalid()) }`,
     typed: `export const spreadFailure: { readonly code: 'invalid' } = { ...failure(new Invalid()) }`,
+  },
+  'a narrowed Failure read with object rest': {
+    code: `export function failureRest() {
+  if (isFailure(record)) {
+    const { code, ...others } = record
+    return { code, others }
+  }
+  return undefined
+}`,
+    typed: `export function failureRest(): { code: 'invalid'; others: object } | undefined {
+  if (isFailure(record)) {
+    const { code, ...others } = record
+    return { code, others }
+  }
+  return undefined
+}`,
   },
   'a narrowed Success read with object rest': {
     code: `export function rest() {
@@ -256,12 +273,12 @@ describe('declaration emit for a consumer', () => {
   })
 
   describe.each(Object.entries(spreadCases))('%s', (_name, { code, typed }) => {
-    it('still fails with TS4023 or TS4058, naming a marker symbol: the spread copies marker properties whose symbol keys cannot be named', () => {
+    it('still fails with TS4023 or TS4058, naming a marker symbol: the spread or rest copies marker properties whose symbol keys cannot be named', () => {
       const { diagnostics } = compile(true, header + code)
       expect(diagnostics.length).toBeGreaterThan(0)
       for (const diagnostic of diagnostics)
         expect(diagnostic).toMatch(
-          /^TS40(23|58): .*name '_(phantom|value|error)' from .*cannot be named/,
+          /^TS40(23|58): .*name '_(phantom|value|error)' from external module ".*\/src\/result\/index" but cannot be named/,
         )
     })
 

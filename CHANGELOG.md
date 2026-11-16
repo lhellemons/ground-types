@@ -88,7 +88,8 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   after `isSuccess(r)`) and for a `Failure`
   (`{ ...failure(new Invalid()) }`), and so does an object rest
   destructuring of a `Success` (`const { id, ...others } = r` after
-  `isSuccess(r)`): give the exported value an explicit type, as the README
+  `isSuccess(r)`) or of a `Failure` (`const { code, ...others } = r` after
+  `isFailure(r)`): give the exported value an explicit type, as the README
   shows. The narrowed cases are pinned in
   `test/declaration-emit/result.test.ts`, which also pins each spread and rest
   case as failing and each workaround as emitting.

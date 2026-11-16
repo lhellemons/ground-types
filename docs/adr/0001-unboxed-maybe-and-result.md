@@ -965,7 +965,7 @@ does not compile.
 
 Open type questions are ticket 120.
 
-### 2026-11-16 — The markers get exported names; an object spread stays open (#99)
+### 2026-11-16 — The markers get exported names; an object spread and rest stay open (#99)
 
 #93 made `success(1)`, a ternary of `success` and `failure`, and a value
 narrowed by `isSuccess` emit in a consumer's `.d.ts`, by reaching the arm
@@ -973,15 +973,21 @@ through the exported `SuccessArm`. Further consumer cases failed with TS4023
 or TS4058 ("cannot be named" for `_phantom`, `_value` and `_error`) on main
 (1bd9b19):
 
-- An exported function returning a `Success` narrowed by `typeof`: for `u:
-Result<number | string, Invalid>`, `if (isSuccess(u) && typeof u ===
-'number') return u`.
-- One narrowed by `in`: for `o: Result<{ id: string } | { name: string }, Invalid>`,
+- An exported function returning a `Success` narrowed by `typeof`: for
+  `u: Result<number | string, Invalid>`,
+  `if (isSuccess(u) && typeof u === 'number') return u`.
+- One narrowed by `in`: for
+  `o: Result<{ id: string } | { name: string }, Invalid>`,
   `if (isSuccess(o) && 'id' in o) return o`.
 - A `Failure` narrowed by `instanceof Invalid` or `'code' in`.
-- An object spread of a `Success`: `export const s2 = { ...success({ id: 'x'
-}) }`, and `return { ...r, extra: 1 }` after `isSuccess(r)`; and of a
-  `Failure`: `{ ...failure(new Invalid()) }`.
+- An object spread of a `Success`: `export const s2 = { ...success({ id: 'x' }) }`,
+  and `return { ...r, extra: 1 }` after `isSuccess(r)`; and of a `Failure`:
+  `{ ...failure(new Invalid()) }`.
+- An object rest destructuring of a narrowed `Success`:
+  `const { id, ...others } = r` after `isSuccess(r)`, returned as
+  `{ id, others }`; and of a narrowed `Failure`:
+  `const { code, ...others } = r` after `isFailure(r)`. These two are not in
+  the ticket; on main (1bd9b19) they fail with TS4058 as well.
 
 `SuccessArm<T, E>` is `Exclude<T, …> & { markers }`, which distributes over a
 union `T`, so `typeof` and `in` narrowing pick one constituent,
@@ -1018,12 +1024,13 @@ index signature.
 
 **An object spread, and an object rest, stay open.** The spread copies the
 marker properties into a fresh object type, and that type is written out with
-its symbol keys. The three spread cases and the rest case above still fail with TS4023 or TS4058; they are pinned as
-failing, with the explicit-type workaround pinned as emitting, in the tests of
+its symbol keys. The three spread cases and the two rest cases above still
+fail with TS4023 or TS4058. They are pinned as failing, each with its
+explicit-type workaround pinned as emitting, in the tests of
 `test/declaration-emit/result.test.ts` named "still fails with TS4023 or
-TS4058" and "emits with an explicit type on the exported value", so that a
-later fix flips the first. The README gives the workaround: an explicit type
-on the exported value or function.
+TS4058, naming a marker symbol" and "emits with an explicit type on the
+exported value", so that a later fix flips the first. The README gives the
+workaround: an explicit type on the exported value or function.
 
 **Not chosen: markers as optional methods of a class.** A prototype made
 `SuccessMarkers` and `FailureMarkers` classes whose markers are optional
