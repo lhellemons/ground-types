@@ -1,5 +1,13 @@
 import { describe, expectTypeOf, it } from 'vitest'
-import { attempt, collect, failure, isFailure, map, success } from './index.js'
+import {
+  attempt,
+  collect,
+  failure,
+  isFailure,
+  map,
+  success,
+  tryCatch,
+} from './index.js'
 import type {
   NotAGenerator,
   NotAPromise,
@@ -55,6 +63,16 @@ declare const onlyOptional: [Result<Id, InvalidId>?]
 // eslint-disable-next-line @typescript-eslint/no-wrapper-object-types -- the case under test: a part typed Object
 declare const asBigObject: Object
 declare const numberDictionary: Record<number, Result<Count, InvalidCount>>
+declare const indexedWithDeclared: {
+  [key: string]: unknown
+  id: Result<string, InvalidId>
+}
+declare const intersectedWithDeclared: Record<string, unknown> & {
+  id: Result<string, InvalidId>
+}
+declare const numberIndexed: { [key: number]: Result<Count, InvalidCount> }
+declare const stringIndexed: Record<string, Result<Count, InvalidCount>>
+declare const underlyingError: Result<number, Error>
 declare const idList: Result<Id, InvalidId>[]
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the case under test: a part typed any
 declare const loose: any
@@ -191,6 +209,30 @@ describe('collect', () => {
   it('a plain member whose type may hold an Error adds nothing to the error type', () => {
     expectTypeOf(collect({ x: unknownPart })).toEqualTypeOf<
       Result<{ readonly x: unknown }, never>
+    >()
+  })
+
+  it('a declared member keeps its error next to an index signature, and number keys count', () => {
+    expectTypeOf(collect(indexedWithDeclared)).toEqualTypeOf<
+      Result<
+        { readonly [key: string]: unknown; readonly id: string },
+        InvalidId
+      >
+    >()
+    expectTypeOf(collect(intersectedWithDeclared)).toEqualTypeOf<
+      Result<
+        { readonly [key: string]: unknown; readonly id: string },
+        InvalidId
+      >
+    >()
+    expectTypeOf(collect({ 0: id('a'), 1: count(1) })).toEqualTypeOf<
+      Result<{ readonly 0: Id; readonly 1: Count }, InvalidId | InvalidCount>
+    >()
+    expectTypeOf(collect(numberIndexed)).toEqualTypeOf<
+      Result<{ readonly [key: number]: Count }, InvalidCount>
+    >()
+    expectTypeOf(collect(stringIndexed)).toEqualTypeOf<
+      Result<{ readonly [key: string]: Count }, InvalidCount>
     >()
   })
 
@@ -357,7 +399,7 @@ describe('attempt', () => {
     )
   })
 
-  it('takes a part whose type declares no properties, whatever E says', () => {
+  it('takes some non-Result parts whatever E says', () => {
     // The constraint admits them, so an Error in one leaves the attempt typed
     // as E although it is outside E.
     const lenient = (): Result<number, InvalidId> =>
@@ -371,7 +413,20 @@ describe('attempt', () => {
         take(asVoid)
         return 1
       })
+    const constrained = <P extends object>(
+      part: P,
+    ): Result<number, InvalidId> =>
+      attempt((take) => {
+        take(part)
+        return 1
+      })
+    void constrained
     expectTypeOf(lenient).returns.toEqualTypeOf<Result<number, InvalidId>>()
+  })
+
+  it('error types compare structurally: an Error subclass with no members counts as Error', () => {
+    class Plain extends Error {}
+    attempt<number, Plain>((take) => take(underlyingError))
   })
 
   it('rejects a take of a part whose error is outside E', () => {
@@ -387,6 +442,11 @@ describe('attempt', () => {
   it('with no contextual type E is Error', () => {
     const r = attempt((take) => take(id('a')))
     expectTypeOf(r).toEqualTypeOf<Result<Id, Error>>()
+  })
+
+  it('takes E from a take parameter annotated Take<E>, with no other context', () => {
+    const r = attempt((take: Take<InvalidId>) => take(id('a')))
+    expectTypeOf(r).toEqualTypeOf<Result<Id, InvalidId>>()
   })
 
   it('takes an explicit E where there is no annotation', () => {
@@ -439,6 +499,61 @@ describe('attempt', () => {
     expectTypeOf<
       NotAGenerator<ReturnType<typeof asyncGeneratorBody>>
     >().toEqualTypeOf<'This body returns a generator — attempt runs its body to completion, so write a plain function'>()
+  })
+
+  it('refuses a body whose return type is a union with a thenable or generator member', () => {
+    // @ts-expect-error - a union with a Promise arm is refused
+    attempt((take) => (take(id('a')) === 'a' ? 1 : Promise.resolve(2)))
+  })
+
+  it('refuses a body that only passes through a part of an unresolved generic type', () => {
+    const generic = <X extends Result<string, Error>>(part: X) =>
+      // @ts-expect-error - ValueOf<X> cannot be judged
+      attempt((take) => take(part))
+    void generic
+  })
+
+  it('refuses a body whose return type is a union with a generator', () => {
+    // @ts-expect-error - a union with a generator arm is refused
+    attempt((take) => (take(id('a')) === 'a' ? 1 : (function* () {})()))
+  })
+
+  it('takes E from a variable annotation and from a parameter type', () => {
+    const viaVariable: Result<Id, InvalidId> = attempt((take) => {
+      // @ts-expect-error - InvalidCount is outside the variable's InvalidId
+      take(count(1))
+      return take(id('a'))
+    })
+    const accepts = (result: Result<Id, InvalidId>): void => void result
+    accepts(
+      attempt((take) => {
+        // @ts-expect-error - InvalidCount is outside the parameter's InvalidId
+        take(count(1))
+        return take(id('a'))
+      }),
+    )
+    void viaVariable
+  })
+
+  it('does not refuse a type a Promise or a generator fits without being one, however it is given', () => {
+    // Each of these compiles: the guard checks T, and these types fit a Promise.
+    attempt<unknown>(async () => 1)
+    attempt<object>(async () => 1)
+    attempt<{}>(async () => 1) // eslint-disable-line @typescript-eslint/no-empty-object-type -- the case under test
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the case under test
+    attempt<any>(async () => 1)
+    attempt<object>(function* () {
+      yield 1
+    })
+    attempt(function* (): IterableIterator<number> {
+      yield 1
+    })
+    tryCatch(function* () {
+      yield 1
+    })
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- the case under test: an async body typed as returning void
+    const widened: (take: Take<Error>) => void = async () => {}
+    attempt(widened)
   })
 
   it('accepts a body that returns a plain array, an iterator that is not a generator or an any', () => {

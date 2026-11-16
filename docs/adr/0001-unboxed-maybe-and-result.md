@@ -934,26 +934,26 @@ swapped for one of another type inside `build` does not compile.
 - What shipped with corrections to the #59 amendment's description:
   - `Take`'s constraint is `Result<unknown, E> | null | undefined | void`,
     not `Result<unknown, E>`: `Result<unknown, E>` alone rejects a Result
-    whose value type includes `undefined`. `take` rejects a Result
-    part whose error type is outside `E`; error types compare structurally,
-    so an Error subclass with no members of its own counts as `Error`. Some
-    non-Result parts are accepted too, for example one typed `any`,
-    `object`, `Object`, `{}`, `void`, a `Record<string, X>`, or a type
-    parameter constrained to one of these; an Error such a part holds
+    whose value type includes `undefined`. `take` checks the part's error
+    type against `E`: for example, a Result whose error is `InvalidCount` is
+    rejected under `E = InvalidId`. Error types compare structurally, so
+    for example an Error subclass with no members of its own counts as
+    `Error`. Some non-Result parts are accepted too, for example one typed
+    `any`, `object`, `Object`, `{}`, `void`, a `Record<string, X>`, or a
+    type parameter constrained to `object`; an Error such a part holds
     leaves the `attempt` whatever `E` says, and whether to close that is
     #120's question (item 5).
-  - The guard on an `attempt` body refuses a thenable (`NotAPromise`) and a
-    generator or async generator (`NotAGenerator`). It sees only the body's
-    declared return type: a body typed more widely than a Promise or a
-    generator is not refused, for example a generator function annotated as
-    an iterator type (`IterableIterator`, `AsyncIterableIterator`,
-    `Iterator`; `tryCatch` accepts a generator function at all), or a body
-    typed as returning, or given a `T` such as, `void`, `unknown`, `object`
-    or `any`, an async function included, for `attempt` and `tryCatch`
-    alike (#120 items 3 and 6). A plain iterator (`[1, 2].values()`) is
-    accepted: that is the implementer's choice, from narrowing the guard to
-    generators so that the diagnostic does not call an iterator a
-    generator.
+  - The guard on an `attempt` body checks `T`: for example, a body that
+    returns a Promise, a generator, or a union with a member of either is
+    refused (`NotAPromise`, `NotAGenerator`). A type that a Promise or a
+    generator fits without being one is not refused, whether the body is
+    typed as returning it or it is given as `T`, for example `void`,
+    `unknown`, `object` or `any`; for example, a generator function
+    annotated as `IterableIterator` compiles, and so does `tryCatch` of a
+    generator function (#120 items 3 and 6). A plain iterator
+    (`[1, 2].values()`) is accepted: that is the implementer's choice, from
+    narrowing the guard to generators so that the diagnostic does not call
+    an iterator a generator.
   - The leave token is a fresh frozen object per `take` given a Failure,
     carrying that Failure and naming its `attempt` by a private field,
     where the #59 amendment's description is a token per `attempt`. A
@@ -975,7 +975,7 @@ swapped for one of another type inside `build` does not compile.
     indices (every index below its length is visited and a hole is skipped,
     so a sparse list with a huge length is slow), and refuses a
     symbol-keyed or `__proto__` member of an object literal in the types. A
-    plain member whose type may hold an Error (`unknown`, `object`) adds
+    plain member whose type may hold an Error, for example `unknown`, adds
     nothing to the error type, but an Error there at run time is returned
     as the Failure; whether `Failed` should give such a member `Error`, as
     `ErrorArmOf` does, is #120's question (item 1). `collect` treats a

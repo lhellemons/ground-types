@@ -384,6 +384,15 @@ describe('collect', () => {
       expect(mixed).toBe(1)
     })
 
+    it('calls build as a plain function, with no this', () => {
+      let thisWasUndefined: boolean | undefined
+      collect({ n: count(1) }, function (this: unknown) {
+        thisWasUndefined = this === undefined
+        return 0
+      })
+      expect(thisWasUndefined).toBe(true)
+    })
+
     it('catches nothing: a throw from build propagates', () => {
       const bug = new TypeError('bug')
       expect(

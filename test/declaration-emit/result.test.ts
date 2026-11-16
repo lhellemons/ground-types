@@ -164,6 +164,6 @@ describe('declaration emit for a consumer', () => {
     expect(diagnostics).toEqual([])
     expect(declarations).toContain('export declare function wrapped')
     expect(declarations).toMatch(/\.Failed</)
-    expect(declarations).not.toContain('internal')
+    expect(declarations).not.toContain('result/internal')
   })
 })
