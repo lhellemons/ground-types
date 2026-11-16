@@ -189,7 +189,7 @@ describe('collect', () => {
     })
   })
 
-  it('reads an object by its own enumerable string keys only', () => {
+  it('reads an object by its own string keys, enumerable or not, and not inherited or symbol keys', () => {
     const bad = new InvalidId('bad')
     const symbol = Symbol('part')
     const withSymbol = { id: id('a'), [symbol]: bad }
@@ -202,7 +202,7 @@ describe('collect', () => {
     expect(isSuccess(collect(inherited))).toBe(true)
     const hidden = { shown: id('a') }
     Object.defineProperty(hidden, 'hidden', { value: bad, enumerable: false })
-    expect(isSuccess(collect(hidden))).toBe(true)
+    expect(collect(hidden)).toBe(bad)
     const list = [id('a')]
     Object.assign(list, { extra: bad })
     expect(isSuccess(collect(list))).toBe(true)
@@ -292,14 +292,14 @@ describe('collect', () => {
       }
     })
 
-    it('Object.keys replaced afterwards changes nothing', () => {
+    it('Object.getOwnPropertyNames replaced afterwards changes nothing', () => {
       const bad = new InvalidId('bad')
-      const original = Object.keys
-      Object.keys = () => []
+      const original = Object.getOwnPropertyNames
+      Object.getOwnPropertyNames = () => []
       try {
         expect(collect({ a: bad })).toBe(bad)
       } finally {
-        Object.keys = original
+        Object.getOwnPropertyNames = original
       }
     })
 

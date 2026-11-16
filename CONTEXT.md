@@ -80,15 +80,17 @@ docs/adr/0001-unboxed-maybe-and-result.md).
 ### Attempt
 
 To **attempt** is to run a body that unboxes Results with **Take**: the
-Attempt is the Failure of the Take whose leave reaches it, or the body's
-value. The declarative counterpart is **Collect**.
+Attempt is the Failure its own Take's leave brings it, or the body's value;
+a leave of another Attempt's Take passes through it. The declarative
+counterpart is **Collect**.
 
 _Avoid_: try, do-notation.
 
 ### Take
 
-To **take** a part is to unbox its value inside an **Attempt**, or to leave
-that Attempt with the part's Failure. Each Attempt hands out its own Take.
+To **take** a part is to unbox its value inside the **Attempt** that hands
+it out, or to leave that Attempt with the part's Failure. Each Attempt hands
+out its own Take.
 
 _Avoid_: unwrap, await, yield, assertSuccess.
 

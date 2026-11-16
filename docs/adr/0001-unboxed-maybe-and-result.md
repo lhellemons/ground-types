@@ -769,8 +769,8 @@ E>>(part: R) => ValueOf<R>`; **Update, 2026-11-16:** the shipped
   `attempt` has returned; and a plain `return failure(…)` in the
   body lands in `T`, with `E` still `Error`, where under an annotation it
   is a type error (**Update, 2026-11-16:** not under every annotation: with
-  a value type that admits an `Error`, such as `unknown`, it compiles; #120
-  item 2). The guards and docblocks for these are #115's.
+  a value type that the returned Failure fits, such as `unknown`, it
+  compiles; #120 item 2). The guards and docblocks for these are #115's.
   **Update, 2026-11-16:** shipped by #115; see the amendment below (#115).
 
 The third candidate, `gen`/`yield* take` (generator do-notation), infers
@@ -935,9 +935,12 @@ does not compile.
     private field, where the 2026-11-15 text has one per `attempt`.
   - `Take`'s constraint is `Result<unknown, E> | null | undefined | void`,
     so a `Result<X | undefined, E>` is accepted.
-  - An object of parts is read by its own enumerable string keys.
-- Also shipped: `collect`'s value type is `readonly` one level deep, and a
-  plain iterator is accepted by the guard on an `attempt` body, which
-  `NotAGenerator` narrows to generators.
+  - An object of parts is read by its own string keys, enumerable or not
+    (`Object.getOwnPropertyNames`), where the prototype read `Object.values`.
+- Also shipped: `collect`'s value type is `readonly` one level deep. The
+  guard on an `attempt` body compares the body's type with `Generator` and
+  `AsyncGenerator` structurally: for example, `[1, 2].values()` is
+  accepted, and an iterator that declares `next`, `return`, `throw` and
+  `[Symbol.iterator]` is refused (#120 item 3).
 
 Open type questions are ticket 120.

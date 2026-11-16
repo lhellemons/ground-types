@@ -73,6 +73,8 @@ declare const intersectedWithDeclared: Record<string, unknown> & {
 declare const numberIndexed: { [key: number]: Result<Count, InvalidCount> }
 declare const stringIndexed: Record<string, Result<Count, InvalidCount>>
 declare const underlyingError: Result<number, Error>
+class MemberlessB extends Error {}
+declare const memberlessB: Result<number, MemberlessB>
 declare const idList: Result<Id, InvalidId>[]
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the case under test: a part typed any
 declare const loose: any
@@ -428,6 +430,11 @@ describe('attempt', () => {
     expectTypeOf(lenient).returns.toEqualTypeOf<Result<number, InvalidId>>()
   })
 
+  it('error classes with no members of their own compare structurally, so a memberless pair is accepted', () => {
+    class MemberlessA extends Error {}
+    attempt<number, MemberlessA>((take) => take(memberlessB))
+  })
+
   it('error types compare structurally: an Error subclass with no members counts as Error', () => {
     class Plain extends Error {}
     attempt<number, Plain>((take) => take(underlyingError))
@@ -480,6 +487,19 @@ describe('attempt', () => {
     void leaving
   })
 
+  it('refuses an async function expression, an async arrow and a function* with no return annotation', () => {
+    // @ts-expect-error - an async function expression is refused
+    attempt(async function (take: Take<InvalidId>) {
+      return take(id('a'))
+    })
+    // @ts-expect-error - an async arrow is refused
+    attempt(async (take: Take<InvalidId>) => take(id('a')))
+    // @ts-expect-error - a function* with no return annotation is refused
+    attempt(function* (take: Take<InvalidId>) {
+      yield take(id('a'))
+    })
+  })
+
   it('refuses an async body and a generator body, with the diagnostic of its type', () => {
     const asyncBody = async (take: Take<InvalidId>) => take(id('a'))
     const generatorBody = function* (take: Take<InvalidId>) {
@@ -515,6 +535,25 @@ describe('attempt', () => {
       // @ts-expect-error - ValueOf<X> cannot be judged
       attempt((take) => take(part))
     void generic
+  })
+
+  it('refuses an iterator that declares next, return, throw and Symbol.iterator, as a generator', () => {
+    class Countdown implements Iterator<number, undefined, undefined> {
+      next(): IteratorResult<number, undefined> {
+        return { done: true, value: undefined }
+      }
+      return(): IteratorResult<number, undefined> {
+        return { done: true, value: undefined }
+      }
+      throw(): IteratorResult<number, undefined> {
+        return { done: true, value: undefined }
+      }
+      [Symbol.iterator](): Countdown {
+        return this
+      }
+    }
+    // @ts-expect-error - structurally a Generator
+    attempt(() => new Countdown())
   })
 
   it('refuses a body whose return type is a union with a generator', () => {
@@ -576,7 +615,7 @@ describe('attempt', () => {
     attempt(widened)
   })
 
-  it('accepts a body that returns a plain array, an iterator that is not a generator or an any', () => {
+  it('accepts a body that returns a plain array, an iterator that does not declare the full generator protocol, or an any', () => {
     const arr = attempt((take) => [take(id('a'))])
     expectTypeOf(arr).toEqualTypeOf<Result<Id[], Error>>()
     const values = attempt(() => [1, 2].values())

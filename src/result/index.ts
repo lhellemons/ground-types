@@ -918,15 +918,15 @@ type ObjectErrors<P> =
    from the global `TypeError` when `collect` is called, so replacing that
    global changes what is thrown. */
 const hasOwn = Object.hasOwn
-const ownKeys = Object.keys
+const ownKeys = Object.getOwnPropertyNames
 const freeze = Object.freeze
 const isArray = Array.isArray
 
 /* The first Failure among the parts, or `undefined` when there is none (a
    Failure is an `Error`, so it is never `undefined` itself). A list is read
    by its own indices: every index below its length is visited, and a hole
-   is skipped, not read; an object of parts by the keys `Object.keys`
-   gives. */
+   is skipped, not read; an object of parts by its own string keys,
+   enumerable or not (`Object.getOwnPropertyNames`). */
 function firstFailure(parts: object): Error | undefined {
   if (isArray(parts)) {
     for (let index = 0; index < parts.length; index++) {
@@ -959,7 +959,7 @@ function firstFailure(parts: object): Error | undefined {
  * The Success is the argument itself, not a copy, and `readonly` one level
  * deep: for example, a later change to the caller's object shows through,
  * and a frozen argument comes back frozen. An object of parts is read by its
- * own enumerable string keys: for example, a symbol-keyed or a `__proto__`
+ * own string keys: for example, a symbol-keyed or a `__proto__`
  * Result member is refused in the types. For example, a part typed `any`
  * makes the result `any`, and an object of parts typed as an interface (say
  * `interface Shape { id: Result<…> }`) is refused: use a type alias. For
@@ -970,7 +970,8 @@ function firstFailure(parts: object): Error | undefined {
  * `collect` returns what it returns, a plain value or a Result. `build` is
  * typed from the parts: for example, a swapped `Id` and `Count` constructor
  * argument does not compile. `build` must resolve synchronously: for
- * example, an `async` build is refused.
+ * example, an inline `async` build with no type arguments is refused (gaps:
+ * #120 item 6).
  *
  * `attempt` is the imperative counterpart.
  *
@@ -1006,7 +1007,8 @@ export function collect(
  * Unboxes a part inside an {@link attempt}, or leaves that `attempt` with the
  * part's Failure: `take(part)` is the part's value when it is a Success. For
  * example, a Result whose error is `InvalidCount` is rejected under
- * `E = InvalidId`.
+ * `E = InvalidId` when the two classes differ in a member, say a `kind`;
+ * error classes compare structurally (#120 item 5).
  *
  * Open type questions: #120.
  */
@@ -1028,8 +1030,8 @@ type IsGenerator<T> = unknown extends T
 
 /**
  * The diagnostic for an `attempt` body that returns a generator, for example
- * the result of a generator function or of an async generator function. The
- * generator counterpart of {@link NotAPromise}.
+ * the type of a `function*` with no return annotation. The generator
+ * counterpart of {@link NotAPromise}.
  *
  * Open type questions: #120.
  */
@@ -1076,7 +1078,7 @@ const tokenOwnedBy = Leave.ownedBy
 /**
  * Runs `body` with a `take` that unboxes a part or leaves the `attempt` with
  * the part's Failure. `attempt` returns `body`'s return value, or the
- * Failure of the `take` whose leave reaches it. Of all attempts, only the
+ * Failure of its own `take`'s leave. Of all attempts, only the
  * one whose `take` it was recognises the leave; any other throw that reaches
  * it propagates.
  *
@@ -1099,8 +1101,9 @@ const tokenOwnedBy = Leave.ownedBy
  * `Result<Id, InvalidId>` annotation, a `return failure(…)` in the body is a
  * type error: use `take(failure(…))`.
  *
- * `body` must resolve synchronously: for example, an `async` or generator
- * body is refused, as `tryCatch` refuses an async callback.
+ * `body` must resolve synchronously: for example, an `async` arrow or
+ * function, or a `function*` with no return annotation, is refused (gaps:
+ * #120 items 3 and 6).
  *
  * `collect` is the declarative counterpart.
  *
