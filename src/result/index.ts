@@ -881,12 +881,12 @@ export type Collected<P> = P extends readonly unknown[]
 
 /**
  * The error `collect` may fail with: the union of every part's error type,
- * read member by member through `ErrorOf`. A list contributes its element type, an object of
- * parts its string-keyed and number-keyed members.
+ * read member by member through `ErrorOf`. A list contributes its element
+ * type, an object of parts its string-keyed and number-keyed members.
  */
 export type Failed<P> = [
   P extends readonly unknown[]
-    ? { [K in keyof P]: ErrorOf<P[K]> }[number]
+    ? { [K in keyof P]-?: ErrorOf<P[K]> }[number]
     : { [K in keyof P]-?: ErrorOf<P[K]> }[Extract<keyof P, string | number>],
 ] extends [infer F extends Error]
   ? F
@@ -951,8 +951,10 @@ function firstFailure(parts: object): Error | undefined {
  * The Success is the argument itself, not a copy: `readonly` in the type
  * does not freeze it, so a later change to the caller's object or list shows
  * through, and a frozen argument comes back frozen. A part is a value the
- * caller has already computed, apart from a getter, which `collect` runs as
- * it reads the object.
+ * caller has already computed, apart from a getter. A getter is run by
+ * `collect` as it reads the object, in order, and not after the first
+ * Failure; since the Success is the argument itself, each later read runs it
+ * again, and only the value `collect` read was checked (open, #120 item 7).
  * The first Failure is the first in order: a list's own indices, or the keys
  * `Object.keys` gives for an object. `collect` catches nothing: a throw from
  * a part's getter or from `build` propagates. A part whose prototype chain
@@ -1011,10 +1013,12 @@ export function collect(
 /**
  * Unboxes a part inside an {@link attempt}, or leaves that `attempt` with the
  * part's Failure. `take(part)` is the part's value when it is a Success.
- * A part whose error type is outside `E` is rejected; a part typed `object`,
- * `Object`, `{}` or `void`, or a type with a string index signature such as
- * `Record<string, unknown>`, is accepted, and an Error it holds at run time
- * leaves the `attempt` whatever `E` says (open, #120 item 5).
+ * A part whose error type is outside `E` is rejected. A part whose type
+ * declares no properties of its own (`object`, `Object`, `{}`, an empty
+ * interface or class instance type, or a type made only of index signatures
+ * such as `Record<string, X>` or `Record<number, X>`), a type parameter
+ * constrained to one, or `void`, is accepted, and an Error it holds at run
+ * time leaves the `attempt` whatever `E` says (open, #120 item 5).
  */
 export type Take<E extends Error> = <
   R extends Result<unknown, E> | null | undefined | void,
@@ -1120,7 +1124,8 @@ const tokenOwnedBy = Leave.ownedBy
  * `body` must resolve synchronously. A body whose return type is a thenable
  * (see {@link NotAPromise}) or a generator (see {@link NotAGenerator}) is a
  * type error, as far as its type shows. An async function typed as
- * returning a type a Promise fits (`void`, `unknown`, `object`, `{}`), or
+ * returning a type a Promise fits (`void`, `unknown`, `object`, `Object`,
+ * `{}`), or
  * given such a `T` explicitly, is not caught (open, #120 item 6), and neither
  * is a generator function annotated as returning an iterator type, such as
  * `IterableIterator` (open, #120 item 3). At run time an async body returns

@@ -147,6 +147,48 @@ describe('collect', () => {
     expect(collect(parts)).toBe(parts)
   })
 
+  describe('a getter part', () => {
+    it('is run by collect as it reads, in key order, and not after the first Failure', () => {
+      const bad = new InvalidId('bad')
+      const reads: string[] = []
+      const parts = {
+        get first(): Result<string, InvalidId> {
+          reads.push('first')
+          return bad
+        },
+        get second(): Result<string, InvalidId> {
+          reads.push('second')
+          return id('a')
+        },
+      }
+      expect(collect(parts)).toBe(bad)
+      expect(reads).toEqual(['first'])
+    })
+
+    it('can read another part through this', () => {
+      const parts = {
+        a: 1,
+        get b(): number {
+          return this.a + 1
+        },
+      }
+      expect(collect(parts, ({ b }) => b)).toBe(2)
+    })
+
+    it('runs again on each later read of the Success, which collect did not check', () => {
+      let reads = 0
+      const parts = {
+        get x(): Result<string, InvalidId> {
+          reads += 1
+          return reads === 1 ? id('a') : new InvalidId('later')
+        },
+      }
+      const collected = collect(parts)
+      expect(collected).toBe(parts)
+      expect(isFailure(parts.x)).toBe(true)
+    })
+  })
+
   it('reads an object by its own enumerable string keys only', () => {
     const bad = new InvalidId('bad')
     const symbol = Symbol('part')
@@ -268,11 +310,11 @@ describe('collect', () => {
       }
       const originalNext = proto.next
       const originalIterator = Array.prototype[Symbol.iterator]
-      proto.next = () => ({ done: true, value: undefined })
-      Array.prototype[Symbol.iterator] = function* () {
-        // yields nothing
-      } as (typeof Array.prototype)[typeof Symbol.iterator]
       try {
+        proto.next = () => ({ done: true, value: undefined })
+        Array.prototype[Symbol.iterator] = function* () {
+          // yields nothing
+        } as (typeof Array.prototype)[typeof Symbol.iterator]
         expect(collect({ a: bad })).toBe(bad)
         expect(collect([bad])).toBe(bad)
       } finally {

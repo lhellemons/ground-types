@@ -47,6 +47,14 @@ declare const asObject: object
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the case under test: a part typed {}
 declare const asEmpty: {}
 declare const asVoid: void
+declare const optionalTuple: readonly [
+  Result<Id, InvalidId>,
+  Result<Count, InvalidCount>?,
+]
+declare const onlyOptional: [Result<Id, InvalidId>?]
+// eslint-disable-next-line @typescript-eslint/no-wrapper-object-types -- the case under test: a part typed Object
+declare const asBigObject: Object
+declare const numberDictionary: Record<number, Result<Count, InvalidCount>>
 declare const idList: Result<Id, InvalidId>[]
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the case under test: a part typed any
 declare const loose: any
@@ -183,6 +191,15 @@ describe('collect', () => {
   it('a plain member whose type may hold an Error adds nothing to the error type', () => {
     expectTypeOf(collect({ x: unknownPart })).toEqualTypeOf<
       Result<{ readonly x: unknown }, never>
+    >()
+  })
+
+  it('an optional tuple element keeps the error types of every element', () => {
+    expectTypeOf(collect(optionalTuple)).toEqualTypeOf<
+      Result<readonly [Id, (Count | undefined)?], InvalidId | InvalidCount>
+    >()
+    expectTypeOf(collect(onlyOptional)).toEqualTypeOf<
+      Result<readonly [(Id | undefined)?], InvalidId>
     >()
   })
 
@@ -340,12 +357,14 @@ describe('attempt', () => {
     )
   })
 
-  it('takes a part typed object, {} or void, whatever E says', () => {
+  it('takes a part whose type declares no properties, whatever E says', () => {
     // The constraint admits them, so an Error in one leaves the attempt typed
     // as E although it is outside E.
     const lenient = (): Result<number, InvalidId> =>
       attempt((take) => {
         take(asDictionary)
+        take(numberDictionary)
+        take(asBigObject)
         take(asObject)
         take(asEmpty)
         take(asVoid)

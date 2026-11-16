@@ -75,11 +75,10 @@ list: the first Failure among them, or the parts themselves with every
 member unboxed. A part that is not an Error counts as a Success and passes
 through. The error type is the union of the parts' error types. A Collect
 catches no throw, though a part whose prototype chain cannot be read counts
-as a Success and what its trap threw is dropped. A part is a value
-computed before it runs, apart from a getter, so one part cannot depend on
-another; the step that builds
-from the parts follows, or is the Collect with a build step. The imperative
-counterpart is **Attempt**.
+as a Success and what its trap threw is dropped. One part cannot depend on
+another, except through a getter, which the Collect runs as it reads. The
+step that builds from the parts follows, or is the Collect with a build
+step. The imperative counterpart is **Attempt**.
 
 _Avoid_: all, sequence, traverse (a fan-in that needs a container; see
 docs/adr/0001-unboxed-maybe-and-result.md).

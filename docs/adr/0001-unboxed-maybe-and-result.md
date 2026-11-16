@@ -697,7 +697,9 @@ readability and fit with the Result Box. The owner chose **A + B**:
   `{ readonly id: PieceId; readonly at: Position }`),
   and `collect(dto.path.map(Position.from))` is `Result<Position[],
 InvalidCoordinate>`. The parts are evaluated by the caller, eagerly, so
-  a part cannot depend on another part: the construction step follows,
+  a part cannot depend on another part (**Update, 2026-11-16:** except
+  through a getter, which `collect` runs as it reads; see the amendment
+  below (#115)): the construction step follows,
   through `map`, `andThen` or an early return. The `map`/`andThen` form
   carries a typed `E` across a factory boundary with nothing written by
   hand, but not the value: `/result`'s `map<A, U, T extends A, E>(fn:
@@ -744,8 +746,8 @@ InvalidCoordinate>`. The parts are evaluated by the caller, eagerly, so
   part whose error is outside it (`take` is `<R extends Result<unknown,
 E>>(part: R) => ValueOf<R>`; **Update, 2026-11-16:** the shipped
   constraint is wider, see the amendment below (#115)). So a typed union at
-  the boundary is the annotation's, written by hand; under slider's own `Result<X, Error>`
-  annotation `E` is `Error`, no better than today. An explicit
+  the boundary is the annotation's, written by hand; under slider's own
+  `Result<X, Error>` annotation `E` is `Error`, no better than today. An explicit
   `attempt<T, E>` serves where there is no annotation. A factory's own
   failure is a `take(failure(…))` or an early return ahead of the
   `attempt`, never a throw. Its costs, measured: whatever in the body
@@ -925,11 +927,13 @@ swapped for one of another type inside `build` does not compile.
 - What shipped with corrections to the #59 amendment's description:
   - `Take`'s constraint is `Result<unknown, E> | null | undefined | void`,
     not `Result<unknown, E>`: `Result<unknown, E>` alone rejects a Result
-    whose value type includes `undefined`. It also accepts a part typed
-    `object`, `Object`, `{}` or `void`, or a type with a string index
-    signature such as `Record<string, unknown>`, and an Error such a part
-    holds at run time leaves the `attempt` whatever `E` says; whether to
-    close that is #120's question (item 5).
+    whose value type includes `undefined`. It also accepts a part whose type
+    declares no properties of its own (`object`, `Object`, `{}`, an empty
+    interface or class instance type, or a type made only of index
+    signatures such as `Record<string, X>` or `Record<number, X>`), a type
+    parameter constrained to one, and `void`; an Error such a part holds at
+    run time leaves the `attempt` whatever `E` says, and whether to close
+    that is #120's question (item 5).
   - The guard on an `attempt` body refuses a thenable (`NotAPromise`) and a
     generator or async generator (`NotAGenerator`), as far as the body's
     return type shows. A plain iterator (`[1, 2].values()`) is accepted:
@@ -940,7 +944,7 @@ swapped for one of another type inside `build` does not compile.
     `AsyncIterableIterator`, `Iterator`) is not caught, and neither
     `tryCatch` nor `attempt` refuses it; that is #120's item 3. An async
     function typed as returning a type a Promise fits (`void`, `unknown`,
-    `object`, `{}`), or given such a `T` explicitly, passes `attempt` and
+    `object`, `Object`, `{}`), or given such a `T` explicitly, passes `attempt` and
     `tryCatch` alike; that is #120's item 6.
   - The leave token is a fresh frozen object per `take` given a Failure,
     carrying that Failure and naming its `attempt` by a private field,
@@ -957,7 +961,7 @@ swapped for one of another type inside `build` does not compile.
     under a return annotation it is a type error; with explicit type
     arguments, or a `T` that admits an Error such as `unknown`, its type is
     not in the result, and `isFailure` narrows it to `E`. Whether `attempt`
-    should guard `T` is #120's question.
+    should guard `T` is #120's question (item 2).
   - `collect` keeps `readonly` in its value type, one level deep, reads an
     object of parts by its own enumerable string keys and a list by its own
     indices (every index below its length, holes included, so a sparse list
@@ -966,9 +970,15 @@ swapped for one of another type inside `build` does not compile.
     hold an Error (`unknown`, `object`) adds nothing to the error type, but
     an Error there at run time is returned as the Failure; whether `Failed`
     should give such a member `Error`, as `ErrorArmOf` does, is #120's
-    question. `collect` treats a Promise member as a plain value: it adds
+    question (item 1). `collect` treats a Promise member as a plain value: it adds
     nothing to the error type, and a Failure it resolves to is never seen;
-    whether to refuse a PromiseLike member in the types is #120's question.
+    whether to refuse a PromiseLike member in the types is #120's question
+    (item 4).
+  - A part is a value the caller has already computed, apart from a getter.
+    `collect` runs a getter as it reads the object, in order, and not after
+    the first Failure; since the Success is the argument itself, each later
+    read runs it again, and only the value `collect` read was checked
+    (#120's question, item 7).
   - `collect` and `take` read a part through `isError`, as `isFailure` does,
     so a part whose prototype chain cannot be read (a Proxy whose
     `getPrototypeOf` trap throws, a revoked Proxy) counts as not an `Error`,
