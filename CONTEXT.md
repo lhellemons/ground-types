@@ -67,6 +67,34 @@ given.
 
 _Avoid_: Reason, fault, err.
 
+### Collect
+
+To **collect** is to fan several Results in, whether they come as an
+**object of parts** (an object whose members are the parts), a tuple or a
+list: the first Failure among the members of the object, tuple or list, or
+the parts themselves with every member unboxed. The imperative counterpart
+is **Attempt**.
+
+_Avoid_: all, sequence, traverse (a fan-in that needs a container; see
+docs/adr/0001-unboxed-maybe-and-result.md).
+
+### Attempt
+
+To **attempt** is to run a body that unboxes Results with **Take**: the
+Attempt is the Failure its own Take's leave brings it, or the body's value;
+a leave of another Attempt's Take passes through it. The declarative
+counterpart is **Collect**.
+
+_Avoid_: try, do-notation.
+
+### Take
+
+To **take** a part is to unbox its value inside the **Attempt** that hands
+it out, or to leave that Attempt with the part's Failure. Each Attempt hands
+out its own Take.
+
+_Avoid_: unwrap, await, yield, assertSuccess.
+
 ### Mapper
 
 A function of exactly one argument: the unary special case of Function,

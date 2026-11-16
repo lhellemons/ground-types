@@ -5,13 +5,18 @@ import { definePrimitiveValueObject } from '../value-object/index.js'
 import type { Branded } from '../brand/index.js'
 import { describe, expectTypeOf, it } from 'vitest'
 import type {
+  Collected,
+  Failed,
   Failure,
+  NotAGenerator,
   NotAPromise,
   NotAResult,
   NotPossiblyAnError,
+  Parts,
   Result,
   Success,
   SuccessArm,
+  Take,
 } from './index.js'
 
 /**
@@ -92,6 +97,53 @@ describe('/result type exports', () => {
     expectTypeOf<
       NotAPromise<Promise<number>>
     >().toEqualTypeOf<'This callback returns a Promise (or thenable) — resolve it first with promise/resultify or call/resultify, then compose with .then()'>()
+  })
+})
+
+class FailA extends Error {
+  readonly kind = 'FailA' as const
+}
+class FailB extends Error {
+  readonly kind = 'FailB' as const
+}
+declare const take: Take<FailA>
+declare const successA: Success<number, FailA>
+declare const resultB: Result<number, FailB>
+describe('fan-in type exports', () => {
+  it('Parts is what collect accepts: an object of parts, a tuple or a list', () => {
+    expectTypeOf<{ a: number }>().toExtend<Parts>()
+    expectTypeOf<readonly [number, string]>().toExtend<Parts>()
+    expectTypeOf<Result<number, RangeError>[]>().toExtend<Parts>()
+    expectTypeOf<number>().not.toExtend<Parts>()
+  })
+
+  it('Collected unboxes each member of the parts, readonly', () => {
+    expectTypeOf<
+      Collected<{ a: Result<number, RangeError>; b: string }>
+    >().toEqualTypeOf<{ readonly a: number; readonly b: string }>()
+    expectTypeOf<
+      Collected<readonly [Result<number, RangeError>, string]>
+    >().toEqualTypeOf<readonly [number, string]>()
+  })
+
+  it('Failed is the union of the members error types, and never for parts that cannot fail', () => {
+    expectTypeOf<
+      Failed<{ a: Result<number, FailA>; b: Result<string, FailB> }>
+    >().toEqualTypeOf<FailA | FailB>()
+    expectTypeOf<Failed<{ a: number }>>().toEqualTypeOf<never>()
+  })
+
+  it('NotAGenerator names the fix for a body that returns a generator', () => {
+    expectTypeOf<
+      NotAGenerator<Generator<number, void, undefined>>
+    >().toEqualTypeOf<'This body returns a generator — attempt runs its body to completion, so write a plain function'>()
+    expectTypeOf<NotAGenerator<number[]>>().toEqualTypeOf<unknown>()
+  })
+
+  it('Take unboxes a part whose error fits E', () => {
+    expectTypeOf(take(successA)).toEqualTypeOf<number>()
+    // @ts-expect-error - FailB is outside FailA
+    take(resultB)
   })
 })
 

@@ -687,7 +687,9 @@ readability and fit with the Result Box. The owner chose **A + B**:
 - **`collect(parts)`**: an object of parts, a tuple or a list whose members are
   `Result`s (a plain member passes through). It returns the first
   `Failure` among the parts, or the parts themselves: on success no result
-  object is built, and nothing is caught. Its value type is the parts with
+  object is built, and nothing is caught (**Update, 2026-11-16:** a part
+  whose prototype chain cannot be read counts as not an `Error`, and what
+  its trap threw is dropped; fan-in tests). Its value type is the parts with
   each member unboxed; its error type is the union of the members' error
   types, read through `ErrorOf`, inferred with no annotation: with
   `Position.from` annotated `Result<Position, InvalidCoordinate>`,
@@ -696,8 +698,11 @@ readability and fit with the Result Box. The owner chose **A + B**:
   (the prototype's type; #115 keeps `readonly`, so there the value reads
   `{ readonly id: PieceId; readonly at: Position }`),
   and `collect(dto.path.map(Position.from))` is `Result<Position[],
-InvalidCoordinate>`. The parts are evaluated by the caller, eagerly, so
-  a part cannot depend on another part: the construction step follows,
+InvalidCoordinate>` (**Update, 2026-11-16:** `Result<readonly Position[],
+InvalidCoordinate>` as shipped). The parts are evaluated by the caller,
+  eagerly, so a part cannot depend on another part (**Update,
+  2026-11-16:** except through a getter or a Proxy's traps, which `collect`
+  runs as it reads; #120 item 7): the construction step follows,
   through `map`, `andThen` or an early return. The `map`/`andThen` form
   carries a typed `E` across a factory boundary with nothing written by
   hand, but not the value: `/result`'s `map<A, U, T extends A, E>(fn:
@@ -712,7 +717,9 @@ InvalidCoordinate>`. The parts are evaluated by the caller, eagerly, so
   Arm A's factories and line counts are measured without those
   annotations; what to do about it (document the annotation, a
   `collect(parts, build)` form, or a change to `map` and `andThen`) is
-  #115's. The early-return form re-wraps the Failure (`if
+  #115's. **Update, 2026-11-16:** the implementer of #115 chose the
+  `collect(parts, build)` form under the ticket; see the amendment below
+  (#115). The early-return form re-wraps the Failure (`if
 (isFailure(parts)) return failure(parts)`), which leaks the nested
   `Failure` into an un-annotated return type; an un-annotated factory
   that mixes early returns with a combinator returns a union of Results
@@ -730,19 +737,33 @@ InvalidCoordinate>`. The parts are evaluated by the caller, eagerly, so
 - **`attempt((take) => …)`**: the imperative form, slider's shape with
   `assertSuccess` renamed. `take(part)` unboxes the part or leaves the
   `attempt` with its Failure, by throwing a token private to that call,
-  compared by identity; `attempt` catches that token and nothing else, so
+  compared by identity (**Update, 2026-11-16:** one token per `take` given a
+  Failure, recognised by a private field; see the amendment below (#115));
+  `attempt` catches that token and nothing else, so
   a bug propagates (an `Error` or a bare string alike); a `take` from an
-  enclosing `attempt` that is still running leaves that one, and a `take`
+  enclosing `attempt` that is still running leaves that one
+  (**Update, 2026-11-16:** `take`, like `collect`, takes a part whose
+  prototype chain cannot be read as its value and drops what its trap threw,
+  an enclosing `attempt`'s leave included; fan-in tests), and a `take`
   called after its own `attempt` has returned throws the token, a
-  non-`Error`, to its caller. `take` works inside `.map`
+  non-`Error`, to its caller (**Update, 2026-11-16:** given a Failure;
+  given a Success it returns the value (#115)). `take` works inside `.map`
   and inside a Maybe `map` callback, and a step can depend on an earlier
   one. `E` has no inference site in the body: with no contextual type it
   falls to `Error` (not `never`, as the ticket's first probe had it); from
   the enclosing return annotation it is found, and `take` then rejects a
   part whose error is outside it (`take` is `<R extends Result<unknown,
-E>>(part: R) => ValueOf<R>`). So a typed union at the boundary is the
-  annotation's, written by hand; under slider's own `Result<X, Error>`
-  annotation `E` is `Error`, no better than today. An explicit
+E>>(part: R) => ValueOf<R>`; **Update, 2026-11-16:** the shipped
+  constraint is wider, see the amendment below (#115); `take` also accepts,
+  whatever its error, for example a Result whose value type is `any`, such
+  as `tryCatch(() => JSON.parse(raw))()`, and a part typed `object`, `{}`,
+  `void` or `Record<string, X>`, and, under `E = Plain`, where `class Plain
+extends Error {}`, a Result of any error type is accepted, while under
+  `E = NotFound`, where `class NotFound extends Error { override readonly
+name = 'NotFound' }`, a Result whose error is `InvalidCount` is rejected
+  (open, #120 item 5; fan-in type tests)). So a typed union at
+  the boundary is the annotation's, written by hand; under slider's own
+  `Result<X, Error>` annotation `E` is `Error`, no better than today. An explicit
   `attempt<T, E>` serves where there is no annotation. A factory's own
   failure is a `take(failure(…))` or an early return ahead of the
   `attempt`, never a throw. Its costs, measured: whatever in the body
@@ -757,7 +778,12 @@ E>>(part: R) => ValueOf<R>`). So a typed union at the boundary is the
   before its first `await` included, and a `take` after it runs once the
   `attempt` has returned; and a plain `return failure(…)` in the
   body lands in `T`, with `E` still `Error`, where under an annotation it
-  is a type error. The guards and docblocks for these are #115's.
+  is a type error (**Update, 2026-11-16:** not under every annotation: with
+  a value type that the returned Failure fits, such as `unknown`, it
+  compiles; #120 item 2). The guards and docblocks for these are #115's.
+  **Update, 2026-11-16:** shipped by #115; see the amendment below (#115)
+  for the generator guard and the `attempt` docblock for the async guard
+  (gaps: #120 items 3 and 6).
 
 The third candidate, `gen`/`yield* take` (generator do-notation), infers
 the exact union with no annotation and catches nothing, but a `yield*`
@@ -885,3 +911,52 @@ fallback)` turns a Failure into the fallback value with the error
   which the standing "No `all`/`sequence`" bullet bans, and if so whether
   it can ship, is that ticket's to decide. `Failures<E>` as measured in
   `prototypes/59/fan-in.ts` is the recorded shape until then.
+
+### 2026-11-16 — `collect(parts, build)` and what #115 shipped (#115)
+
+The #59 amendment left open what to do about the construction step after a
+`collect`: `map` and `andThen` infer their callback's parameter from the
+callback alone, so over a `collect` it is `unknown` when plain and `any`
+when destructured, and swapped constructor arguments compile. The owner
+did not rule on it: the implementer of #115 chose, under the ticket, the
+second of its three remedies: **`collect(parts, build)`**, whose
+`build` is typed from the parts. `build` returns a plain value or a Result,
+and the result is `Result<ValueOf<R>, Failed<P> | ErrorOf<R>>`, so one form
+serves where `map` and `andThen` would; the arity decides which form of
+`collect` applies, as for the curryable combinators (ADR 0003). For example,
+with `Id` and `Count` parts a swapped constructor argument inside `build`
+does not compile.
+
+- **Documenting a hand-written parameter type** was not chosen: it leaves
+  the unsafe form the one that needs no annotation.
+- **Changing `map` and `andThen` so `T` is inferred from `value`** was not
+  chosen. A probe showed the applied form can infer its callback's
+  parameter from the value (`(fn: (value: T) => U, value: Result<T, E>)`),
+  but the curried `map(fn)` that `pipe` runs (ADR 0004) returns a function
+  generic in `T` and `E`, so `pipe`'s context cannot type its callback. A
+  probe with `E` as a type parameter of `map(fn)` itself types the callback
+  inside `pipe` (a swapped argument fails), but a `map(fn)` made outside a
+  `pipe` then fixes `E` at `Error`, and ADR 0003's generic unapplied form is
+  lost. The change would also reach every applied `map` and `andThen`
+  signature in `/result`, where `build` adds one overload to `collect`.
+- The early-return and `map`/`andThen` forms stay as the #59 amendment
+  describes them. `build` is the typed alternative to `map` and `andThen`;
+  the early-return form already types each member.
+- Shipped differently from the 2026-11-15 text:
+  - The leave token is one per `take` given a Failure, recognised by a
+    private field, where the 2026-11-15 text has one per `attempt`.
+  - `Take`'s constraint is `Result<unknown, E> | null | undefined | void`,
+    so a `Result<X | undefined, E>` is accepted.
+  - An object of parts is read by its own string keys, enumerable or not
+    (`Object.getOwnPropertyNames`), where the prototype read `Object.values`.
+- Also shipped: `collect`'s value type is `readonly` one level deep. The
+  guard on an `attempt` body compares the body's type with `Generator` and
+  `AsyncGenerator` structurally: for example, `[1, 2].values()` is
+  accepted, and with the ES2022 lib, for example, the type tests'
+  `Countdown` (it declares `next`, `return` and `throw`, and its
+  `[Symbol.iterator]()` returns itself) is refused, while the type tests'
+  `NextOnly` (it declares only `next` and `[Symbol.iterator]()`) and
+  `Listing` (its `[Symbol.iterator]()` is annotated
+  `IterableIterator<number>`) are accepted (#120 item 3).
+
+Open type questions are ticket 120.

@@ -848,3 +848,300 @@ function isInstanceOfAny(error: Error, classes: readonly unknown[]): boolean {
     }
   })
 }
+
+/**
+ * What `collect` accepts: an object of parts, a tuple or a list. Every member
+ * is a part: a {@link Result}, or a plain value that passes through as a
+ * Success. For example, a plain member `{ name: 'a', message: 'b' }` is typed
+ * as an error and its value as `never` (open, #120 item 9).
+ *
+ * Open type questions: #120.
+ */
+export type Parts =
+  | (Readonly<Record<string, unknown>> &
+      Readonly<Record<symbol, never>> & { readonly __proto__?: never })
+  | readonly unknown[]
+  // makes a tuple literal infer as a tuple
+  | readonly [unknown, ...unknown[]]
+
+/**
+ * The value `collect` returns on success: the parts with each member unboxed
+ * and `readonly`, one level deep. `{ id: Result<PieceId, E1> }` reads as
+ * `{ readonly id: PieceId }`, `[Result<A, E1>, Result<B, E2>]` as
+ * `readonly [A, B]` and `Result<Position, InvalidCoordinate>[]` as
+ * `readonly Position[]`. In code generic in a part's type, for example
+ * `function lens<V>(rs: Result<V, InvalidId>[]): Result<number, InvalidId> {
+ * return collect(rs, (xs) => xs.length) }` does not compile (open, #120 item
+ * 12).
+ *
+ * Open type questions: #120.
+ */
+export type Collected<P> = P extends readonly unknown[]
+  ? { readonly [K in keyof P]: ValueOf<P[K]> }
+  : {
+      readonly [K in keyof P as K extends string | number ? K : never]: ValueOf<
+        P[K]
+      >
+    }
+
+/**
+ * The error type of `collect(parts)`: the union of the error types of its
+ * parts.
+ *
+ * Open type questions: #120.
+ */
+export type Failed<P> = [
+  P extends readonly unknown[]
+    ? Exclude<{ [K in keyof P]: ErrorOf<P[K]> }[number], undefined>
+    : | DeclaredErrors<P>[keyof DeclaredErrors<P>]
+      | (string extends keyof P ? ErrorOf<P[string & keyof P]> : never)
+      | (number extends keyof P ? ErrorOf<P[number & keyof P]> : never),
+] extends [infer F extends Error]
+  ? F
+  : never
+
+/* The declared members' errors, each through `ErrorOf` on its own, and then
+   those of the string and number index signatures: indexing a type that has
+   an index signature by its keys would read only the signature. */
+type DeclaredErrors<P> = {
+  [
+    K in keyof P as K extends string | number
+      ? string extends K
+        ? never
+        : number extends K
+          ? never
+          : K
+      : never
+  ]-?: ErrorOf<P[K]>
+}
+
+/* Called through local bindings, so they are the functions captured when
+   the module loads: replacing one afterwards changes nothing here. The
+   loops below use no iterator. The `TypeError` for a bad argument is built
+   from the global `TypeError` when `collect` is called, so replacing that
+   global changes what is thrown. */
+const hasOwn = Object.hasOwn
+const ownNames = Object.getOwnPropertyNames
+const freeze = Object.freeze
+const isArray = Array.isArray
+
+/* The first Failure among the parts, or `undefined` when there is none (a
+   Failure is an `Error`, so it is never `undefined` itself). A list is read
+   by its own indices: every index below its length is visited, and a hole
+   is skipped, not read; an object of parts by its own string keys,
+   enumerable or not (`Object.getOwnPropertyNames`). */
+function firstFailure(parts: object): Error | undefined {
+  if (isArray(parts)) {
+    for (let index = 0; index < parts.length; index++) {
+      if (!hasOwn(parts, index)) continue
+      const part: unknown = parts[index]
+      if (isError(part)) return part
+    }
+    return undefined
+  }
+  const keys = ownNames(parts)
+  for (let index = 0; index < keys.length; index++) {
+    if (!hasOwn(parts, keys[index])) continue
+    const part: unknown = (parts as Record<string, unknown>)[keys[index]]
+    if (isError(part)) return part
+  }
+  return undefined
+}
+
+/**
+ * Fans several parts in: the first {@link Failure} among them, or the parts
+ * themselves as a {@link Success}. `parts` is an object of parts, a tuple or
+ * a list; the Success type is {@link Collected} and the error type is
+ * {@link Failed}, inferred with no annotation:
+ *
+ * ```ts
+ * collect({ id: PieceId.from(dto.id), at: Position.from(dto.at) })
+ * // Result<{ readonly id: PieceId; readonly at: Position },
+ * //   InvalidPieceId | InvalidCoordinate>
+ * ```
+ *
+ * In an Array `map`, pass `(r) => collect(r)`: `rows.map(collect)` compiles,
+ * and throws a `TypeError` on the first row, since `map` passes the index as
+ * `build`.
+ *
+ * The Success is the argument itself, not a copy, and `readonly` one level
+ * deep: for example, a later change to the caller's object shows through,
+ * and a frozen argument comes back frozen. An object of parts is read by its
+ * own string keys: for example, a symbol-keyed or a `__proto__`
+ * Result member is refused in the types. For example, an object of parts
+ * passed through a narrower type is read by all its own string keys, so a
+ * failing undeclared member's error is outside `Failed`: it comes back typed
+ * as a declared error, or as the Success when no declared member has an
+ * error type (open, #120 item 10). For example, a part typed `any`
+ * makes the result `any`, and an object of parts typed as an interface (say
+ * `interface Shape { id: Result<…> }`) is refused: use a type alias. For
+ * example, `collect({ name: 'n', message: 'm', level: 1 })` is typed `never`,
+ * and `success` refuses that value (open, #120 item 9).
+ *
+ * With a second argument, `build`, a Success runs `build` on the parts and
+ * `collect` returns what it returns, a plain value or a Result. `build` is
+ * typed from the parts: for example, a swapped `Id` and `Count` constructor
+ * argument does not compile. `build` must resolve synchronously: for
+ * example, an inline `async` arrow or function used as `build`, with no type
+ * arguments, is refused (gaps: #120 items 6 and 11).
+ *
+ * `attempt` is the imperative counterpart.
+ *
+ * Open type questions: #120.
+ */
+export function collect<P extends Parts>(
+  parts: P,
+): Result<Collected<P>, Failed<P>>
+export function collect<P extends Parts, R extends NotAPromise<R>>(
+  parts: P,
+  build: (parts: Collected<P>) => R,
+): Result<ValueOf<R>, Failed<P> | ErrorOf<R>>
+export function collect(
+  parts: unknown,
+  ...build: [] | [(parts: never) => unknown]
+): unknown {
+  if (typeof parts !== 'object' || parts === null) {
+    throw new TypeError(
+      'collect requires an object of parts, a tuple or a list',
+    )
+  }
+  if (build.length > 0 && typeof build[0] !== 'function') {
+    throw new TypeError('collect requires its build argument to be a function')
+  }
+  const failed = firstFailure(parts)
+  if (failed !== undefined) return failed
+  if (build.length === 0) return parts
+  const fn = build[0] as (parts: object) => unknown
+  return fn(parts)
+}
+
+/**
+ * Unboxes a part inside an {@link attempt}, or leaves that `attempt` with the
+ * part's Failure: `take(part)` is the part's value when it is a Success. For
+ * example, under `E = InvalidId` a Result whose error is `InvalidCount` is
+ * rejected when `InvalidCount` is not assignable to `InvalidId`, as when each
+ * declares a `kind` of its own literal type. A Result whose value type is
+ * `any` is itself `any`, and `take` accepts it whatever its error. The
+ * rejection holds with no type argument: `take<any>(part)` is accepted (#120
+ * item 5).
+ *
+ * Open type questions: #120.
+ */
+export type Take<E extends Error> = <
+  R extends Result<unknown, E> | null | undefined | void,
+>(
+  part: R,
+) => ValueOf<R>
+
+/* True when `T` is structurally a `Generator` or an `AsyncGenerator`. `any`
+   and `unknown` are not: nothing is known of them. */
+type IsGenerator<T> = unknown extends T
+  ? false
+  : T extends
+        | Generator<unknown, unknown, never>
+        | AsyncGenerator<unknown, unknown, never>
+    ? true
+    : false
+
+/**
+ * The diagnostic for an `attempt` body that returns a generator, for example
+ * the return type of a `function*` with no return annotation. The generator
+ * counterpart of {@link NotAPromise}.
+ *
+ * Open type questions: #120.
+ */
+export type NotAGenerator<R> = [
+  Extract<R extends unknown ? IsGenerator<R> : never, true>,
+] extends [never]
+  ? unknown
+  : 'This body returns a generator — attempt runs its body to completion, so write a plain function'
+
+/* The token a `take` given a Failure throws: one fresh, frozen object per
+   throw, carrying that Failure. It is not an `Error`, so no `Error` check
+   mistakes it for a Failure. It names its `attempt` by a private field. The
+   class and its prototype are frozen when the module loads, and `attempt`
+   calls the brand check through the binding captured then, so a body that
+   catches a token can neither change it nor replace the check; a token a body
+   did not receive cannot be built, as the owner is private to its `attempt`
+   so that only it recognises the token. */
+class Leave {
+  readonly #owner: object
+  readonly failure: Error
+
+  constructor(owner: object, failure: Error) {
+    this.#owner = owner
+    this.failure = failure
+    freeze(this)
+  }
+
+  static ownedBy(this: void, thrown: unknown, owner: object): thrown is Leave {
+    return (
+      typeof thrown === 'object' &&
+      thrown !== null &&
+      #owner in thrown &&
+      thrown.#owner === owner
+    )
+  }
+
+  static {
+    freeze(this)
+    freeze(this.prototype)
+  }
+}
+
+const tokenOwnedBy = Leave.ownedBy
+
+/**
+ * Runs `body` with a `take` that unboxes a part or leaves the `attempt` with
+ * the part's Failure. `attempt` returns `body`'s return value, or the
+ * Failure of its own `take`'s leave. Of all attempts, only the
+ * one whose `take` it was recognises the leave; any other throw that reaches
+ * it propagates.
+ *
+ * ```ts
+ * static from(
+ *   dto: DoorDTO,
+ * ): Result<Door, InvalidPieceId | InvalidCoordinate> {
+ *   return attempt((take) =>
+ *     new Door(take(PieceId.from(dto.id)), take(Position.from(dto.at))),
+ *   )
+ * }
+ * ```
+ *
+ * For example, a `try`/`catch` in the body that does not rethrow, or a
+ * `finally` that returns, swallows the leave. A {@link tryCatch} inside the
+ * body turns a `take` given a Failure into a {@link ThrownError} with the
+ * default handler,
+ * gives a function handler the token, and lets the leave through with
+ * `catchOnly` or a class list. A `take` given a Failure after its `attempt`
+ * returned throws the token, which is not an `Error`. Under, for example, a
+ * `Result<Id, InvalidId>` annotation, a `return failure(…)` in the body is a
+ * type error: use `take(failure(…))`.
+ *
+ * `body` must resolve synchronously: for example, an inline `async` arrow or
+ * function, or an inline `function*` with no return annotation, is refused
+ * when no type arguments are given (gaps: #120 items 3 and 6).
+ *
+ * `collect` is the declarative counterpart.
+ *
+ * Open type questions: #120.
+ */
+export function attempt<
+  T extends NotAPromise<T> & NotAGenerator<T>,
+  E extends Error = Error,
+>(body: (take: Take<E>) => T): Result<T, E> {
+  const owner = {}
+  const take = ((part: unknown): unknown => {
+    if (isError(part)) {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error -- the token is deliberately not an Error: no Error check mistakes it for a Failure
+      throw new Leave(owner, part)
+    }
+    return part
+  }) as Take<E>
+  try {
+    return body(take) as Result<T, E>
+  } catch (thrown) {
+    if (tokenOwnedBy(thrown, owner)) return thrown.failure as Failure<T, E>
+    throw thrown
+  }
+}
