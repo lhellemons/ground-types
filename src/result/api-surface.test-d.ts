@@ -1,4 +1,4 @@
-import { catchOnly, tryCatch } from './index.js'
+import { catchOnly, isSuccess, success, tryCatch } from './index.js'
 import { resultify } from '../promise/index.js'
 import { resultify as callResultify } from '../call/index.js'
 import { definePrimitiveValueObject } from '../value-object/index.js'
@@ -8,6 +8,7 @@ import type {
   Collected,
   Failed,
   Failure,
+  FailureMarkers,
   NotAGenerator,
   NotAPromise,
   NotAResult,
@@ -16,6 +17,7 @@ import type {
   Result,
   Success,
   SuccessArm,
+  SuccessMarkers,
   Take,
 } from './index.js'
 
@@ -55,6 +57,51 @@ describe('/result type exports', () => {
     const optional = null as unknown as Success<string | undefined, RangeError>
     expectTypeOf(plain(optional)).toEqualTypeOf<
       [string | undefined, RangeError]
+    >()
+  })
+
+  it('SuccessMarkers and FailureMarkers are the markers of a SuccessArm and a Failure', () => {
+    expectTypeOf<SuccessArm<number, RangeError>>().toExtend<
+      SuccessMarkers<number, RangeError>
+    >()
+    expectTypeOf<Failure<number, RangeError>>().toExtend<
+      FailureMarkers<number, RangeError>
+    >()
+    expectTypeOf<SuccessArm<number, RangeError>>().not.toExtend<
+      FailureMarkers<number, RangeError>
+    >()
+  })
+
+  it('no Failure fits SuccessMarkers: the _error marker refuses it', () => {
+    // `Failure<never, Error>`'s `_phantom` is `never`, which fits any
+    // `SuccessMarkers` `_phantom`; only `[_error]?: never` refuses it.
+    expectTypeOf<Failure<never, Error>>().not.toExtend<
+      SuccessMarkers<unknown, RangeError>
+    >()
+  })
+
+  it('a Success of an object literal type fits an index signature; a Failure does not', () => {
+    expectTypeOf<SuccessArm<{ id: string }, Error>>().toExtend<
+      Record<string, unknown>
+    >()
+    expectTypeOf<Failure<number, Error>>().not.toExtend<
+      Record<string, unknown>
+    >()
+    const log = (_meta: Record<string, unknown>): void => undefined
+    log(success({ id: 'x', name: 'n' }))
+    const record = null as unknown as Result<{ id: string }, Error>
+    if (isSuccess(record)) log(record)
+    void new URLSearchParams(success({ a: '1' }))
+    const checked = success({ a: 1 }) satisfies Record<string, unknown>
+    void checked
+  })
+
+  it('a Success of an interface type does not fit an index signature', () => {
+    interface User {
+      id: string
+    }
+    expectTypeOf<SuccessArm<User, Error>>().not.toExtend<
+      Record<string, unknown>
     >()
   })
 

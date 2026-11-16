@@ -297,7 +297,8 @@ an object, so `(): Result<unknown, Invalid> => failure(new Error())` would
 compile. Every `Failure` carries `[_error]?: E`, which `never` refuses, so
 no Failure can pass as a Success whatever `T` is. **Update, 2026-11-15:**
 a nullish arm of `Success` has no `[_error]`; see the 2026-11-15
-amendment below.
+amendment below. **Update, 2026-11-16:** the markers are now named by the
+exported `SuccessMarkers` and `FailureMarkers` (#99).
 
 `result` has a different shape of cost: a union argument lands wholly in
 `T` and `E` defaults to `Error`. It gains a first overload that splits
@@ -517,6 +518,9 @@ type SuccessArm<T, E extends Error = Error> = Exclude<
   readonly [_error]?: never
 }
 ```
+
+**Update, 2026-11-16:** the marker object in this block is now the exported
+alias `SuccessMarkers<T, E>` (#99), with the same members.
 
 `SuccessArm` is the marked part of a `Success`: an exported alias of its
 own, in `/result`'s module table and surface test. It needs a name and an
@@ -960,3 +964,105 @@ does not compile.
   `IterableIterator<number>`) are accepted (#120 item 3).
 
 Open type questions are ticket 120.
+
+### 2026-11-16 — The markers get exported names; an object spread and rest stay open (#99)
+
+#93 made `success(1)`, a ternary of `success` and `failure`, and a value
+narrowed by `isSuccess` emit in a consumer's `.d.ts`, by reaching the arm
+through the exported `SuccessArm`. Further consumer cases failed with TS4023
+or TS4058 ("cannot be named" for `_phantom`, `_value` and `_error`) on main
+(1bd9b19):
+
+- An exported function returning a `Success` narrowed by `typeof`: for
+  `u: Result<number | string, Invalid>`,
+  `if (isSuccess(u) && typeof u === 'number') return u`.
+- One narrowed by `in`: for
+  `o: Result<{ id: string } | { name: string }, Invalid>`,
+  `if (isSuccess(o) && 'id' in o) return o`.
+- A `Failure` narrowed by `instanceof Invalid` or `'code' in`.
+- An object spread of a `Success`: `export const s2 = { ...success({ id: 'x' }) }`,
+  and `return { ...r, extra: 1 }` after `isSuccess(r)`; and of a `Failure`:
+  `{ ...failure(new Invalid()) }`.
+- An object rest destructuring of a narrowed `Success`:
+  `const { id, ...others } = r` after `isSuccess(r)`, returned as
+  `{ id, others }`; and of a narrowed `Failure`:
+  `const { code, ...others } = r` after `isFailure(r)`. These two are not in
+  the ticket; on main (1bd9b19) they fail with TS4058 as well.
+
+`SuccessArm<T, E>` is `Exclude<T, …> & { markers }`, which distributes over a
+union `T`, so `typeof` and `in` narrowing pick one constituent,
+`number & { markers }`, that no longer carries the alias, and the marker
+object is written out in the declaration, where its symbol keys cannot be
+named.
+
+**Decision: name the markers, with the marker shapes unchanged.**
+
+```ts
+export type SuccessMarkers<T, E extends Error> = {
+  readonly [_phantom]?: E
+  readonly [_value]?: T
+  readonly [_error]?: never
+}
+export type FailureMarkers<T, E extends Error> = {
+  readonly [_phantom]?: T
+  readonly [_error]?: E
+}
+
+type SuccessArm<T, E extends Error = Error> = Exclude<T, …> & SuccessMarkers<T, E>
+type Failure<T, E extends Error = Error> = E & FailureMarkers<T, E>
+```
+
+`SuccessMarkers` and `FailureMarkers` are type-only exports of `/result`.
+The declaration of the `typeof` case writes
+`number & import("…/result").SuccessMarkers<string | number, Invalid>`. The
+`typeof`, `in` and `instanceof` cases above emit; pinned by
+`test/declaration-emit/result.test.ts`, test "writes a narrowed Success as
+SuccessMarkers, and a narrowed Failure as FailureMarkers". No type test in the
+repository changed to make this pass, and `src/result/api-surface.test-d.ts`
+gained the assertions for the two aliases, for the `_error` marker and for the
+index signature.
+
+**An object spread, and an object rest, stay open.** The spread copies the
+marker properties into a fresh object type, and that type is written out with
+its symbol keys. The three spread cases and the two rest cases above still
+fail with TS4023 or TS4058. They are pinned as failing, each with its
+explicit-type workaround pinned as emitting, in the tests of
+`test/declaration-emit/result.test.ts` named "still fails with TS4023 or
+TS4058, naming a marker symbol" and "emits with an explicit type on the
+exported value", so that a later fix flips the first. The README gives the
+workaround: an explicit type on the exported value or function.
+
+**Not chosen: markers as optional methods of a class.** A prototype made
+`SuccessMarkers` and `FailureMarkers` classes whose markers are optional
+methods (`[_phantom]?(): E | undefined`). An object spread does not copy a
+method declared in a class, so the spread cases emitted. It was dropped
+because a class instance type has no implicit index signature, so a
+`SuccessArm<{ id: string }, E>` stopped fitting `Record<string, unknown>`: on that
+prototype (commit 6441a31's tree, `tsc` from `typescript@5.9.3` on a
+consumer file) `log(success({ id: 'x', name: 'n' }))` for `log(meta:
+Record<string, unknown>)`, `if (isSuccess(r)) log(r)` for `r: Result<{ id:
+string }, Error>`, `new URLSearchParams(success({ a: '1' }))` and
+`success({ a: 1 }) satisfies Record<string, unknown>` fail with TS2345 or
+TS1360, and compile on main. A breaking change for those calls was not worth
+the spread. With this decision all four compile, pinned by the test "a Success
+of an object literal type fits an index signature; a Failure does not" in
+`src/result/api-surface.test-d.ts`. A `Success` of an `interface` type does not
+fit `Record<string, unknown>` under either design; the test "a Success of an
+interface type does not fit an index signature" pins that for `interface User
+{ id: string }`.
+
+Also tried, on the same TypeScript: a named interface with the same optional
+properties fixed the narrowing cases and not the spread, and exporting
+`_phantom` from `/result` fixed none of the three spread cases.
+
+Checked with `tsc` from `typescript@5.4.5`, `typescript@5.9.3` and
+`typescript@7.0.2` (each installed with `npm` in a scratch directory, run as
+`node node_modules/typescript/lib/tsc.js -p .` on a consumer file per case):
+the `typeof`, `in` and `instanceof` cases and the index-signature calls
+compile and emit, the three spread cases and the rest case fail with TS4023 or
+TS4058, and the explicit-type workarounds emit. The
+test file itself runs on the repository's TypeScript, 5.9.3.
+
+Costs: two more type names on `/result`; the object spread of a `Success` or a
+`Failure` still needs an explicit type in a consumer that emits declarations.
+Not measured: a consumer with `exactOptionalPropertyTypes`.
