@@ -918,7 +918,7 @@ type ObjectErrors<P> =
    from the global `TypeError` when `collect` is called, so replacing that
    global changes what is thrown. */
 const hasOwn = Object.hasOwn
-const ownKeys = Object.getOwnPropertyNames
+const ownNames = Object.getOwnPropertyNames
 const freeze = Object.freeze
 const isArray = Array.isArray
 
@@ -936,7 +936,7 @@ function firstFailure(parts: object): Error | undefined {
     }
     return undefined
   }
-  const keys = ownKeys(parts)
+  const keys = ownNames(parts)
   for (let index = 0; index < keys.length; index++) {
     const part: unknown = (parts as Record<string, unknown>)[keys[index]]
     if (isError(part)) return part
@@ -962,8 +962,9 @@ function firstFailure(parts: object): Error | undefined {
  * own string keys: for example, a symbol-keyed or a `__proto__`
  * Result member is refused in the types. For example, an object of parts
  * passed through a narrower type is read by all its own string keys, so a
- * failing undeclared member comes back typed as a declared error (open,
- * #120 item 10). For example, a part typed `any`
+ * failing undeclared member's error is outside `Failed`: it comes back typed
+ * as a declared error, or as the Success when no declared member can fail
+ * (open, #120 item 10). For example, a part typed `any`
  * makes the result `any`, and an object of parts typed as an interface (say
  * `interface Shape { id: Result<…> }`) is refused: use a type alias. For
  * example, an object of parts with string `name` and `message` members has
@@ -1011,7 +1012,9 @@ export function collect(
  * part's Failure: `take(part)` is the part's value when it is a Success. For
  * example, under `E = InvalidId` a Result whose error is `InvalidCount` is
  * rejected when `InvalidCount` is not assignable to `InvalidId`, as when each
- * declares a `kind` of its own literal type (#120 item 5).
+ * declares a `kind` of its own literal type. A Result whose value type is
+ * `any` is itself `any`, and `take` accepts it whatever its error (#120 item
+ * 5).
  *
  * Open type questions: #120.
  */
@@ -1033,7 +1036,7 @@ type IsGenerator<T> = unknown extends T
 
 /**
  * The diagnostic for an `attempt` body that returns a generator, for example
- * the type of a `function*` with no return annotation. The generator
+ * the return type of a `function*` with no return annotation. The generator
  * counterpart of {@link NotAPromise}.
  *
  * Open type questions: #120.

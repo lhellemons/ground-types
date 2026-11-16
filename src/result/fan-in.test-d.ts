@@ -80,6 +80,9 @@ class WithKind extends Error {
 }
 declare const withKind: Result<number, WithKind>
 declare const narrowView: { id: Result<string, InvalidId> }
+declare const narrowestView: { id: string }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- the case under test: a Result whose value type is any
+declare const anyResult: Result<any, InvalidCount>
 declare const idList: Result<Id, InvalidId>[]
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the case under test: a part typed any
 declare const loose: any
@@ -211,6 +214,15 @@ describe('collect', () => {
     collect('a')
     // @ts-expect-error - a Map is not an object of parts
     collect(new Map())
+  })
+
+  it('an object of parts passed through a narrower type types only the declared error', () => {
+    expectTypeOf(collect(narrowView)).toEqualTypeOf<
+      Result<{ readonly id: string }, InvalidId>
+    >()
+    expectTypeOf(collect(narrowestView)).toEqualTypeOf<
+      Result<{ readonly id: string }, never>
+    >()
   })
 
   it('a plain member whose type may hold an Error adds nothing to the error type', () => {
@@ -345,6 +357,10 @@ describe('collect with a build step', () => {
   it('refuses a build that returns a Promise', () => {
     // @ts-expect-error - resolve first, then compose with .then()
     collect({ id: id('a') }, async ({ id }) => id)
+    // @ts-expect-error - an async function expression is refused as build too
+    collect({ id: id('a') }, async function ({ id }) {
+      return id
+    })
   })
 
   it('the map step after a collect stays untyped: the gap the build form closes', () => {
@@ -450,10 +466,11 @@ describe('attempt', () => {
     attempt<number, Memberless>((take) => take(withKind))
   })
 
-  it('an object of parts passed through a narrower type types only the declared error', () => {
-    expectTypeOf(collect(narrowView)).toEqualTypeOf<
-      Result<{ readonly id: string }, InvalidId>
-    >()
+  it('takes a Result whose value type is any, whatever its error', () => {
+    attempt<number, InvalidId>((take) => {
+      take(anyResult)
+      return 1
+    })
   })
 
   it('rejects a take of a part whose error is outside E', () => {

@@ -126,6 +126,8 @@ describe('collect', () => {
     const view: { id: Result<string, InvalidId> } = wider
     const r = collect(view)
     expect(r).toBeInstanceOf(InvalidCount)
+    const narrowest: { id: string } = { id: 'a', ...{ n: count(-1) } }
+    expect(collect(narrowest)).toBeInstanceOf(InvalidCount)
     const hiddenGetter = { shown: id('a') }
     Object.defineProperty(hiddenGetter, 'hidden', {
       get: () => new InvalidId('from a getter'),
