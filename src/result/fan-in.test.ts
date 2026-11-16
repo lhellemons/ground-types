@@ -276,6 +276,23 @@ describe('collect', () => {
       expect(attempt<unknown, InvalidId>((take) => take(part))).toBe(part)
     })
 
+    it('take drops an enclosing leave thrown by the trap of a part it reads', () => {
+      const r = attempt<string, InvalidId>((take) => {
+        const trap = new Proxy(
+          {},
+          {
+            getPrototypeOf(): never {
+              take(failure(new InvalidId('outer leave')))
+              throw new Error('not reached')
+            },
+          },
+        ) as unknown as Result<string, InvalidId>
+        take(trap)
+        return 'body completed'
+      })
+      expect(r).toBe('body completed')
+    })
+
     it('a leave from an enclosing attempt thrown by the trap is dropped', () => {
       const r = attempt<string, InvalidId>((outer) => {
         const trap = new Proxy(

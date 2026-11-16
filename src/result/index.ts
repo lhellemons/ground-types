@@ -971,8 +971,8 @@ function firstFailure(parts: object): Error | undefined {
  * error type (open, #120 item 10). For example, a part typed `any`
  * makes the result `any`, and an object of parts typed as an interface (say
  * `interface Shape { id: Result<…> }`) is refused: use a type alias. For
- * example, `collect({ name: 'n', message: 'm', level: 1 })` has no Success
- * type, and `success` refuses that value (open, #120 item 9).
+ * example, `collect({ name: 'n', message: 'm', level: 1 })` is typed `never`,
+ * and `success` refuses that value (open, #120 item 9).
  *
  * With a second argument, `build`, a Success runs `build` on the parts and
  * `collect` returns what it returns, a plain value or a Result. `build` is

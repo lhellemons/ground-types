@@ -741,7 +741,10 @@ InvalidCoordinate>` as shipped). The parts are evaluated by the caller,
   Failure, recognised by a private field; see the amendment below (#115));
   `attempt` catches that token and nothing else, so
   a bug propagates (an `Error` or a bare string alike); a `take` from an
-  enclosing `attempt` that is still running leaves that one, and a `take`
+  enclosing `attempt` that is still running leaves that one
+  (**Update, 2026-11-16:** `take`, like `collect`, takes a part whose
+  prototype chain cannot be read as its value and drops what its trap threw,
+  an enclosing `attempt`'s leave included; fan-in tests), and a `take`
   called after its own `attempt` has returned throws the token, a
   non-`Error`, to its caller (**Update, 2026-11-16:** given a Failure;
   given a Success it returns the value (#115)). `take` works inside `.map`
@@ -754,7 +757,9 @@ E>>(part: R) => ValueOf<R>`; **Update, 2026-11-16:** the shipped
   constraint is wider, see the amendment below (#115); `take` also accepts,
   whatever its error, for example a Result whose value type is `any`, such
   as `tryCatch(() => JSON.parse(raw))()`, and a part typed `object`, `{}`,
-  `void` or `Record<string, X>` (open, #120 item 5)). So a typed union at
+  `void` or `Record<string, X>`, and, under an `E` whose classes declare no
+  members of their own, a Result of any error type, as error classes compare
+  structurally (open, #120 item 5; fan-in type tests)). So a typed union at
   the boundary is the annotation's, written by hand; under slider's own
   `Result<X, Error>` annotation `E` is `Error`, no better than today. An explicit
   `attempt<T, E>` serves where there is no annotation. A factory's own
@@ -946,9 +951,9 @@ does not compile.
   `AsyncGenerator` structurally: for example, `[1, 2].values()` is
   accepted, and with the ES2022 lib, for example, the type tests'
   `Countdown` (it declares `next`, `return` and `throw`, and its
-  `[Symbol.iterator]()` returns itself) is refused, while a class that
-  declares only `next` and `[Symbol.iterator]()`, or one whose
-  `[Symbol.iterator]()` is annotated `IterableIterator<number>`, is accepted
-  (#120 item 3).
+  `[Symbol.iterator]()` returns itself) is refused, while the type tests'
+  `NextOnly` (it declares only `next` and `[Symbol.iterator]()`) and
+  `Listing` (its `[Symbol.iterator]()` is annotated
+  `IterableIterator<number>`) are accepted (#120 item 3).
 
 Open type questions are ticket 120.
