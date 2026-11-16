@@ -182,7 +182,7 @@ describe('collect', () => {
     >()
   })
 
-  it('a generic wrapper names its constraint with Parts', () => {
+  it('a generic function over collect names its constraint with Parts', () => {
     const wrap = <P extends Parts>(parts: P) => collect(parts)
     expectTypeOf(wrap([id('a')])).toEqualTypeOf<
       Result<readonly [Id], InvalidId>
@@ -518,6 +518,22 @@ describe('attempt', () => {
     attempt((take) => (take(id('a')) === 'a' ? 1 : (function* () {})()))
   })
 
+  it('takes E from as and satisfies', () => {
+    /* eslint-disable @typescript-eslint/no-unnecessary-type-assertion -- the case under test: as and satisfies supply E */
+    const viaSatisfies = attempt((take) => {
+      // @ts-expect-error - InvalidCount is outside the satisfies type's InvalidId
+      take(count(1))
+      return take(id('a'))
+    }) satisfies Result<Id, InvalidId>
+    const viaAs = attempt((take) => {
+      // @ts-expect-error - InvalidCount is outside the as type's InvalidId
+      take(count(1))
+      return take(id('a'))
+    }) as Result<Id, InvalidId>
+    /* eslint-enable @typescript-eslint/no-unnecessary-type-assertion */
+    void [viaSatisfies, viaAs]
+  })
+
   it('takes E from a variable annotation and from a parameter type', () => {
     const viaVariable: Result<Id, InvalidId> = attempt((take) => {
       // @ts-expect-error - InvalidCount is outside the variable's InvalidId
@@ -590,7 +606,7 @@ describe('attempt', () => {
     expectTypeOf(from).returns.toEqualTypeOf<Result<unknown, InvalidId>>()
   })
 
-  it('a generic wrapper repeats the constraint with NotAPromise and NotAGenerator', () => {
+  it('a generic function over attempt repeats the constraint with NotAPromise and NotAGenerator', () => {
     const wrap = <T extends NotAPromise<T> & NotAGenerator<T>>(
       body: (take: Take<Error>) => T,
     ) => attempt(body)

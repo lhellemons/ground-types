@@ -71,9 +71,9 @@ _Avoid_: Reason, fault, err.
 
 To **collect** is to fan several Results in, whether they come as an
 **object of parts** (an object whose members are the parts), a tuple or a
-list: the first Failure among them, or the parts themselves with every
-member unboxed. A part that is not an Error counts as a Success and passes
-through. The error type is the union of the Result parts' error types. A
+list: the first Failure among its members, or the parts themselves with
+every member unboxed. A member that is not an Error counts as a Success and
+passes through. The error type is the union of the Result parts' error types. A
 Collect catches no throw, though a part whose prototype chain cannot be read
 counts as a Success and what its trap threw is dropped. One part cannot
 depend on another, except through a getter or a Proxy's traps, which the
@@ -92,9 +92,8 @@ though anything in the body that catches throws can swallow it. Any other
 throw, a bug or the leave of an enclosing Attempt, propagates unless
 something in the body catches it (or a Take reads a part whose prototype
 chain cannot be read, and drops what its trap threw), which separates an
-Attempt from
-`tryCatch`, which turns a throw into a Failure. The declarative counterpart
-is **Collect**.
+Attempt from `tryCatch`, which turns a throw into a Failure. The declarative
+counterpart is **Collect**.
 
 _Avoid_: try, do-notation.
 

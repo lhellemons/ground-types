@@ -77,7 +77,9 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   consumers whose declarations mention a `Success` need a name to emit.
 - Add `collect` and `attempt` to `/result`, with the types `Parts`,
   `Collected`, `Failed`, `Take` and `NotAGenerator`: fan-in over unboxed
-  Results that keeps each part's error type. Nothing that exists changes.
+  Results. `collect` infers the union of its parts' error types; `attempt`
+  takes its error type from the contextual type or `attempt<T, E>`, and it
+  is `Error` with neither. Nothing that exists changes.
   - `collect(parts)` takes an object of parts, a tuple or a list whose
     members are Results and returns the first Failure among them, or the
     argument itself. Its type is `Result<Collected<P>, Failed<P>>`: each
@@ -91,7 +93,8 @@ success(undefined)` and `success(null)` no longer compile. Checked on
     private to that call, so a `take` works inside `.map` and a Maybe `map`
     callback. It catches that token and nothing else.
 
-  Type-level limits are listed in the docblocks; open questions are #120.
+  Limits, at the type level and at run time, are listed in the docblocks;
+  open questions are #120.
 
 - **Breaking:** TypeScript 5.4 or later is required, for `NoInfer` on the
   phantom position of `success` and `failure`.

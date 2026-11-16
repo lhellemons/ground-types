@@ -738,7 +738,9 @@ InvalidCoordinate>` as shipped). The parts are evaluated by the caller,
 - **`attempt((take) => …)`**: the imperative form, slider's shape with
   `assertSuccess` renamed. `take(part)` unboxes the part or leaves the
   `attempt` with its Failure, by throwing a token private to that call,
-  compared by identity; `attempt` catches that token and nothing else, so
+  compared by identity (**Update, 2026-11-16:** one token per `take` given a
+  Failure, recognised by a private field; see the amendment below (#115));
+  `attempt` catches that token and nothing else, so
   a bug propagates (an `Error` or a bare string alike); a `take` from an
   enclosing `attempt` that is still running leaves that one, and a `take`
   called after its own `attempt` has returned throws the token, a
@@ -910,8 +912,10 @@ second of its three remedies: **`collect(parts, build)`**, whose
 `build` is typed from the parts. `build` returns a plain value or a Result,
 and the result is `Result<ValueOf<R>, Failed<P> | ErrorOf<R>>`, so one form
 serves where `map` and `andThen` would; the arity decides which form of
-`collect` applies, as for the curryable combinators (ADR 0003). An argument
-swapped for one of another type inside `build` does not compile.
+`collect` applies, as for the curryable combinators (ADR 0003). For example,
+with `Id` and `Count` parts a swapped constructor argument inside `build`
+does not compile; types assignable to each other, such as two classes of
+the same shape, still swap.
 
 - **Documenting a hand-written parameter type** was not chosen: it leaves
   the unsafe form the one that needs no annotation.
@@ -960,9 +964,10 @@ swapped for one of another type inside `build` does not compile.
     `take` given a Failure while an earlier leave is still propagating (in
     a `finally`) replaces that leave if its own throw goes uncaught, as any
     throw does; caught there, it leaves the first leave's Failure
-    unchanged. A body that catches a token cannot change it, nor replace
-    the check that recognises it: the class and its prototype are frozen
-    when the module loads.
+    unchanged. After the module has loaded, a body that catches a token
+    cannot change it, nor replace the check that recognises it: the class and
+    its prototype are frozen when the module loads, and each token when it
+    is made, through `Object.freeze` as captured at load.
   - A value that `body` returns and that is an `Error` is the `attempt`'s
     Failure at run time, whatever `T` says. With no type arguments a
     `return failure(…)` puts its type in `T`, with `E` still `Error`, and
