@@ -79,19 +79,19 @@ Registry publishing remains out of scope.
 
 Each module is a separate subpath export.
 
-| Subpath            | Exports                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/maybe`           | `Maybe`, `Just`, `Nothing`, `maybe`, `just`, `nothing`, `fromNullable`, `isJust`, `isNothing`, `orElse`, `fallback`, `map`, `andThen`, `assertJust`, `fromResult`                                                                                                                                                                                                                                  |
-| `/result`          | `Result`, `Success`, `SuccessArm`, `SuccessMarks`, `Failure`, `FailureMarks`, `ThrownError`, `NotAResult`, `NotAPromise`, `NotPossiblyAnError`, `NotAGenerator`, `Parts`, `Collected`, `Failed`, `Take`, `result`, `success`, `failure`, `isSuccess`, `isFailure`, `catchOnly`, `tryCatch`, `assertSuccess`, `map`, `mapError`, `fallback`, `orElse`, `andThen`, `fromMaybe`, `collect`, `attempt` |
-| `/brand`           | `Brand`, `Branded`                                                                                                                                                                                                                                                                                                                                                                                 |
-| `/value-object`    | `Primitive`, `PrimitiveValueObject`, `definePrimitiveValueObject`                                                                                                                                                                                                                                                                                                                                  |
-| `/domain`          | `Entity`, `CompoundValueObject`, `DTOSource`, `DomainObjectFactory`                                                                                                                                                                                                                                                                                                                                |
-| `/intern-registry` | `InternRegistry`, `internByKey`                                                                                                                                                                                                                                                                                                                                                                    |
-| `/fn`              | `Fn`, `Mapper`, `CurryableMapper`, `compose`, `pipe`, `curry`, `identity`, `constant`                                                                                                                                                                                                                                                                                                              |
-| `/promise`         | `AbortablePromise`, `AbortContext`, `RejectionError`, `resultify`, `fail`, `recoverWith`, `State` with its constructors and guards, `settledResult`, `stateOf`, `TrackedState`                                                                                                                                                                                                                     |
-| `/promise/fake`    | `fakePromise`, `fakeAbortablePromise`                                                                                                                                                                                                                                                                                                                                                              |
-| `/call`            | `Call`, `AsyncCall`, `AbortableCall`, `abortable`, `resultify`                                                                                                                                                                                                                                                                                                                                     |
-| `/abort`           | `AbortError`, `isAbortError`, `ABORT_ERROR_NAME`                                                                                                                                                                                                                                                                                                                                                   |
+| Subpath            | Exports                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/maybe`           | `Maybe`, `Just`, `Nothing`, `maybe`, `just`, `nothing`, `fromNullable`, `isJust`, `isNothing`, `orElse`, `fallback`, `map`, `andThen`, `assertJust`, `fromResult`                                                                                                                                                                                                                                      |
+| `/result`          | `Result`, `Success`, `SuccessArm`, `SuccessMarkers`, `Failure`, `FailureMarkers`, `ThrownError`, `NotAResult`, `NotAPromise`, `NotPossiblyAnError`, `NotAGenerator`, `Parts`, `Collected`, `Failed`, `Take`, `result`, `success`, `failure`, `isSuccess`, `isFailure`, `catchOnly`, `tryCatch`, `assertSuccess`, `map`, `mapError`, `fallback`, `orElse`, `andThen`, `fromMaybe`, `collect`, `attempt` |
+| `/brand`           | `Brand`, `Branded`                                                                                                                                                                                                                                                                                                                                                                                     |
+| `/value-object`    | `Primitive`, `PrimitiveValueObject`, `definePrimitiveValueObject`                                                                                                                                                                                                                                                                                                                                      |
+| `/domain`          | `Entity`, `CompoundValueObject`, `DTOSource`, `DomainObjectFactory`                                                                                                                                                                                                                                                                                                                                    |
+| `/intern-registry` | `InternRegistry`, `internByKey`                                                                                                                                                                                                                                                                                                                                                                        |
+| `/fn`              | `Fn`, `Mapper`, `CurryableMapper`, `compose`, `pipe`, `curry`, `identity`, `constant`                                                                                                                                                                                                                                                                                                                  |
+| `/promise`         | `AbortablePromise`, `AbortContext`, `RejectionError`, `resultify`, `fail`, `recoverWith`, `State` with its constructors and guards, `settledResult`, `stateOf`, `TrackedState`                                                                                                                                                                                                                         |
+| `/promise/fake`    | `fakePromise`, `fakeAbortablePromise`                                                                                                                                                                                                                                                                                                                                                                  |
+| `/call`            | `Call`, `AsyncCall`, `AbortableCall`, `abortable`, `resultify`                                                                                                                                                                                                                                                                                                                                         |
+| `/abort`           | `AbortError`, `isAbortError`, `ABORT_ERROR_NAME`                                                                                                                                                                                                                                                                                                                                                       |
 
 ```ts
 import { andThen, isFailure } from '@lhellemons/ground-types/result'
@@ -328,6 +328,29 @@ const widgetIdOf = andThen((code: number) =>
 A `Success` is statically prevented from being an `Error`, so the
 prototype-chain discrimination cannot be fooled by a success value that
 merely happens to be Error-shaped.
+
+### Declaration emit and an object spread of a `Success`
+
+A consumer with `declaration: true` can emit its own `.d.ts` for a function
+that returns a `Success` narrowed with `typeof` or `in`, or a `Failure`
+narrowed with `instanceof` or `in` (pinned in the same test file). An object
+spread of a `Success` or a `Failure` is still open: for `declare const record: Result<{ id: string }, Invalid>`,
+each of these fails with TS4023 or TS4058 ("has or is using name '_phantom'
+… but cannot be named"):
+
+```ts
+export const copy = { ...success({ id: 'x' }) }
+export function withExtra() {
+  if (isSuccess(record)) return { ...record, extra: 1 }
+}
+export const spreadError = { ...failure(new Invalid()) }
+```
+
+Give the exported value or function an explicit type, and each emits:
+`export const copy: { id: string } = { ...success({ id: 'x' }) }`. The cases
+are pinned in `test/declaration-emit/result.test.ts`, in the tests named
+"still fails with TS4023 or TS4058" and "emits with an explicit type on the
+exported value"; a fix flips the first.
 
 ## Status
 

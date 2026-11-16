@@ -11,6 +11,10 @@ import ts from 'typescript'
  * '_phantom' … cannot be named"). This compiles a consumer file against the
  * source of `/result`, standing in for `dist`, with `declaration` on and
  * `skipLibCheck` off and expects no declaration diagnostics.
+ *
+ * An object spread of a `Success` or a `Failure` is the open case: the
+ * spread copies the marker properties into a fresh object type, whose symbol
+ * keys cannot be named. `spreadCases` pins it, so that a later fix flips it.
  */
 const here = dirname(fileURLToPath(import.meta.url))
 const resultEntry = resolve(here, '../../src/result/index.js')
@@ -49,7 +53,6 @@ export function narrowed() {
 
 declare const mixed: Result<number | string, Invalid>
 declare const shapes: Result<{ id: string } | { name: string }, Invalid>
-declare const record: Result<{ id: string }, Invalid>
 
 export function narrowedByTypeof() {
   if (isSuccess(mixed) && typeof mixed === 'number') return mixed
@@ -57,11 +60,6 @@ export function narrowedByTypeof() {
 }
 export function narrowedByIn() {
   if (isSuccess(shapes) && 'id' in shapes) return shapes
-  return undefined
-}
-export const spreadSuccess = { ...success({ id: 'x' }) }
-export function spreadNarrowed() {
-  if (isSuccess(record)) return { ...record, extra: 1 }
   return undefined
 }
 declare const failed: Result<number | string, Invalid | Other>
@@ -73,7 +71,6 @@ export function failureNarrowedByIn() {
   if (isFailure(failed) && 'code' in failed) return failed
   return undefined
 }
-export const spreadFailure = { ...failure(new Invalid()) }
 
 class InvalidId extends Error {
   readonly kind = 'InvalidId' as const
@@ -151,7 +148,27 @@ export function attemptedAnnotated(
 }
 `
 
-function compile(emit: boolean): {
+const header = `
+import { failure, isSuccess, success } from ${JSON.stringify(resultEntry)}
+import type { Result } from ${JSON.stringify(resultEntry)}
+class Invalid extends Error {
+  readonly code = 'invalid' as const
+}
+declare const record: Result<{ id: string }, Invalid>
+`
+const spreadCases = {
+  'a Success spread into an object': `export const spreadSuccess = { ...success({ id: 'x' }) }`,
+  'a narrowed Success spread with an extra member': `export function spreadNarrowed() {
+  if (isSuccess(record)) return { ...record, extra: 1 }
+  return undefined
+}`,
+  'a Failure spread into an object': `export const spreadFailure = { ...failure(new Invalid()) }`,
+}
+
+function compile(
+  emit: boolean,
+  text = consumer,
+): {
   diagnostics: string[]
   declarations: string
 } {
@@ -169,10 +186,10 @@ function compile(emit: boolean): {
   const host = ts.createCompilerHost(options)
   const { readFile, fileExists, getSourceFile } = host
   host.fileExists = (file) => file === consumerPath || fileExists(file)
-  host.readFile = (file) => (file === consumerPath ? consumer : readFile(file))
+  host.readFile = (file) => (file === consumerPath ? text : readFile(file))
   host.getSourceFile = (file, languageVersion, ...rest) =>
     file === consumerPath
-      ? ts.createSourceFile(file, consumer, languageVersion, true)
+      ? ts.createSourceFile(file, text, languageVersion, true)
       : getSourceFile(file, languageVersion, ...rest)
   let declarations = ''
   host.writeFile = (file, text) => {
@@ -193,7 +210,7 @@ function compile(emit: boolean): {
 }
 
 describe('declaration emit for a consumer', () => {
-  it('writes a narrowed Success as SuccessMarks, and a spread Success as a plain object', () => {
+  it('writes a narrowed Success as SuccessMarkers, and a narrowed Failure as FailureMarkers', () => {
     const { diagnostics, declarations } = compile(true)
     expect(diagnostics).toEqual([])
     const declared = (name: string) => {
@@ -203,15 +220,31 @@ describe('declaration emit for a consumer', () => {
       return declarations.slice(start, next === -1 ? undefined : start + next)
     }
     expect(declared('narrowedByTypeof')).toMatch(
-      /number & import\(.*\)\.SuccessMarks</,
+      /number & import\(.*\)\.SuccessMarkers</,
     )
-    expect(declared('narrowedByIn')).toMatch(/\.SuccessMarks</)
-    expect(declared('failureNarrowedByInstanceof')).toMatch(/\.FailureMarks</)
-    expect(declarations).toMatch(
-      /export declare const spreadSuccess: \{\s*id: string;\s*\};/,
-    )
-    expect(declarations).toMatch(/export declare const spreadFailure: \{/)
+    expect(declared('narrowedByIn')).toMatch(/\.SuccessMarkers</)
+    expect(declared('failureNarrowedByInstanceof')).toMatch(/\.FailureMarkers</)
     expect(declarations).not.toContain('_phantom')
+  })
+
+  describe.each(Object.entries(spreadCases))('%s', (_name, code) => {
+    it('still fails with TS4023 or TS4058: the spread copies marker properties whose symbol keys cannot be named', () => {
+      const { diagnostics } = compile(true, header + code)
+      expect(diagnostics.length).toBeGreaterThan(0)
+      for (const diagnostic of diagnostics)
+        expect(diagnostic).toMatch(/^TS40(23|58): .*cannot be named/)
+    })
+
+    it('emits with an explicit type on the exported value', () => {
+      const typed = code
+        .replace('spreadSuccess =', 'spreadSuccess: { id: string } =')
+        .replace('spreadFailure =', 'spreadFailure: Error =')
+        .replace(
+          'function spreadNarrowed()',
+          'function spreadNarrowed(): { id: string; extra: number } | undefined',
+        )
+      expect(compile(true, header + typed).diagnostics).toEqual([])
+    })
   })
 
   it('can name the types success(), failure(), isSuccess(), collect() and attempt() infer', () => {

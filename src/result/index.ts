@@ -22,31 +22,26 @@ const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor
 
 declare const _phantom: unique symbol
 
-/* `SuccessMarks` and `FailureMarks` are classes, with optional methods for
-   markers, and not object types with optional properties: see the 2026-11-16
-   amendment in docs/adr/0001-unboxed-maybe-and-result.md. */
-
 /**
- * The phantom markers of a {@link SuccessArm}, as a type of its own.
- * Type-only: no value of this type exists, and the type is not exported as a
- * value.
+ * The phantom markers of a {@link SuccessArm}: `SuccessArm<T, E>` is `T`
+ * without its `Error`, `null`, `undefined` and `void` members, intersected
+ * with `SuccessMarkers<T, E>`. A type alias of an object type, so a
+ * `SuccessArm` of an object type fits `Record<string, unknown>`.
  */
-declare class SuccessMarks<T, E extends Error> {
-  [_phantom]?(): E | undefined
-  [_value]?(): T | undefined
-  [_error]?(): undefined
+export type SuccessMarkers<T, E extends Error> = {
+  readonly [_phantom]?: E
+  readonly [_value]?: T
+  readonly [_error]?: never
 }
 
 /**
- * The phantom markers of a {@link Failure}, as a type of its own. Type-only,
- * like {@link SuccessMarks}.
+ * The phantom markers of a {@link Failure}: `Failure<T, E>` is `E`
+ * intersected with `FailureMarkers<T, E>`.
  */
-declare class FailureMarks<T, E extends Error> {
-  [_phantom]?(): T | undefined
-  [_error]?(): E | undefined
+export type FailureMarkers<T, E extends Error> = {
+  readonly [_phantom]?: T
+  readonly [_error]?: E
 }
-
-export type { SuccessMarks, FailureMarks }
 
 /**
  * The value-carrying case of a {@link Result}, unboxed — a `Success<T>`
@@ -68,14 +63,14 @@ export type SuccessArm<T, E extends Error = Error> = Exclude<
   T,
   Error | null | undefined | void
 > &
-  SuccessMarks<T, E>
+  SuccessMarkers<T, E>
 
 /**
  * The `Error`-carrying case of a {@link Result}, unboxed — a `Failure` *is*
  * the `Error`, keeping its concrete subclass so a caller can branch on the
  * specific error type it was given.
  */
-export type Failure<T, E extends Error = Error> = E & FailureMarks<T, E>
+export type Failure<T, E extends Error = Error> = E & FailureMarkers<T, E>
 
 /**
  * The outcome of a fallible operation: either a {@link Success} carrying

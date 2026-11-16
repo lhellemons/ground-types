@@ -8,8 +8,8 @@ import * as result from '../../src/result/index.js'
  * file exists to catch. Imports from source rather than `dist` so it runs
  * under plain vitest without a build. `Result`, `Success`, `Failure`,
  * `NotAResult`, `NotAPromise`, `NotAGenerator`, `Parts`, `Collected`,
- * `Failed` and `Take` are type-only and so invisible here — see
- * `src/result/api-surface.test-d.ts`. `ThrownError` is a class, so it is a
+ * `Failed`, `Take`, `SuccessMarkers` and `FailureMarkers` are type-only and
+ * so invisible here — see `src/result/api-surface.test-d.ts`. `ThrownError` is a class, so it is a
  * runtime value and listed below even though it is also usable as a type.
  *
  * To change intentionally: add/remove/rename the export in

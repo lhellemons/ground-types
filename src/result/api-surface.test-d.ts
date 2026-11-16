@@ -1,4 +1,4 @@
-import { catchOnly, success, tryCatch } from './index.js'
+import { catchOnly, isSuccess, success, tryCatch } from './index.js'
 import { resultify } from '../promise/index.js'
 import { resultify as callResultify } from '../call/index.js'
 import { definePrimitiveValueObject } from '../value-object/index.js'
@@ -8,7 +8,7 @@ import type {
   Collected,
   Failed,
   Failure,
-  FailureMarks,
+  FailureMarkers,
   NotAGenerator,
   NotAPromise,
   NotAResult,
@@ -17,7 +17,7 @@ import type {
   Result,
   Success,
   SuccessArm,
-  SuccessMarks,
+  SuccessMarkers,
   Take,
 } from './index.js'
 
@@ -60,26 +60,37 @@ describe('/result type exports', () => {
     >()
   })
 
-  it('SuccessMarks and FailureMarks are the markers of a SuccessArm and a Failure', () => {
+  it('SuccessMarkers and FailureMarkers are the markers of a SuccessArm and a Failure', () => {
     expectTypeOf<SuccessArm<number, RangeError>>().toExtend<
-      SuccessMarks<number, RangeError>
+      SuccessMarkers<number, RangeError>
     >()
     expectTypeOf<Failure<number, RangeError>>().toExtend<
-      FailureMarks<number, RangeError>
-    >()
-    expectTypeOf<Failure<number, RangeError>>().not.toExtend<
-      SuccessMarks<number, RangeError>
+      FailureMarkers<number, RangeError>
     >()
     expectTypeOf<SuccessArm<number, RangeError>>().not.toExtend<
-      FailureMarks<number, RangeError>
+      FailureMarkers<number, RangeError>
     >()
   })
 
-  it('an object spread of a Success is a plain object, still assignable to a Result', () => {
-    const spread = { ...success({ id: 'x' }), extra: 1 }
-    expectTypeOf(spread).toEqualTypeOf<{ id: string; extra: number }>()
-    const back: Result<{ id: string; extra: number }, RangeError> = spread
-    expectTypeOf(back).toExtend<{ id: string }>()
+  it('no Failure fits SuccessMarkers: the _error marker refuses it', () => {
+    // `Failure<never, Error>`'s `_phantom` is `never`, which fits any
+    // `SuccessMarkers` `_phantom`; only `[_error]?: never` refuses it.
+    expectTypeOf<Failure<never, Error>>().not.toExtend<
+      SuccessMarkers<unknown, RangeError>
+    >()
+  })
+
+  it('a Success of an object type fits an index signature; a Failure does not', () => {
+    expectTypeOf<SuccessArm<{ id: string }, Error>>().toExtend<
+      Record<string, unknown>
+    >()
+    expectTypeOf<Failure<number, Error>>().not.toExtend<
+      Record<string, unknown>
+    >()
+    const log = (_meta: Record<string, unknown>): void => undefined
+    log(success({ id: 'x', name: 'n' }))
+    const record = null as unknown as Result<{ id: string }, Error>
+    if (isSuccess(record)) log(record)
   })
 
   it('Failure is usable as an Error — the unboxed encoding', () => {

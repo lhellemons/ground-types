@@ -21,7 +21,7 @@ export declare const _error: unique symbol
  */
 export type ValueOf<R> =
   Exclude<R, Error> extends infer S
-    ? S extends { [_value]?(): infer U | undefined }
+    ? S extends { readonly [_value]?: infer U }
       ? // A plain value carries no `_value` handle, so `U` infers as
         // `unknown`; fall back to the value's own type. Without this a
         // callback that cannot fail loses its Success type entirely.
@@ -45,7 +45,7 @@ export type ErrorOf<R> =
         // type detection rejects it — it shares no property with the marker)
         // nor `infer F`, so every path that isn't a real handle falls back
         // to `S`, which `Extract` already proved is an `Error`.
-        S extends { [_error]?(): infer F | undefined }
+        S extends { readonly [_error]?: infer F }
         ? unknown extends F
           ? S
           : F extends Error
