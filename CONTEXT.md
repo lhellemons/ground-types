@@ -72,40 +72,25 @@ _Avoid_: Reason, fault, err.
 To **collect** is to fan several Results in, whether they come as an
 **object of parts** (an object whose members are the parts), a tuple or a
 list: the first Failure among its members, or the parts themselves with
-every member unboxed. A member that is not an Error counts as a Success and
-passes through. The error type is the union of the Result parts' error types. A
-Collect catches no throw, though a part whose prototype chain cannot be read
-counts as a Success and what its trap threw is dropped. One part cannot
-depend on another, except through a getter or a Proxy's traps, which the
-Collect runs as it reads. The step that builds from the parts follows, or is
-the Collect with a build step. The imperative counterpart is **Attempt**.
+every member unboxed. The imperative counterpart is **Attempt**.
 
 _Avoid_: all, sequence, traverse (a fan-in that needs a container; see
 docs/adr/0001-unboxed-maybe-and-result.md).
 
 ### Attempt
 
-To **attempt** is to run a body that unboxes Results with **Take** and
-leaves with the first Failure it is given: the Attempt is that Failure, or
-the body's return value. Of all Attempts only that one recognises its leave,
-though anything in the body that catches throws can swallow it. Any other
-throw, a bug or the leave of an enclosing Attempt, propagates unless
-something in the body catches it (or a Take reads a part whose prototype
-chain cannot be read, and drops what its trap threw), which separates an
-Attempt from `tryCatch`, which turns a throw into a Failure. The declarative
-counterpart is **Collect**.
+To **attempt** is to run a body that unboxes Results with **Take**: the
+Attempt is the Failure of the Take whose leave reaches it, or the body's
+value. The declarative counterpart is **Collect**.
 
 _Avoid_: try, do-notation.
 
 ### Take
 
 To **take** a part is to unbox its value inside an **Attempt**, or to leave
-that Attempt with the part's Failure. Each Attempt hands out its own Take,
-and a Take rejects, as far as the type shows, a part whose error type is
-outside the Attempt's error type.
+that Attempt with the part's Failure. Each Attempt hands out its own Take.
 
-_Avoid_: unwrap, await, yield, assertSuccess (which throws the Failure for
-any catcher to see).
+_Avoid_: unwrap, await, yield, assertSuccess.
 
 ### Mapper
 

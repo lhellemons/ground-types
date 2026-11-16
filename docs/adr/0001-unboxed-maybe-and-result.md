@@ -687,9 +687,7 @@ readability and fit with the Result Box. The owner chose **A + B**:
 - **`collect(parts)`**: an object of parts, a tuple or a list whose members are
   `Result`s (a plain member passes through). It returns the first
   `Failure` among the parts, or the parts themselves: on success no result
-  object is built, and nothing is caught (**Update, 2026-11-16:** a part
-  whose prototype chain cannot be read counts as not an `Error`, and what
-  its trap threw is dropped; see the amendment below (#115)). Its value type is the parts with
+  object is built, and nothing is caught. Its value type is the parts with
   each member unboxed; its error type is the union of the members' error
   types, read through `ErrorOf`, inferred with no annotation: with
   `Position.from` annotated `Result<Position, InvalidCoordinate>`,
@@ -700,9 +698,7 @@ readability and fit with the Result Box. The owner chose **A + B**:
   and `collect(dto.path.map(Position.from))` is `Result<Position[],
 InvalidCoordinate>` (**Update, 2026-11-16:** `Result<readonly Position[],
 InvalidCoordinate>` as shipped). The parts are evaluated by the caller,
-  eagerly, so a part cannot depend on another part (**Update,
-  2026-11-16:** except through a getter or a Proxy's traps, which `collect`
-  runs as it reads; see the amendment below (#115)): the construction step
+  eagerly, so a part cannot depend on another part: the construction step
   follows,
   through `map`, `andThen` or an early return. The `map`/`andThen` form
   carries a typed `E` across a factory boundary with nothing written by
@@ -769,10 +765,7 @@ E>>(part: R) => ValueOf<R>`; **Update, 2026-11-16:** the shipped
   `attempt` has returned; and a plain `return failure(…)` in the
   body lands in `T`, with `E` still `Error`, where under an annotation it
   is a type error. The guards and docblocks for these are #115's.
-  **Update, 2026-11-16:** shipped by #115 with corrections to this
-  description, among them that a body's `return failure(…)` is a Failure at
-  run time whatever `T` says and is not always a type error; see the
-  amendment below (#115).
+  **Update, 2026-11-16:** shipped by #115; see the amendment below (#115).
 
 The third candidate, `gen`/`yield* take` (generator do-notation), infers
 the exact union with no annotation and catches nothing, but a `yield*`
@@ -914,8 +907,7 @@ and the result is `Result<ValueOf<R>, Failed<P> | ErrorOf<R>>`, so one form
 serves where `map` and `andThen` would; the arity decides which form of
 `collect` applies, as for the curryable combinators (ADR 0003). For example,
 with `Id` and `Count` parts a swapped constructor argument inside `build`
-does not compile; types assignable to each other, such as two classes of
-the same shape, still swap.
+does not compile.
 
 - **Documenting a hand-written parameter type** was not chosen: it leaves
   the unsafe form the one that needs no annotation.
@@ -931,74 +923,15 @@ the same shape, still swap.
   signature in `/result`, where `build` adds one overload to `collect`.
 - The early-return and `map`/`andThen` forms stay as the #59 amendment
   describes them. `build` is the typed alternative to `map` and `andThen`;
-  the early-return form already types each member. The `map` step after a
-  `collect` still types its parameter only where the caller annotates it.
-  `attempt`/`take` types its values with nothing written by hand and needs
-  no `build`.
-- What shipped with corrections to the #59 amendment's description:
+  the early-return form already types each member.
+- Shipped differently from the 2026-11-15 text:
+  - The leave token is one per `take` given a Failure, recognised by a
+    private field, where the 2026-11-15 text has one per `attempt`.
   - `Take`'s constraint is `Result<unknown, E> | null | undefined | void`,
-    not `Result<unknown, E>`: `Result<unknown, E>` alone rejects a Result
-    whose value type includes `undefined`. `take` checks the part's error
-    type against `E`: for example, a Result whose error is `InvalidCount` is
-    rejected under `E = InvalidId`. Error types compare structurally, so
-    for example an Error subclass with no members of its own counts as
-    `Error`. Some non-Result parts are accepted too, for example one typed
-    `any`, `object`, `Object`, `{}`, `void`, a `Record<string, X>`, or a
-    type parameter constrained to `object`; an Error such a part holds
-    leaves the `attempt` whatever `E` says, and whether to close that is
-    #120's question (item 5).
-  - The guard on an `attempt` body checks `T`: for example, a body that
-    returns a Promise, a generator, or a union with a member of either is
-    refused (`NotAPromise`, `NotAGenerator`). A type that a Promise or a
-    generator fits without being one is not refused, whether the body is
-    typed as returning it or it is given as `T`, for example `void`,
-    `unknown`, `object` or `any`; for example, a generator function
-    annotated as `IterableIterator` compiles, and so does `tryCatch` of a
-    generator function (#120 items 3 and 6). A plain iterator
-    (`[1, 2].values()`) is accepted: that is the implementer's choice, from
-    narrowing the guard to generators so that the diagnostic does not call
-    an iterator a generator.
-  - The leave token is a fresh frozen object per `take` given a Failure,
-    carrying that Failure and naming its `attempt` by a private field,
-    where the #59 amendment's description is a token per `attempt`. A
-    `take` given a Failure while an earlier leave is still propagating (in
-    a `finally`) replaces that leave if its own throw goes uncaught, as any
-    throw does; caught there, it leaves the first leave's Failure
-    unchanged. After the module has loaded, a body that catches a token
-    cannot change it, nor replace the check that recognises it: the class and
-    its prototype are frozen when the module loads, and each token when it
-    is made, through `Object.freeze` as captured at load.
-  - A value that `body` returns and that is an `Error` is the `attempt`'s
-    Failure at run time, whatever `T` says. With no type arguments a
-    `return failure(…)` puts its type in `T`, with `E` still `Error`, and
-    under a return annotation it is a type error; with explicit type
-    arguments, or a `T` that admits an Error such as `unknown`, its type is
-    not in the result, and `isFailure` narrows it to `E`. Whether `attempt`
-    should guard `T` is #120's question (item 2).
-  - `collect` keeps `readonly` in its value type, one level deep, reads an
-    object of parts by its own enumerable string keys and a list by its own
-    indices (every index below its length is visited and a hole is skipped,
-    so a sparse list with a huge length is slow), and refuses a
-    symbol-keyed or `__proto__` member of an object literal in the types. A
-    plain member whose type may hold an Error, for example `unknown`, adds
-    nothing to the error type, but an Error there at run time is returned
-    as the Failure; whether `Failed` should give such a member `Error`, as
-    `ErrorArmOf` does, is #120's question (item 1). `collect` treats a
-    Promise member as a plain value: it adds nothing to the error type, and
-    a Failure it resolves to is never seen; whether to refuse a PromiseLike
-    member in the types is #120's question (item 4).
-  - A part is a value the caller has already computed, apart from a getter
-    or a Proxy's traps. `collect` runs a getter as it reads the object, in
-    order, and not after the first Failure, and a Proxy's traps run caller
-    code as it reads; since the Success is the argument itself, each later
-    read runs them again, and only the value `collect` read was checked
-    (#120's question, item 7).
-  - `collect` and `take` read a part through `isError`, as `isFailure` does,
-    so a part whose prototype chain cannot be read (a Proxy whose
-    `getPrototypeOf` trap throws, a revoked Proxy) counts as not an `Error`,
-    and whatever the trap threw is dropped, a leave from an enclosing
-    `attempt` included.
-  - A `take` given a Failure after its own `attempt` has returned still
-    throws the token, a non-`Error`, to its caller, and a `take` inside a
-    callback whose caller catches throws (a Promise executor, an
-    `EventTarget` or `AbortSignal` listener) loses the leave.
+    so a `Result<X | undefined, E>` is accepted.
+  - `collect`'s value type is `readonly` one level deep.
+  - A plain iterator is accepted by the guard on an `attempt` body, which
+    `NotAGenerator` narrows to generators.
+  - An object of parts is read by its own enumerable string keys.
+
+Open type questions are ticket 120.

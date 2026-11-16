@@ -850,11 +850,11 @@ function isInstanceOfAny(error: Error, classes: readonly unknown[]): boolean {
 }
 
 /**
- * What `collect` accepts: an object of parts, or a list or tuple of them.
- * Every member is a part: a {@link Result}, or a plain value that passes
- * through as a Success.
- * The object form is constrained to string keys: for example, a literal with
- * a symbol-keyed Result member, or a `__proto__` Result member, is refused.
+ * What `collect` accepts: an object of parts, a tuple or a list. Every member
+ * is a part: a {@link Result}, or a plain value that passes through as a
+ * Success.
+ *
+ * Open type questions: #120.
  */
 export type Parts =
   | (Readonly<Record<string, unknown>> &
@@ -864,12 +864,12 @@ export type Parts =
   | readonly [unknown, ...unknown[]]
 
 /**
- * The value `collect` returns on success: the parts with each member
- * unboxed and `readonly`, one level deep: a member's own value keeps its
- * type, so a `string[]` member stays writable. `{ id: Result<PieceId, E1> }`
- * reads as `{ readonly id: PieceId }`, `[Result<A, E1>, Result<B, E2>]` as
- * `readonly [A, B]` and `Result<P, E>[]` as `readonly P[]`. An object of
- * parts is described by its string and number keys.
+ * The value `collect` returns on success: the parts with each member unboxed
+ * and `readonly`, one level deep. `{ id: Result<PieceId, E1> }` reads as
+ * `{ readonly id: PieceId }`, `[Result<A, E1>, Result<B, E2>]` as
+ * `readonly [A, B]` and `Result<P, E>[]` as `readonly P[]`.
+ *
+ * Open type questions: #120.
  */
 export type Collected<P> = P extends readonly unknown[]
   ? { readonly [K in keyof P]: ValueOf<P[K]> }
@@ -880,9 +880,10 @@ export type Collected<P> = P extends readonly unknown[]
     }
 
 /**
- * The error `collect` may fail with: the union of every part's error type,
- * read member by member through `ErrorOf`. A list contributes its element
- * type, an object of parts its string-keyed and number-keyed members.
+ * The error `collect` may fail with: the union of the error types of its
+ * parts.
+ *
+ * Open type questions: #120.
  */
 export type Failed<P> = [
   P extends readonly unknown[]
@@ -946,64 +947,32 @@ function firstFailure(parts: object): Error | undefined {
 /**
  * Fans several parts in: the first {@link Failure} among them, or the parts
  * themselves as a {@link Success}. `parts` is an object of parts, a tuple or
- * a list whose members are Results; a member that is not an `Error` counts
- * as a Success, so a plain value passes through as it is. The Success type
- * is {@link Collected}, each member unboxed and `readonly`; the error type
- * is {@link Failed}, the union of the members' error types, inferred with no
- * annotation:
+ * a list; the Success type is {@link Collected} and the error type is
+ * {@link Failed}, inferred with no annotation:
  *
  * ```ts
  * collect({ id: PieceId.from(dto.id), at: Position.from(dto.at) })
  * // Result<{ readonly id: PieceId; readonly at: Position },
  * //   InvalidPieceId | InvalidCoordinate>
- * collect(dto.path.map(Position.from))
- * // Result<readonly Position[], InvalidCoordinate>
  * ```
  *
- * A plain member whose type may hold an Error, for example `unknown`, adds
- * nothing to the error type, but an Error there at run time is returned as
- * the Failure (open, #120 item 1). A Promise member is a plain value too: it
- * adds nothing to the error type, and a Failure it resolves to is never seen
- * (open, #120 item 4). A part typed `any`, or a `build` that returns `any`,
- * makes the result's types `any`, error type included: the compiler then
- * checks nothing for it.
+ * The Success is the argument itself, not a copy, and `readonly` one level
+ * deep: for example, a later change to the caller's object shows through,
+ * and a frozen argument comes back frozen. An object of parts is read by its
+ * own enumerable string keys: for example, a symbol-keyed or a `__proto__`
+ * Result member is refused in the types. For example, a part typed `any`
+ * makes the result `any`, and an object of parts typed as an interface (say
+ * `interface Shape { id: Result<…> }`) is refused: use a type alias.
  *
- * The Success is the argument itself, not a copy: `readonly` in the type
- * does not freeze it, so a later change to the caller's object or list shows
- * through, and a frozen argument comes back frozen. A part is a value the
- * caller has already computed, apart from a getter or a Proxy's traps. A
- * getter is run by `collect` as it reads the object, in order, and not after
- * the first Failure; a Proxy's traps run caller code as it reads. Since the
- * Success is the argument itself, each later read runs them again, and only
- * the value `collect` read was checked (open, #120 item 7).
+ * With a second argument, `build`, a Success runs `build` on the parts and
+ * `collect` returns what it returns, a plain value or a Result. `build` is
+ * typed from the parts: for example, a swapped `Id` and `Count` constructor
+ * argument does not compile. `build` must resolve synchronously: for
+ * example, an `async` build is refused.
  *
- * The first Failure is the first in order: a list's own indices, or the keys
- * `Object.keys` gives for an object. `collect` catches nothing: a throw from
- * a part's getter or from `build` propagates. A part whose prototype chain
- * cannot be read (a Proxy whose `getPrototypeOf` trap throws, a revoked
- * Proxy) counts as not an `Error`: it passes through, and whatever the trap
- * threw is dropped, a leave from an enclosing `attempt` included.
+ * `attempt` is the imperative counterpart.
  *
- * With `build`, when no part failed `build` runs on the argument and
- * `collect` returns what it returns, as {@link map} and {@link andThen} do:
- * a plain value or a Result, whose error joins the union. Its parameter is
- * typed from the parts, where the callback of a `map` or `andThen` step
- * after a `collect` is not. `build` must resolve synchronously (see
- * {@link NotAPromise}). Which form applies is decided by arity. A `parts`
- * that is `null` or whose `typeof` is not `'object'` throws a `TypeError`,
- * and so does a `build` that is not a function, before any part is read.
- *
- * Only an object's own enumerable string-keyed members and a list's own
- * indices are parts: an inherited member, a non-enumerable one, a hole in a
- * list and an extra property on a list are not read. A list is visited index
- * by index up to its `length`, so a sparse list with a huge `length` is
- * slow. The object form takes an object literal's type or a type alias of
- * one; for example, `interface Shape { id: Result<…> }` is refused, so use a
- * type alias. An own `__proto__` key that `JSON.parse` creates, typed through
- * a string index signature, is read like any other.
- *
- * `attempt` is the imperative counterpart, and a part can be a nested
- * `collect`.
+ * Open type questions: #120.
  */
 export function collect<P extends Parts>(
   parts: P,
@@ -1033,15 +1002,11 @@ export function collect(
 
 /**
  * Unboxes a part inside an {@link attempt}, or leaves that `attempt` with the
- * part's Failure. `take(part)` is the part's value when it is a Success.
- * `take` checks the part's error type against `E`: for example, a Result
- * whose error is `InvalidCount` is rejected under `E = InvalidId`. Error
- * types compare structurally, so for example an Error subclass with no
- * members of its own counts as `Error` (see ADR 0001). Some non-Result parts
- * are accepted too, for example one typed `any`, `object`, `Object`, `{}`,
- * `void`, a `Record<string, X>`, or a type parameter constrained to
- * `object`; an Error such a part holds leaves the `attempt` whatever `E`
- * says (open, #120 item 5).
+ * part's Failure: `take(part)` is the part's value when it is a Success. For
+ * example, a Result whose error is `InvalidCount` is rejected under
+ * `E = InvalidId`.
+ *
+ * Open type questions: #120.
  */
 export type Take<E extends Error> = <
   R extends Result<unknown, E> | null | undefined | void,
@@ -1060,10 +1025,11 @@ type IsGenerator<T> = unknown extends T
     : false
 
 /**
- * Rejects a body return type with a generator arm (the result of a generator
- * function or an async generator function), surfacing the diagnostic as a
- * readable string. The generator counterpart of {@link NotAPromise};
- * `attempt` takes both.
+ * The diagnostic for an `attempt` body that returns a generator, for example
+ * the result of a generator function or of an async generator function. The
+ * generator counterpart of {@link NotAPromise}.
+ *
+ * Open type questions: #120.
  */
 export type NotAGenerator<R> = [
   Extract<R extends unknown ? IsGenerator<R> : never, true>,
@@ -1106,12 +1072,10 @@ class Leave {
 const tokenOwnedBy = Leave.ownedBy
 
 /**
- * Runs `body` with a `take` that leaves on the first Failure: `attempt`
- * returns `body`'s return value, or the Failure of the first `take` given
- * one, with the rest of `body` not run, apart from its `finally` blocks; a
- * throw from one, another leave or a bug, replaces the leave. Only the
- * `attempt` whose `take` it was catches the leave; any other throw
- * propagates, an `Error` or not.
+ * Runs `body` with a `take` that unboxes a part or leaves the `attempt` with
+ * the part's Failure. `attempt` returns `body`'s return value, or the
+ * Failure of the `take` whose leave reaches it. Only the `attempt` whose
+ * `take` it was catches the leave; any other throw propagates.
  *
  * ```ts
  * static from(
@@ -1123,47 +1087,21 @@ const tokenOwnedBy = Leave.ownedBy
  * }
  * ```
  *
- * `E` is found from the contextual type, for example an enclosing return
- * annotation, a variable annotation, a parameter type, `as` or `satisfies`;
- * from a `take` parameter annotated `Take<E>`; or from `attempt<T, E>`. With
- * no contextual type and neither of the others it is `Error`.
+ * For example, a `try`/`catch` in the body that does not rethrow, or a
+ * `finally` that returns, swallows the leave. A {@link tryCatch} inside the
+ * body turns a `take` into a {@link ThrownError} with the default handler,
+ * gives a function handler the token, and lets the leave through with
+ * `catchOnly` or a class list. A `take` used after its `attempt` returned
+ * throws the token, which is not an `Error`. Under, for example, a
+ * `Result<Id, InvalidId>` annotation, a `return failure(…)` in the body is a
+ * type error: use `take(failure(…))`.
  *
- * A `return failure(…)` in `body` is a type error under a return annotation;
- * use `take(failure(…))`. A value that `body` returns and that is an `Error`
- * is the `attempt`'s Failure at run time, whatever `T` says: with explicit
- * type arguments, or a `T` that admits an Error such as `unknown`, its type
- * is not in the result, and `isFailure` narrows it to `E` (open, #120 item
- * 2).
- *
- * `take` works inside `.map` and a Maybe `map` callback, and a later `take`
- * can depend on an earlier one. A callback whose caller catches throws
- * swallows the leave, and the `attempt` returns the body's value; where the
- * token goes then is that caller's choice, for example a Promise executor
- * rejects its promise with it.
- *
- * `body` must resolve synchronously: for example, a body that returns a
- * Promise, a generator, or a union with a member of either is refused (see
- * {@link NotAPromise} and {@link NotAGenerator}), and a type a Promise or a
- * generator fits without being one is not, for example `void`, `unknown`,
- * `object` or `any`, whether the body is typed as returning it or it is
- * given as `T` (open, #120 items 3 and 6). An async body returns a promise
- * that rejects with the token when a `take` is given a Failure.
- *
- * A `take` given a Failure after its own `attempt` has returned throws the
- * token, which is not an `Error`, to its caller. A `take` from an enclosing
- * `attempt` that is still running leaves that one.
- *
- * A `try`/`catch` that does not rethrow, and a `finally` that returns,
- * swallow the leave. A {@link tryCatch} inside `body` sees it as a thrown
- * value: the default handler returns a {@link ThrownError} holding the
- * token, a function handler returns whatever it builds from the token
- * (`() => 7` makes the leave a Success of 7), and `catchOnly` or a class
- * list rethrows it, so it goes on leaving the `attempt`. `take` reads a part
- * through the same check as {@link isFailure}: a part whose prototype chain
- * cannot be read counts as not an `Error`, and whatever the trap threw is
- * dropped, a leave from an enclosing `attempt` included.
+ * `body` must resolve synchronously: for example, an `async` or generator
+ * body is refused, as `tryCatch` refuses an async callback.
  *
  * `collect` is the declarative counterpart.
+ *
+ * Open type questions: #120.
  */
 export function attempt<
   T extends NotAPromise<T> & NotAGenerator<T>,

@@ -75,26 +75,17 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   TypeScript 5.4, 5.9 and 7.0.
 - Add `SuccessArm`, the marked part of a `Success`, exported from `/result`:
   consumers whose declarations mention a `Success` need a name to emit.
-- Add `collect` and `attempt` to `/result`, with the types `Parts`,
-  `Collected`, `Failed`, `Take` and `NotAGenerator`: fan-in over unboxed
-  Results. `collect` infers the union of its parts' error types; `attempt`
-  takes its error type from the contextual type or `attempt<T, E>`, and it
-  is `Error` with neither. Nothing that exists changes.
-  - `collect(parts)` takes an object of parts, a tuple or a list whose
-    members are Results and returns the first Failure among them, or the
-    argument itself. Its type is `Result<Collected<P>, Failed<P>>`: each
-    member unboxed and `readonly`, and the union of the members' error
-    types, inferred with no annotation.
-  - `collect(parts, build)` runs `build` on the parts when none failed and
-    returns what it returns, a plain value or a Result. Its parameter is
-    typed from the parts.
-  - `attempt((take) => …)` runs the body with a `take` that unboxes a part
-    or leaves the `attempt` with the part's Failure, by throwing a token
-    private to that call, so a `take` works inside `.map` and a Maybe `map`
-    callback. It catches that token and nothing else.
+- Add `collect` and `attempt` to `/result`, with the types `Collected`,
+  `Failed`, `Take`, `Parts` and `NotAGenerator`: fan-in over unboxed
+  Results. Nothing that exists changes.
+  - `collect(parts)` returns the first Failure among the parts, or the parts
+    unboxed.
+  - `collect(parts, build)` runs `build` on the unboxed parts when none
+    failed.
+  - `attempt((take) => …)` runs a body whose `take` unboxes a part or leaves
+    the `attempt` with the part's Failure.
 
-  Limits, at the type level and at run time, are listed in the docblocks;
-  open questions are #120.
+  Limits and open type questions: see the docblocks and #120.
 
 - **Breaking:** TypeScript 5.4 or later is required, for `NoInfer` on the
   phantom position of `success` and `failure`.
