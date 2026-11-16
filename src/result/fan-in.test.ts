@@ -397,6 +397,7 @@ describe('collect', () => {
       Object.hasOwn = () => false
       try {
         expect(collect([bad])).toBe(bad)
+        expect(collect({ a: bad })).toBe(bad)
       } finally {
         Object.hasOwn = original
       }

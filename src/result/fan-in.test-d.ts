@@ -263,7 +263,7 @@ describe('collect', () => {
     >()
   })
 
-  it('a list whose element type is generic keeps its error type', () => {
+  it('call sites with a concrete type argument keep the error type of a list that is generic in its element type', () => {
     const parseAll = <T>(
       raws: string[],
       parse: (raw: string) => Result<T, InvalidId>,
@@ -517,6 +517,27 @@ describe('attempt', () => {
   it('error classes with no members of their own compare structurally, so a memberless pair is accepted', () => {
     class MemberlessA extends Error {}
     attempt<number, MemberlessA>((take) => take(memberlessB))
+  })
+
+  it('an E that narrows a member of Error refuses a Result of another error and of Error', () => {
+    class NotFound extends Error {
+      override readonly name = 'NotFound'
+    }
+    attempt<number, NotFound>((take) => {
+      // @ts-expect-error - InvalidCount does not narrow name to 'NotFound'
+      take(count(-1))
+      // @ts-expect-error - Error does not narrow name to 'NotFound'
+      take(underlyingError)
+      return 1
+    })
+  })
+
+  it('code generic in a part type does not resolve collect with a build', () => {
+    function lens<V>(rs: Result<V, InvalidId>[]): Result<number, InvalidId> {
+      // @ts-expect-error - Collected and Failed stay unresolved for a generic V
+      return collect(rs, (xs) => xs.length)
+    }
+    void lens
   })
 
   it('an E whose class inherits members refuses a plain Error Result', () => {

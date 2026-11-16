@@ -757,10 +757,11 @@ E>>(part: R) => ValueOf<R>`; **Update, 2026-11-16:** the shipped
   constraint is wider, see the amendment below (#115); `take` also accepts,
   whatever its error, for example a Result whose value type is `any`, such
   as `tryCatch(() => JSON.parse(raw))()`, and a part typed `object`, `{}`,
-  `void` or `Record<string, X>`, and, under an `E` with no members beyond
-  `Error`'s, such as `class Plain extends Error {}`, a Result of any error
-  type is accepted, as error classes compare structurally (open, #120 item
-  5; fan-in type tests)). So a typed union at
+  `void` or `Record<string, X>`, and, under `E = Plain`, where `class Plain
+extends Error {}`, a Result of any error type is accepted, while under
+  `E = NotFound`, where `class NotFound extends Error { override readonly
+name = 'NotFound' }`, a Result whose error is `InvalidCount` is rejected
+  (open, #120 item 5; fan-in type tests)). So a typed union at
   the boundary is the annotation's, written by hand; under slider's own
   `Result<X, Error>` annotation `E` is `Error`, no better than today. An explicit
   `attempt<T, E>` serves where there is no annotation. A factory's own

@@ -868,7 +868,11 @@ export type Parts =
  * The value `collect` returns on success: the parts with each member unboxed
  * and `readonly`, one level deep. `{ id: Result<PieceId, E1> }` reads as
  * `{ readonly id: PieceId }`, `[Result<A, E1>, Result<B, E2>]` as
- * `readonly [A, B]` and `Result<V, E>[]` as `readonly V[]`.
+ * `readonly [A, B]` and `Result<Position, InvalidCoordinate>[]` as
+ * `readonly Position[]`. In code generic in a part's type, for example
+ * `function lens<V>(rs: Result<V, InvalidId>[]): Result<number, InvalidId> {
+ * return collect(rs, (xs) => xs.length) }` does not compile (open, #120 item
+ * 12).
  *
  * Open type questions: #120.
  */

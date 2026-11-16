@@ -169,8 +169,21 @@ describe('declaration emit for a consumer', () => {
     const { diagnostics, declarations } = compile(true)
     expect(diagnostics).toEqual([])
     expect(declarations).toContain('export declare function wrapped')
-    expect(declarations).toMatch(/function parseAll<T>[^;]*Failed</)
     expect(declarations).toMatch(/\.Failed</)
     expect(declarations).not.toContain('ErrorOf')
+    // Every declaration but `parseAll`'s is free of the module-private path.
+    const lines = declarations.split('\n')
+    const parseAll = lines.filter((line) =>
+      line.includes('export declare function parseAll'),
+    )
+    expect(parseAll).toHaveLength(1)
+    expect(
+      lines
+        .filter((line) => !line.includes('export declare function parseAll'))
+        .join('\n'),
+    ).not.toContain('result/internal')
+    // The known exception (#120 item 12): a generic list names `ValueOf`.
+    expect(parseAll[0]).toContain('internal.js").ValueOf<')
+    expect(parseAll[0]).toContain('.Failed<')
   })
 })
