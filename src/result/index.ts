@@ -1075,7 +1075,8 @@ const tokenOwnedBy = Leave.ownedBy
  * Runs `body` with a `take` that unboxes a part or leaves the `attempt` with
  * the part's Failure. `attempt` returns `body`'s return value, or the
  * Failure of the `take` whose leave reaches it. Only the `attempt` whose
- * `take` it was catches the leave; any other throw propagates.
+ * `take` it was catches the leave; any other throw that reaches it
+ * propagates.
  *
  * ```ts
  * static from(
