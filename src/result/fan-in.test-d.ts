@@ -42,6 +42,7 @@ declare const alias: { id: Result<Id, InvalidId> }
 declare const shape: ShapeOfId
 declare const unknownPart: unknown
 declare const pending: Promise<Result<Id, InvalidId>>
+declare const asDictionary: Record<string, Result<Count, InvalidCount>>
 declare const asObject: object
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the case under test: a part typed {}
 declare const asEmpty: {}
@@ -182,6 +183,21 @@ describe('collect', () => {
   it('a plain member whose type may hold an Error adds nothing to the error type', () => {
     expectTypeOf(collect({ x: unknownPart })).toEqualTypeOf<
       Result<{ readonly x: unknown }, never>
+    >()
+  })
+
+  it('an unknown member does not erase the other parts error types', () => {
+    expectTypeOf(collect({ id: id('a'), x: unknownPart })).toEqualTypeOf<
+      Result<{ readonly id: Id; readonly x: unknown }, InvalidId>
+    >()
+    expectTypeOf(collect([id('a'), unknownPart])).toEqualTypeOf<
+      Result<readonly [Id, unknown], InvalidId>
+    >()
+    expectTypeOf(
+      collect({ id: id('a'), x: unknownPart }, ({ id }) => id),
+    ).toEqualTypeOf<Result<Id, InvalidId>>()
+    expectTypeOf(collect([unknownPart])).toEqualTypeOf<
+      Result<readonly [unknown], never>
     >()
   })
 
@@ -329,6 +345,7 @@ describe('attempt', () => {
     // as E although it is outside E.
     const lenient = (): Result<number, InvalidId> =>
       attempt((take) => {
+        take(asDictionary)
         take(asObject)
         take(asEmpty)
         take(asVoid)

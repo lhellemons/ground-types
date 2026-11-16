@@ -743,8 +743,8 @@ InvalidCoordinate>`. The parts are evaluated by the caller, eagerly, so
   the enclosing return annotation it is found, and `take` then rejects a
   part whose error is outside it (`take` is `<R extends Result<unknown,
 E>>(part: R) => ValueOf<R>`; **Update, 2026-11-16:** the shipped
-  constraint is wider, see the amendment below (#115)). So a typed union at the boundary is the
-  annotation's, written by hand; under slider's own `Result<X, Error>`
+  constraint is wider, see the amendment below (#115)). So a typed union at
+  the boundary is the annotation's, written by hand; under slider's own `Result<X, Error>`
   annotation `E` is `Error`, no better than today. An explicit
   `attempt<T, E>` serves where there is no annotation. A factory's own
   failure is a `take(failure(…))` or an early return ahead of the
@@ -761,9 +761,10 @@ E>>(part: R) => ValueOf<R>`; **Update, 2026-11-16:** the shipped
   `attempt` has returned; and a plain `return failure(…)` in the
   body lands in `T`, with `E` still `Error`, where under an annotation it
   is a type error. The guards and docblocks for these are #115's.
-  **Update, 2026-11-16:** shipped by #115 with differences, among them
-  that a body's `return failure(…)` is a Failure at run time whatever `T`
-  says and is not always a type error; see the amendment below (#115).
+  **Update, 2026-11-16:** shipped by #115 with corrections to this
+  description, among them that a body's `return failure(…)` is a Failure at
+  run time whatever `T` says and is not always a type error; see the
+  amendment below (#115).
 
 The third candidate, `gen`/`yield* take` (generator do-notation), infers
 the exact union with no annotation and catches nothing, but a `yield*`
@@ -892,7 +893,7 @@ fallback)` turns a Failure into the fallback value with the error
   it can ship, is that ticket's to decide. `Failures<E>` as measured in
   `prototypes/59/fan-in.ts` is the recorded shape until then.
 
-### 2026-11-16 — `collect(parts, build)` types the construction step (#115)
+### 2026-11-16 — `collect(parts, build)` and what #115 shipped (#115)
 
 The #59 amendment left open what to do about the construction step after a
 `collect`: `map` and `andThen` infer their callback's parameter from the
@@ -914,21 +915,21 @@ swapped for one of another type inside `build` does not compile.
   but the curried form `map(fn)`, which is what `pipe` runs (ADR 0004), has
   no value to infer from, so only the applied form would be typed. The
   change would also reach every applied `map` and `andThen` signature in
-  `/result` for one caller, where `build` adds one overload to
-  `collect`.
+  `/result`, where `build` adds one overload to `collect`.
 - The early-return and `map`/`andThen` forms stay as the #59 amendment
   describes them. `build` is the typed alternative to `map` and `andThen`;
   the early-return form already types each member. The `map` step after a
   `collect` still types its parameter only where the caller annotates it.
   `attempt`/`take` types its values with nothing written by hand and needs
   no `build`.
-- What shipped differently from the #59 amendment's description:
+- What shipped with corrections to the #59 amendment's description:
   - `Take`'s constraint is `Result<unknown, E> | null | undefined | void`,
     not `Result<unknown, E>`: `Result<unknown, E>` alone rejects a Result
     whose value type includes `undefined`. It also accepts a part typed
-    `object`, `{}` or `void`, and an Error such a part holds at run time
-    leaves the `attempt` whatever `E` says; whether to close that is #120's
-    question (item 5).
+    `object`, `Object`, `{}` or `void`, or a type with a string index
+    signature such as `Record<string, unknown>`, and an Error such a part
+    holds at run time leaves the `attempt` whatever `E` says; whether to
+    close that is #120's question (item 5).
   - The guard on an `attempt` body refuses a thenable (`NotAPromise`) and a
     generator or async generator (`NotAGenerator`), as far as the body's
     return type shows. A plain iterator (`[1, 2].values()`) is accepted:
@@ -938,7 +939,8 @@ swapped for one of another type inside `build` does not compile.
     function annotated as returning an iterator type (`IterableIterator`,
     `AsyncIterableIterator`, `Iterator`) is not caught, and neither
     `tryCatch` nor `attempt` refuses it; that is #120's item 3. An async
-    function typed as returning `void` or `unknown` passes `attempt` and
+    function typed as returning a type a Promise fits (`void`, `unknown`,
+    `object`, `{}`), or given such a `T` explicitly, passes `attempt` and
     `tryCatch` alike; that is #120's item 6.
   - The leave token is a fresh frozen object per `take` given a Failure,
     carrying that Failure and naming its `attempt` by a private field,

@@ -881,23 +881,22 @@ export type Collected<P> = P extends readonly unknown[]
 
 /**
  * The error `collect` may fail with: the union of every part's error type,
- * read through `ErrorOf`. A list contributes its element type, an object of
+ * read member by member through `ErrorOf`. A list contributes its element type, an object of
  * parts its string-keyed and number-keyed members.
  */
 export type Failed<P> = [
-  ErrorOf<
-    P extends readonly unknown[]
-      ? P[number]
-      : P[Extract<keyof P, string | number>]
-  >,
+  P extends readonly unknown[]
+    ? { [K in keyof P]: ErrorOf<P[K]> }[number]
+    : { [K in keyof P]-?: ErrorOf<P[K]> }[Extract<keyof P, string | number>],
 ] extends [infer F extends Error]
   ? F
   : never
 
-/* Called through local bindings, so they are the intrinsics captured when
+/* Called through local bindings, so they are the functions captured when
    the module loads: replacing one afterwards changes nothing here. The
-   errors `collect` throws for a bad argument are built when it is called,
-   and only choose which error object is thrown. */
+   loops below use no iterator. The `TypeError` for a bad argument is built
+   from the global `TypeError` when `collect` is called, so replacing that
+   global changes what is thrown. */
 const hasOwn = Object.hasOwn
 const ownKeys = Object.keys
 const freeze = Object.freeze
@@ -916,8 +915,9 @@ function firstFailure(parts: object): Error | undefined {
     }
     return undefined
   }
-  for (const key of ownKeys(parts)) {
-    const part: unknown = (parts as Record<string, unknown>)[key]
+  const keys = ownKeys(parts)
+  for (let index = 0; index < keys.length; index++) {
+    const part: unknown = (parts as Record<string, unknown>)[keys[index]]
     if (isError(part)) return part
   }
   return undefined
@@ -942,15 +942,17 @@ function firstFailure(parts: object): Error | undefined {
  *
  * A plain member whose type may hold an Error (`unknown`, `object`) adds
  * nothing to the error type, but an Error there at run time is returned as
- * the Failure. A Promise member is a plain value too: it adds nothing to the
- * error type, and a Failure it resolves to is never seen (open, #120). A
+ * the Failure (open, #120 item 1). A Promise member is a plain value too: it
+ * adds nothing to the error type, and a Failure it resolves to is never seen
+ * (open, #120 item 4). A
  * part typed `any`, or a `build` that returns `any`, makes the result's
  * types `any`, error type included: the compiler then checks nothing for it.
  *
  * The Success is the argument itself, not a copy: `readonly` in the type
  * does not freeze it, so a later change to the caller's object or list shows
- * through, and a frozen argument comes back frozen. The parts are evaluated
- * by the caller before `collect` runs, so one part cannot depend on another.
+ * through, and a frozen argument comes back frozen. A part is a value the
+ * caller has already computed, apart from a getter, which `collect` runs as
+ * it reads the object.
  * The first Failure is the first in order: a list's own indices, or the keys
  * `Object.keys` gives for an object. `collect` catches nothing: a throw from
  * a part's getter or from `build` propagates. A part whose prototype chain
@@ -1010,8 +1012,9 @@ export function collect(
  * Unboxes a part inside an {@link attempt}, or leaves that `attempt` with the
  * part's Failure. `take(part)` is the part's value when it is a Success.
  * A part whose error type is outside `E` is rejected; a part typed `object`,
- * `{}` or `void` is accepted, and an Error it holds at run time leaves the
- * `attempt` whatever `E` says.
+ * `Object`, `{}` or `void`, or a type with a string index signature such as
+ * `Record<string, unknown>`, is accepted, and an Error it holds at run time
+ * leaves the `attempt` whatever `E` says (open, #120 item 5).
  */
 export type Take<E extends Error> = <
   R extends Result<unknown, E> | null | undefined | void,
@@ -1032,8 +1035,8 @@ type IsGenerator<T> = unknown extends T
 /**
  * Rejects a body return type with a generator arm (the result of a generator
  * function or an async generator function), surfacing the diagnostic as a
- * readable string. The generator
- * counterpart of {@link NotAPromise}; `attempt` takes both.
+ * readable string. The generator counterpart of {@link NotAPromise};
+ * `attempt` takes both.
  */
 export type NotAGenerator<R> = [
   Extract<R extends unknown ? IsGenerator<R> : never, true>,
@@ -1104,7 +1107,8 @@ const tokenOwnedBy = Leave.ownedBy
  * a `return failure(…)` puts its type in `T`, with `E` still `Error`, and
  * under a return annotation it is a type error; with explicit type
  * arguments, or a `T` that admits an Error such as `unknown`, its type is
- * not in the result, and `isFailure` narrows it to `E`. `take` works in code
+ * not in the result, and `isFailure` narrows it to `E` (open, #120 item 2).
+ * `take` works in code
  * that `body` calls synchronously and that lets the throw propagate, `.map`
  * and a Maybe `map` callback included, and a later `take` can depend on an
  * earlier one. A
@@ -1115,11 +1119,12 @@ const tokenOwnedBy = Leave.ownedBy
  *
  * `body` must resolve synchronously. A body whose return type is a thenable
  * (see {@link NotAPromise}) or a generator (see {@link NotAGenerator}) is a
- * type error, as far as its type shows; an async function typed as
- * returning `void` or `unknown` is not caught, and neither is a generator
- * function annotated as returning an iterator type, such as
- * `IterableIterator`. At run time an async body
- * returns a promise that rejects with the token when a `take` is given a
+ * type error, as far as its type shows. An async function typed as
+ * returning a type a Promise fits (`void`, `unknown`, `object`, `{}`), or
+ * given such a `T` explicitly, is not caught (open, #120 item 6), and neither
+ * is a generator function annotated as returning an iterator type, such as
+ * `IterableIterator` (open, #120 item 3). At run time an async body returns
+ * a promise that rejects with the token when a `take` is given a
  * Failure. A `take` given a Failure after its own `attempt` has returned
  * throws the token, which is not an `Error`, to its caller. A `take` from an
  * enclosing `attempt` that is still running leaves that one.

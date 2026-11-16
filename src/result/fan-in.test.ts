@@ -237,7 +237,7 @@ describe('collect', () => {
     })
   })
 
-  describe('the checks use the intrinsics captured when the module loaded', () => {
+  describe('the loops use the intrinsics captured when the module loaded, and no iterator', () => {
     it('Array.isArray replaced afterwards changes nothing', () => {
       const bad = new InvalidId('bad')
       const original = Array.isArray
@@ -258,6 +258,26 @@ describe('collect', () => {
         expect(collect({ a: bad })).toBe(bad)
       } finally {
         Object.keys = original
+      }
+    })
+
+    it('the array iterator replaced afterwards changes nothing', () => {
+      const bad = new InvalidId('bad')
+      const proto = Object.getPrototypeOf([][Symbol.iterator]()) as {
+        next: () => unknown
+      }
+      const originalNext = proto.next
+      const originalIterator = Array.prototype[Symbol.iterator]
+      proto.next = () => ({ done: true, value: undefined })
+      Array.prototype[Symbol.iterator] = function* () {
+        // yields nothing
+      } as (typeof Array.prototype)[typeof Symbol.iterator]
+      try {
+        expect(collect({ a: bad })).toBe(bad)
+        expect(collect([bad])).toBe(bad)
+      } finally {
+        proto.next = originalNext
+        Array.prototype[Symbol.iterator] = originalIterator
       }
     })
 

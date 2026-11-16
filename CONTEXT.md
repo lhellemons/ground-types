@@ -75,8 +75,9 @@ list: the first Failure among them, or the parts themselves with every
 member unboxed. A part that is not an Error counts as a Success and passes
 through. The error type is the union of the parts' error types. A Collect
 catches no throw, though a part whose prototype chain cannot be read counts
-as a Success and what its trap threw is dropped. The parts are evaluated
-before it runs, so one part cannot depend on another; the step that builds
+as a Success and what its trap threw is dropped. A part is a value
+computed before it runs, apart from a getter, so one part cannot depend on
+another; the step that builds
 from the parts follows, or is the Collect with a build step. The imperative
 counterpart is **Attempt**.
 
@@ -89,10 +90,10 @@ To **attempt** is to run a body that unboxes Results with **Take** and
 leaves with the first Failure it is given: the Attempt is that Failure, or
 the body's return value. Of all Attempts only that one recognises its leave,
 though anything in the body that catches throws can swallow it. Any other
-throw is a bug and propagates unless something in the body catches it,
-which separates an Attempt from `tryCatch`, which turns a throw into a
-Failure. The declarative counterpart is
-**Collect**.
+throw, a bug or the leave of an enclosing Attempt, propagates unless
+something in the body catches it, which separates an Attempt from
+`tryCatch`, which turns a throw into a Failure. The declarative counterpart
+is **Collect**.
 
 _Avoid_: try, do-notation.
 
