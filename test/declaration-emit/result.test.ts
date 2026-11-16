@@ -101,6 +101,12 @@ export function collectedBuildAnnotated(
 }
 export const attempted = (raw: string) =>
   attempt((take) => new Door(take(id(raw)), take(countOf(1))))
+export function parseAll<T>(
+  raws: string[],
+  parse: (raw: string) => Result<T, InvalidId>,
+) {
+  return collect(raws.map(parse))
+}
 export function wrapped<P extends Record<string, unknown>>(
   parts: P & Record<symbol, never>,
 ) {
@@ -163,7 +169,8 @@ describe('declaration emit for a consumer', () => {
     const { diagnostics, declarations } = compile(true)
     expect(diagnostics).toEqual([])
     expect(declarations).toContain('export declare function wrapped')
+    expect(declarations).toMatch(/function parseAll<T>[^;]*Failed</)
     expect(declarations).toMatch(/\.Failed</)
-    expect(declarations).not.toContain('result/internal')
+    expect(declarations).not.toContain('ErrorOf')
   })
 })

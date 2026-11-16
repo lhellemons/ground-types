@@ -86,6 +86,11 @@ declare const anyResult: Result<any, InvalidCount>
 declare function nameOf(raw: string): Result<string, InvalidName>
 const collectNamed = () => collect({ name: nameOf('a'), message: nameOf('b') })
 declare const plainAuthor: { name: string; message: string }
+declare const numberResults: Result<number, InvalidId>[]
+declare const variadic: [
+  Result<Id, InvalidId>,
+  ...Result<Count, InvalidCount>[],
+]
 declare const idList: Result<Id, InvalidId>[]
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the case under test: a part typed any
 declare const loose: any
@@ -255,6 +260,48 @@ describe('collect', () => {
     >()
     expectTypeOf(collect(stringIndexed)).toEqualTypeOf<
       Result<{ readonly [key: string]: Count }, InvalidCount>
+    >()
+  })
+
+  it('a list whose element type is generic keeps its error type', () => {
+    const parseAll = <T>(
+      raws: string[],
+      parse: (raw: string) => Result<T, InvalidId>,
+    ) => collect(raws.map(parse))
+    expectTypeOf(parseAll<Id>(['a'], id)).toEqualTypeOf<
+      Result<readonly Id[], InvalidId>
+    >()
+    const viaE = <E extends Error>(results: Result<number, E>[]) =>
+      collect(results)
+    expectTypeOf(viaE(numberResults)).toEqualTypeOf<
+      Result<readonly number[], InvalidId>
+    >()
+    const readonlyViaE = <E extends Error>(
+      results: readonly Result<number, E>[],
+    ) => collect(results)
+    expectTypeOf(readonlyViaE(numberResults)).toEqualTypeOf<
+      Result<readonly number[], InvalidId>
+    >()
+    const viaBuild = <T>(
+      raws: string[],
+      parse: (raw: string) => Result<T, InvalidId>,
+    ) => collect(raws.map(parse), (parsed) => parsed.length)
+    expectTypeOf(viaBuild<Id>(['a'], id)).toEqualTypeOf<
+      Result<number, InvalidId>
+    >()
+  })
+
+  it('a generic object of parts keeps its error type', () => {
+    const viaObject = <T>(parse: () => Result<T, InvalidId>) =>
+      collect({ a: parse(), n: 1 })
+    expectTypeOf(viaObject<Id>(() => id('a'))).toEqualTypeOf<
+      Result<{ readonly a: Id; readonly n: number }, InvalidId>
+    >()
+  })
+
+  it('a variadic tuple keeps the error of its rest elements', () => {
+    expectTypeOf(collect(variadic)).toEqualTypeOf<
+      Result<readonly [Id, ...Count[]], InvalidId | InvalidCount>
     >()
   })
 
@@ -470,6 +517,18 @@ describe('attempt', () => {
   it('error classes with no members of their own compare structurally, so a memberless pair is accepted', () => {
     class MemberlessA extends Error {}
     attempt<number, MemberlessA>((take) => take(memberlessB))
+  })
+
+  it('an E whose class inherits members refuses a plain Error Result', () => {
+    class DomainError extends Error {
+      readonly code: string = 'x'
+    }
+    class InheritingId extends DomainError {}
+    attempt<number, InheritingId>((take) => {
+      // @ts-expect-error - Error lacks the inherited code member
+      take(underlyingError)
+      return 1
+    })
   })
 
   it('error types compare structurally: an Error subclass with no members counts as Error', () => {

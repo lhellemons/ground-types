@@ -136,6 +136,21 @@ describe('collect', () => {
     expect(collect(hiddenGetter)).toBeInstanceOf(InvalidId)
   })
 
+  it('does not read an inherited value for an own key that a getter deleted', () => {
+    const inherited = new InvalidId('inherited')
+    const parts = Object.create({ later: inherited }) as Record<string, unknown>
+    Object.defineProperty(parts, 'first', {
+      get(): string {
+        delete parts['later']
+        return 'ok'
+      },
+      enumerable: true,
+      configurable: true,
+    })
+    parts['later'] = id('a')
+    expect(collect(parts)).toBe(parts)
+  })
+
   it('does not read a hole in a list through the prototype', () => {
     const inherited = new InvalidId('inherited')
     // eslint-disable-next-line no-sparse-arrays -- the case under test: a hole
@@ -274,6 +289,27 @@ describe('collect', () => {
     it('take returns it as the value', () => {
       const part = unreadable()
       expect(attempt<unknown, InvalidId>((take) => take(part))).toBe(part)
+    })
+
+    it('take drops an outer attempt leave thrown by the trap of a part an inner attempt reads', () => {
+      const r = attempt<string, InvalidId>((outer) => {
+        const inner = attempt<unknown, InvalidId>((take) => {
+          const trap = new Proxy(
+            {},
+            {
+              getPrototypeOf(): never {
+                outer(failure(new InvalidId('outer leave')))
+                throw new Error('not reached')
+              },
+            },
+          ) as unknown as Result<string, InvalidId>
+          take(trap)
+          return 'inner completed'
+        })
+        void inner
+        return 'body completed'
+      })
+      expect(r).toBe('body completed')
     })
 
     it('take drops an enclosing leave thrown by the trap of a part it reads', () => {

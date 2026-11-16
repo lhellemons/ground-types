@@ -757,9 +757,10 @@ E>>(part: R) => ValueOf<R>`; **Update, 2026-11-16:** the shipped
   constraint is wider, see the amendment below (#115); `take` also accepts,
   whatever its error, for example a Result whose value type is `any`, such
   as `tryCatch(() => JSON.parse(raw))()`, and a part typed `object`, `{}`,
-  `void` or `Record<string, X>`, and, under an `E` whose classes declare no
-  members of their own, a Result of any error type, as error classes compare
-  structurally (open, #120 item 5; fan-in type tests)). So a typed union at
+  `void` or `Record<string, X>`, and, under an `E` with no members beyond
+  `Error`'s, such as `class Plain extends Error {}`, a Result of any error
+  type is accepted, as error classes compare structurally (open, #120 item
+  5; fan-in type tests)). So a typed union at
   the boundary is the annotation's, written by hand; under slider's own
   `Result<X, Error>` annotation `E` is `Error`, no better than today. An explicit
   `attempt<T, E>` serves where there is no annotation. A factory's own
@@ -780,6 +781,7 @@ E>>(part: R) => ValueOf<R>`; **Update, 2026-11-16:** the shipped
   a value type that the returned Failure fits, such as `unknown`, it
   compiles; #120 item 2). The guards and docblocks for these are #115's.
   **Update, 2026-11-16:** shipped by #115; see the amendment below (#115)
+  for the generator guard and the `attempt` docblock for the async guard
   (gaps: #120 items 3 and 6).
 
 The third candidate, `gen`/`yield* take` (generator do-notation), infers

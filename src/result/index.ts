@@ -888,8 +888,10 @@ export type Collected<P> = P extends readonly unknown[]
  */
 export type Failed<P> = [
   P extends readonly unknown[]
-    ? { [K in keyof P]-?: ErrorOf<P[K]> }[number]
-    : ObjectErrors<P>,
+    ? Exclude<{ [K in keyof P]: ErrorOf<P[K]> }[number], undefined>
+    : | DeclaredErrors<P>[keyof DeclaredErrors<P>]
+      | (string extends keyof P ? ErrorOf<P[string & keyof P]> : never)
+      | (number extends keyof P ? ErrorOf<P[number & keyof P]> : never),
 ] extends [infer F extends Error]
   ? F
   : never
@@ -908,10 +910,6 @@ type DeclaredErrors<P> = {
       : never
   ]-?: ErrorOf<P[K]>
 }
-type ObjectErrors<P> =
-  | DeclaredErrors<P>[keyof DeclaredErrors<P>]
-  | (string extends keyof P ? ErrorOf<P[string & keyof P]> : never)
-  | (number extends keyof P ? ErrorOf<P[number & keyof P]> : never)
 
 /* Called through local bindings, so they are the functions captured when
    the module loads: replacing one afterwards changes nothing here. The
@@ -939,6 +937,7 @@ function firstFailure(parts: object): Error | undefined {
   }
   const keys = ownNames(parts)
   for (let index = 0; index < keys.length; index++) {
+    if (!hasOwn(parts, keys[index])) continue
     const part: unknown = (parts as Record<string, unknown>)[keys[index]]
     if (isError(part)) return part
   }
@@ -957,8 +956,9 @@ function firstFailure(parts: object): Error | undefined {
  * //   InvalidPieceId | InvalidCoordinate>
  * ```
  *
- * In an Array `map`, pass `(r) => collect(r)`: `rows.map(collect)` throws a
- * `TypeError`, since `map` passes the index as `build`.
+ * In an Array `map`, pass `(r) => collect(r)`: `rows.map(collect)` compiles,
+ * and throws a `TypeError` on the first row, since `map` passes the index as
+ * `build`.
  *
  * The Success is the argument itself, not a copy, and `readonly` one level
  * deep: for example, a later change to the caller's object shows through,
@@ -1058,7 +1058,8 @@ export type NotAGenerator<R> = [
    class and its prototype are frozen when the module loads, and `attempt`
    calls the brand check through the binding captured then, so a body that
    catches a token can neither change it nor replace the check; a token a body
-   did not receive cannot be built, as the owner is private to its `attempt`. */
+   did not receive cannot be built, as the owner is private to its `attempt`
+   so that only it recognises the token. */
 class Leave {
   readonly #owner: object
   readonly failure: Error
