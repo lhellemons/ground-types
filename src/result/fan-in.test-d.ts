@@ -85,6 +85,7 @@ declare const narrowestView: { id: string }
 declare const anyResult: Result<any, InvalidCount>
 declare function nameOf(raw: string): Result<string, InvalidName>
 const collectNamed = () => collect({ name: nameOf('a'), message: nameOf('b') })
+declare const plainAuthor: { name: string; message: string }
 declare const idList: Result<Id, InvalidId>[]
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the case under test: a part typed any
 declare const loose: any
@@ -266,7 +267,18 @@ describe('collect', () => {
     >()
   })
 
+  it('a plain member shaped like an Error is typed as an error and its value as never', () => {
+    expectTypeOf(collect({ id: id('a'), author: plainAuthor })).toEqualTypeOf<
+      Result<
+        { readonly id: Id; readonly author: never },
+        InvalidId | { name: string; message: string }
+      >
+    >()
+  })
+
   it('an object of parts with string name and message members has no Success type', () => {
+    // @ts-expect-error - success refuses a value shaped like an Error
+    success({ name: 'n', message: 'm', level: 1 })
     expectTypeOf(collect({ name: 'n', message: 'm', level: 1 })).toBeNever()
     expectTypeOf<Exclude<ReturnType<typeof collectNamed>, Error>>().toBeNever()
     void collectNamed
@@ -482,6 +494,8 @@ describe('attempt', () => {
 
   it('rejects a take of a part with no type argument, and take<any> accepts it', () => {
     attempt<number, InvalidId>((take) => {
+      // @ts-expect-error - InvalidCount is outside InvalidId
+      take(count(-1))
       take<any>(count(-1)) // eslint-disable-line @typescript-eslint/no-explicit-any -- the case under test
       return 1
     })
@@ -582,6 +596,18 @@ describe('attempt', () => {
       // @ts-expect-error - ValueOf<X> cannot be judged
       attempt((take) => take(part))
     void generic
+  })
+
+  it('accepts a class that declares only next and Symbol.iterator', () => {
+    class NextOnly implements Iterator<number> {
+      next(): IteratorResult<number> {
+        return { done: true, value: undefined }
+      }
+      [Symbol.iterator](): NextOnly {
+        return this
+      }
+    }
+    attempt(() => new NextOnly())
   })
 
   it('refuses an iterator that declares next, return, throw and Symbol.iterator, as a generator', () => {

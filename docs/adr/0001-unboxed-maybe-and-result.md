@@ -944,9 +944,11 @@ does not compile.
 - Also shipped: `collect`'s value type is `readonly` one level deep. The
   guard on an `attempt` body compares the body's type with `Generator` and
   `AsyncGenerator` structurally: for example, `[1, 2].values()` is
-  accepted, and with the ES2022 lib an iterator class whose
-  `[Symbol.iterator]()` returns the class itself, such as the type tests'
-  `Countdown`, is refused, and one whose `[Symbol.iterator]()` is annotated
-  `IterableIterator<number>` is accepted (#120 item 3).
+  accepted, and with the ES2022 lib, for example, the type tests'
+  `Countdown` (it declares `next`, `return` and `throw`, and its
+  `[Symbol.iterator]()` returns itself) is refused, while a class that
+  declares only `next` and `[Symbol.iterator]()`, or one whose
+  `[Symbol.iterator]()` is annotated `IterableIterator<number>`, is accepted
+  (#120 item 3).
 
 Open type questions are ticket 120.

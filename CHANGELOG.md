@@ -77,14 +77,12 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   consumers whose declarations mention a `Success` need a name to emit.
 - Add `collect` and `attempt` to `/result`, with the types `Collected`,
   `Failed`, `Take`, `Parts` and `NotAGenerator`: fan-in over unboxed
-  Results. Nothing that exists changes. Limits and open type questions: see
-  the docblocks and #120.
-  - `collect(parts)` returns the first Failure among the parts, or the parts
-    unboxed.
-  - `collect(parts, build)` runs `build` on the unboxed parts when none
-    failed.
-  - `attempt((take) => …)` runs a body whose `take` unboxes a part or leaves
-    the `attempt` with the part's Failure.
+  Results. `collect(parts)` returns the first Failure among the parts, or
+  the parts unboxed; `collect(parts, build)` runs `build` on the unboxed
+  parts when none failed; `attempt((take) => …)` runs a body whose `take`
+  unboxes a part or leaves the `attempt` with the part's Failure. Nothing
+  that exists changes. Limits and open type questions: see the docblocks and
+  #120.
 - **Breaking:** TypeScript 5.4 or later is required, for `NoInfer` on the
   phantom position of `success` and `failure`.
 - **Breaking:** `success` rejects, at any site and with or without type

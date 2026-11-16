@@ -852,7 +852,8 @@ function isInstanceOfAny(error: Error, classes: readonly unknown[]): boolean {
 /**
  * What `collect` accepts: an object of parts, a tuple or a list. Every member
  * is a part: a {@link Result}, or a plain value that passes through as a
- * Success.
+ * Success. For example, a plain member `{ name: 'a', message: 'b' }` is typed
+ * as an error and its value as `never` (open, #120 item 9).
  *
  * Open type questions: #120.
  */
@@ -970,8 +971,8 @@ function firstFailure(parts: object): Error | undefined {
  * error type (open, #120 item 10). For example, a part typed `any`
  * makes the result `any`, and an object of parts typed as an interface (say
  * `interface Shape { id: Result<…> }`) is refused: use a type alias. For
- * example, an object of parts with `name` and `message` members that are, or
- * unbox to, strings has no Success type, as `success` refuses such a value (open, #120 item 9).
+ * example, `collect({ name: 'n', message: 'm', level: 1 })` has no Success
+ * type, and `success` refuses that value (open, #120 item 9).
  *
  * With a second argument, `build`, a Success runs `build` on the parts and
  * `collect` returns what it returns, a plain value or a Result. `build` is
@@ -1104,7 +1105,8 @@ const tokenOwnedBy = Leave.ownedBy
  *
  * For example, a `try`/`catch` in the body that does not rethrow, or a
  * `finally` that returns, swallows the leave. A {@link tryCatch} inside the
- * body turns a `take` given a Failure into a {@link ThrownError} with the default handler,
+ * body turns a `take` given a Failure into a {@link ThrownError} with the
+ * default handler,
  * gives a function handler the token, and lets the leave through with
  * `catchOnly` or a class list. A `take` given a Failure after its `attempt`
  * returned throws the token, which is not an `Error`. Under, for example, a
