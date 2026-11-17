@@ -14,7 +14,7 @@ runs the type probes (`probe.test-d.ts`) and the runtime probes
 | File             | What                                                                                                                                                  |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `best-effort.ts` | The kit: `bestEffort`, `map`, `andThen`, `note`, `gather`, `recover`, `recoverWith`, `toResult`, plus `toResultUnguarded` as the measured alternative |
-| `consumer.ts`    | a consumer's world-document parser cut to its best-effort paths and ported: a three-state reader, `validateBoardEntry`'s drop-a-piece, the retry loop |
+| `consumer.ts`    | A consumer's world-document parser cut to its best-effort paths and ported: a three-state reader, `validateBoardEntry`'s drop-a-piece, the retry loop |
 
 The decisions and every pinned fact are in
 `docs/adr/0006-best-effort.md`; the vocabulary in `CONTEXT.md` ("Best

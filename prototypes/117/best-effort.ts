@@ -3,9 +3,12 @@
    it stands plus the diagnostics gathered while building it), a
    constructor, `map`, an `andThen` that keeps diagnostics in order, and a
    bridge each way with `Result`. Functional, value-last and curryable as
-   `/result` is; the unapplied `map`, `note`, `andThen` and `toResult` are
-   generic as `/result`'s `map(fn)` is, `recover` and `recoverWith` bind at
-   the call as `orElse(defaultValue)` does; a Box is #89's question.
+   `/result` is. The unapplied `map`, `note` and `andThen` bind `T` and the
+   box's `D` at application, as `/result`'s `map(fn)` does; the unapplied
+   `toResult(toError)` binds `D` and `E` at the call and `T` at
+   application; `recover(fallback)` binds `T` at the call and `E` at
+   application; `recoverWith(fallback, diagnose)` binds `T`, `E` and `D` at
+   the call. A Box is #89's question.
 
    Two guard variants of the bridge out are kept side by side so the probes
    can measure them: `toResult` carries `success`'s `NotPossiblyAnError`
@@ -26,10 +29,9 @@ export type BestEffort<T, D> = {
 }
 
 /** Rejects a value type with a `BestEffort` among its top-level union
- * arms: a nested box would carry its diagnostics out through `toResult` as
- * a Success. Structural, so any object with a `value` and an array
- * `diagnostics` is refused; a box inside an array, a tuple or an object
- * property is not reached. Names the fix. */
+ * arms. Structural, so any object with a `value` and an array
+ * `diagnostics` is refused; a box inside an array, a tuple, an object
+ * property or a Promise is not reached. Names the fix. */
 export type NotABestEffort<U> = [
   Extract<U, BestEffort<unknown, unknown>>,
 ] extends [never]
@@ -180,8 +182,7 @@ export function recoverWith<T, E extends Error, D>(
 /** The bridge out, guarded: a Success of the value when no diagnostic
  * exists, else a Failure of `toError(diagnostics)`, handed the whole list
  * in order. A throw from `toError` propagates. `T` must pass `success`'s
- * guard, since the Success arm is unboxed, and must not itself be a
- * `BestEffort`. Curryable; the unapplied form binds `T` at application. */
+ * guard and must not itself be a `BestEffort`. Curryable; the unapplied form binds `T` at application. */
 export function toResult<
   T extends NotPossiblyAnError<T> & NotABestEffort<T>,
   D,

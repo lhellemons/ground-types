@@ -59,8 +59,8 @@ describe('the kit', () => {
     expect(frozen(be)).toBe(true)
   })
   it("andThen: the first step's diagnostics, then the second's, both in order, duplicates kept; applied and curried alike; frozen, also when the first box is clean and fn returns an unfrozen literal; a throw from fn propagates by identity", () => {
-    const second = (x: number) => bestEffort(x + 1, ['c', 'd', 'c'])
-    const expected = { value: 2, diagnostics: ['a', 'b', 'c', 'd', 'c'] }
+    const second = (x: number) => bestEffort(x + 1, ['c', 'd', 'c', 'e'])
+    const expected = { value: 2, diagnostics: ['a', 'b', 'c', 'd', 'c', 'e'] }
     const applied = andThen(second, bestEffort(1, ['a', 'b']))
     expect(applied).toEqual(expected)
     const curried = andThen(second)(bestEffort(1, ['a', 'b']))
@@ -73,37 +73,37 @@ describe('the kit', () => {
     expect(passedThrough).not.toBe(literal)
     expect(frozen(passedThrough)).toBe(true)
     const thrown = new TypeError('from fn')
-    expect(
-      caught(() =>
-        andThen(() => {
-          throw thrown
-        }, bestEffort(1)),
-      ),
-    ).toBe(thrown)
+    const throwing = () => {
+      throw thrown
+    }
+    const throwingPlain = () => {
+      throw 'plain'
+    }
+    expect(caught(() => andThen(throwing, bestEffort(1)))).toBe(thrown)
+    expect(caught(() => andThen(throwing)(bestEffort(1)))).toBe(thrown)
+    expect(caught(() => andThen(throwingPlain, bestEffort(1)))).toBe('plain')
+    expect(caught(() => andThen(throwingPlain)(bestEffort(1)))).toBe('plain')
   })
   it('map keeps the diagnostics in order; applied and curried alike; frozen; a throw from fn propagates by identity', () => {
-    const expected = { value: 2, diagnostics: ['a', 'b', 'a'] }
-    const applied = map((x: number) => x * 2, bestEffort(1, ['a', 'b', 'a']))
+    const list = ['a', 'b', 'a', 'c']
+    const expected = { value: 2, diagnostics: ['a', 'b', 'a', 'c'] }
+    const applied = map((x: number) => x * 2, bestEffort(1, list))
     expect(applied).toEqual(expected)
-    const curried = map((x: number) => x * 2)(bestEffort(1, ['a', 'b', 'a']))
+    const curried = map((x: number) => x * 2)(bestEffort(1, list))
     expect(curried).toEqual(expected)
     expect(frozen(applied)).toBe(true)
     expect(frozen(curried)).toBe(true)
     const thrown = new TypeError('from fn')
-    expect(
-      caught(() =>
-        map(() => {
-          throw thrown
-        }, bestEffort(1)),
-      ),
-    ).toBe(thrown)
-    expect(
-      caught(() =>
-        map(() => {
-          throw 'plain'
-        }, bestEffort(1)),
-      ),
-    ).toBe('plain')
+    const throwing = () => {
+      throw thrown
+    }
+    const throwingPlain = () => {
+      throw 'plain'
+    }
+    expect(caught(() => map(throwing, bestEffort(1)))).toBe(thrown)
+    expect(caught(() => map(throwing)(bestEffort(1)))).toBe(thrown)
+    expect(caught(() => map(throwingPlain, bestEffort(1)))).toBe('plain')
+    expect(caught(() => map(throwingPlain)(bestEffort(1)))).toBe('plain')
   })
   it("note appends after the ones held, in its own order, duplicates kept, the caller's array untouched; applied and curried alike; frozen", () => {
     const added = ['c', 'd', 'c', 'e']
@@ -128,6 +128,7 @@ describe('the kit', () => {
     })
     expect(gather([])).toEqual({ value: [], diagnostics: [] })
     expect(frozen(g)).toBe(true)
+    expect(Object.isFrozen(g.value)).toBe(false)
   })
   it('recover: a Success is itself with no diagnostic, success(undefined) and success(null) included; a Failure is the fallback with the error itself; applied and curried alike; both arms frozen', () => {
     const err = new RangeError('bad')
@@ -186,6 +187,8 @@ describe('the kit', () => {
     )
     expect(seen).toEqual([err, err])
     expect(seen[0]).toBe(err)
+    const made = { m: 1 }
+    expect(recoverWith(0, () => made, failure(err)).diagnostics[0]).toBe(made)
     for (const be of [
       recoverWith(0, diagnose, failure(err)),
       recoverWith(0, diagnose)(failure(err)),
@@ -264,11 +267,16 @@ describe('the kit', () => {
       false,
     )
   })
-  it('a plain object literal is a BestEffort structurally and is not frozen by being one', () => {
+  it('a plain object literal is a BestEffort structurally: toResult reads it, and map returns a frozen box from it', () => {
     const literal: BestEffort<number, string> = { value: 1, diagnostics: ['d'] }
-    expect(Object.isFrozen(literal)).toBe(false)
     expect(toResult(toList, literal)).toBeInstanceOf(ListError)
     expect(frozen(map((x: number) => x, literal))).toBe(true)
+  })
+  it('a box inside a container leaves toResult inside the Success, diagnostics and all', () => {
+    const inner = bestEffort(1, ['lost'])
+    expect(toResult(toList, bestEffort([inner]))).toEqual([inner])
+    expect(toResult(toList, bestEffort({ inner }))).toEqual({ inner })
+    expect(toResult(toList, gather([bestEffort(inner)]))).toEqual([inner])
   })
   it('the curried forms run in pipe', () => {
     const r: Result<number, RangeError> = failure(new RangeError('bad'))
@@ -498,6 +506,15 @@ describe('the consumer on the kit', () => {
     expect(
       isSuccess(parseWorldBestEffort({ ...clean, links: links.slice(0, 64) })),
     ).toBe(true)
+  })
+  it('a dangling Link that shares its id with a valid Link: only the dangling entry is dropped, by identity', () => {
+    const valid = { id: 'l1', from: 'a', to: 'b' }
+    const dangling = { id: 'l1', from: 'a', to: 'nowhere' }
+    const be = leave({ ...clean, links: [valid, dangling] })
+    expect(be.value.dto.links).toEqual([valid])
+    const { dropped } = partition(be.diagnostics)
+    expect(dropped).toHaveLength(1)
+    expect(dropped[0].raw).toBe(dangling)
   })
   it("the format gate: a diagnostic of the prelude, first in the list ahead of the readers' diagnostics, blocking in the port (the consumer reads past it)", () => {
     expect(inert({ ...clean, format: undefined, id: undefined })).toEqual([

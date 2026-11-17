@@ -101,9 +101,10 @@ A value usable as it stands together with the **diagnostics** gathered
 while it was built: `BestEffort<T, D>`, a value and an ordered list.
 Boxed, like State. A Best Effort is not a Result type: it becomes a
 Result only through `toResult`, which is a Failure when the list holds
-anything and the value otherwise. To **recover** is to enter from a Result, taking a
-Failure as a fallback value with the error, or what `diagnose` makes of
-it, recorded as a diagnostic; to **note** is to append diagnostics
+anything and the value otherwise. To **recover** is to enter from a
+Result, taking a Failure as a fallback value with the error recorded as
+a diagnostic, or, with `recoverWith`, with what its `diagnose` makes of
+the error; to **note** is to append diagnostics
 without touching the value; to **gather** is to fan a list of Best
 Efforts in, every value kept and every diagnostic in part order. An
 optional part that may also carry a diagnostic is a Best Effort of a

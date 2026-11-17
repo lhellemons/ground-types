@@ -209,8 +209,8 @@ export type RawDocument = {
  * diagnostic, absent a Nothing with none, error a Nothing with one. The
  * consumer's own reader has only those three states and runs its wiring
  * lints later, on the built Board; the port models one lint (an unknown
- * Signal name) at the reader, as a tagged diagnostic over a kept value, to
- * exercise the fourth state, a Just with a diagnostic. */
+ * Signal name) at the reader, as a tagged diagnostic over a kept value:
+ * the fourth state, a Just with a diagnostic. */
 export function readOpenWhen(
   raw: unknown,
   boardId: string,
@@ -380,7 +380,7 @@ export function parseWorld(doc: RawDocument): Result<World, WorldFormatErrors> {
      `failure<WorldFormatErrors, BestEffortWorld>(prelude)` today. */
   if (isFailure(strict)) return failure<WorldFormatErrors, World>(strict)
   if (strict === undefined)
-    return failure(new WorldFormatErrors([{ message: 'no world id' }]))
+    throw new Error('unreachable: a missing world id is a diagnostic')
   const world = World.from(strict)
   return isFailure(world)
     ? failure(new WorldFormatErrors([{ message: world.message }]))
@@ -401,8 +401,7 @@ const blocking = (d: Diagnostic): boolean =>
  * rejection or an exhausted drop budget is the strict Failure; else the
  * World built from what validated, with every tolerated diagnostic and
  * every drop in order. The format gate is blocking here; the consumer
- * reads `assembled` past the gate (its test pins that), which the
- * port measures as a consumer choice, not as `toResult`'s. */
+ * reads `assembled` past the gate (its test pins that). */
 export function parseWorldBestEffort(
   doc: RawDocument,
 ): Result<BestEffort<World, Diagnostic>, WorldFormatErrors> {
@@ -430,8 +429,8 @@ export function parseWorldBestEffort(
       map(
         (dto: WorldDTO): WorldDTO =>
           drop.kind === 'stage'
-            ? { ...dto, stages: dto.stages.filter((s) => s.id !== drop.id) }
-            : { ...dto, links: dto.links.filter((l) => l.id !== drop.id) },
+            ? { ...dto, stages: dto.stages.filter((s) => s !== drop.raw) }
+            : { ...dto, links: dto.links.filter((l) => l !== drop.raw) },
         current,
       ),
     )
@@ -445,11 +444,23 @@ function attributeDrop(
 ): BestEffortDrop | undefined {
   const { detail } = error
   if (detail.category === 'dangling-stage') {
-    const raw = dto.stages.find((s) => s.id === detail.id)
+    const raw = dto.stages.find(
+      (s) =>
+        s.id === detail.id &&
+        s.board !== undefined &&
+        !dto.boards.some((b) => b.id === s.board),
+    )
     return raw && { kind: 'stage', id: detail.id, message: error.message, raw }
   }
   if (detail.category === 'dangling-link') {
-    const raw = dto.links.find((l) => l.id === detail.id)
+    const raw = dto.links.find(
+      (l) =>
+        l.id === detail.id &&
+        !(
+          dto.boards.some((b) => b.id === l.from) &&
+          dto.boards.some((b) => b.id === l.to)
+        ),
+    )
     return raw && { kind: 'link', id: detail.id, message: error.message, raw }
   }
   return undefined
