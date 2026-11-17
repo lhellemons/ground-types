@@ -101,7 +101,7 @@ describe('the guards', () => {
       Result<Promise<BestEffort<number, string>>, WorldFormatErrors>
     >()
   })
-  it('a Best Effort inside a container is not refused: an array, an object property, a gather of nested boxes and a wider declared return type a box fits pass map and toResult', () => {
+  it('a Best Effort inside a container is not refused: an array, an object property, a gather of nested boxes, and a declared return { readonly value: number } or { value?: number; diagnostics: readonly string[] } pass map and toResult', () => {
     const toE = (d: readonly unknown[]) => new Error(String(d.length))
     expectTypeOf(
       toResult(
@@ -140,7 +140,7 @@ describe('the guards', () => {
       Result<{ value?: number; diagnostics: readonly string[] }, Error>
     >()
   })
-  it("a look-alike is refused: any object with a value and an array diagnostics reads as a Best Effort, and a generic map callback is refused as /result's is", () => {
+  it("a look-alike is refused: any object with a required value and a required array diagnostics reads as a Best Effort, and a generic map callback is refused as /result's is", () => {
     const toE = (d: readonly unknown[]) => new Error(String(d.length))
     const rep = { value: 's', diagnostics: ['d'], file: 'f' }
     // @ts-expect-error structurally a BestEffort
