@@ -156,15 +156,16 @@ a `readonly [BestEffort<…>]` tuple, inside an object property, inside a
 `Promise` (where `/result`'s `NotAResult` refuses a thenable), and the
 nested boxes of a `gather` over boxed boxes are not refused and leave
 `toResult` inside the Success, diagnostics and all; a declared type the
-box is assignable to, with no top-level arm that has both a `value` and
-an array `diagnostics`, such as `{ readonly value: number }` as a `map`
+box is assignable to, with no top-level arm with both a required `value`
+and a required array `diagnostics`, such as `{ readonly value: number }`
+or `{ value?: number; diagnostics: readonly string[] }` as a `map`
 callback's declared return, is not refused by `NotABestEffort`; where
 `NotPossiblyAnError` also passes it, the box leaves `toResult` inside the
 Success as that type, diagnostics and all (probes "a nested
 BestEffort is refused", "a Best Effort inside a container is not
 refused", and at runtime "a box inside a container leaves toResult
-inside the Success"). The guard is structural: an object with a `value`
-and an array `diagnostics` and one more member is refused by `map` and
+inside the Success"). The guard is structural: an object with a required
+`value` and a required array `diagnostics` and one more member is refused by `map` and
 by `toResult` as a Best Effort, and a generic `map(f, be)` with `f: (n:
 number) => V` is refused, as `/result`'s `map` refuses `mapResult(f, r)`
 with the same `f` (probe "a look-alike is refused").

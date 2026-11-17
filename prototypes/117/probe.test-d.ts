@@ -127,6 +127,18 @@ describe('the guards', () => {
         ),
       ),
     ).toEqualTypeOf<Result<{ readonly value: number }, Error>>()
+    expectTypeOf(
+      toResult(
+        toE,
+        map(
+          (x: number): { value?: number; diagnostics: readonly string[] } =>
+            bestEffort(x, ['lost']),
+          bestEffort(1),
+        ),
+      ),
+    ).toEqualTypeOf<
+      Result<{ value?: number; diagnostics: readonly string[] }, Error>
+    >()
   })
   it("a look-alike is refused: any object with a value and an array diagnostics reads as a Best Effort, and a generic map callback is refused as /result's is", () => {
     const toE = (d: readonly unknown[]) => new Error(String(d.length))

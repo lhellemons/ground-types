@@ -29,9 +29,9 @@ export type BestEffort<T, D> = {
 }
 
 /** Rejects a value type with a `BestEffort` among its top-level union
- * arms. Structural, so any object with a `value` and an array
- * `diagnostics` is refused; a box inside an array, a tuple, an object
- * property or a Promise is not reached. Names the fix. */
+ * arms. Structural, so any object with a required `value` and a required
+ * array `diagnostics` is refused; a box inside an array, a tuple, an
+ * object property or a Promise is not reached. Names the fix. */
 export type NotABestEffort<U> = [
   Extract<U, BestEffort<unknown, unknown>>,
 ] extends [never]
