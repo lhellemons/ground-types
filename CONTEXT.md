@@ -99,9 +99,9 @@ _Avoid_: unwrap, await, yield, assertSuccess.
 
 A value usable as it stands together with the **diagnostics** gathered
 while it was built: `BestEffort<T, D>`, a value and an ordered list.
-Boxed, like State. A Best Effort is not a Result type: it leaves only
-through `toResult`, which is a Failure when the list holds anything and
-the value otherwise. To **recover** is to enter from a Result, taking a
+Boxed, like State. A Best Effort is not a Result type: it becomes a
+Result only through `toResult`, which is a Failure when the list holds
+anything and the value otherwise. To **recover** is to enter from a Result, taking a
 Failure as a fallback value with the error, or what `diagnose` makes of
 it, recorded as a diagnostic; to **note** is to append diagnostics
 without touching the value; to **gather** is to fan a list of Best
@@ -115,10 +115,9 @@ _Avoid_: Writer, partial, lenient, Validated, Warning (for the type).
 
 What a Best Effort records about how its value was built: any value a
 consumer chooses, an `Error` included, carried in the order it was
-gathered. A diagnostic is not a Failure: it does not stop the value, and
-it leaves the library's own types untouched. The consumer decides which
-diagnostics block, on the list, before it calls `toResult`; `toResult`
-itself is all-or-nothing.
+gathered. A diagnostic is not a Failure: it does not stop the value.
+`toResult` has no predicate: any diagnostic makes it a Failure. Which
+diagnostics block is the consumer's decision, made on the list itself.
 
 _Avoid_: warning (as a type name), issue, problem, log.
 

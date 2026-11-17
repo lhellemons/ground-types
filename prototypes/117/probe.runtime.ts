@@ -41,6 +41,14 @@ class ListError extends Error {
 }
 const frozen = (be: BestEffort<unknown, unknown>) =>
   Object.isFrozen(be) && Object.isFrozen(be.diagnostics)
+const caught = (run: () => unknown): unknown => {
+  try {
+    run()
+  } catch (e) {
+    return e
+  }
+  return 'nothing thrown'
+}
 
 describe('the kit', () => {
   it('bestEffort copies and freezes: a later push to the source list is not seen, the box and its list are frozen', () => {
@@ -50,97 +58,156 @@ describe('the kit', () => {
     expect(be.diagnostics).toEqual(['d'])
     expect(frozen(be)).toBe(true)
   })
-  it('andThen: the first step’s diagnostics, then the second’s, both in order, duplicates kept; applied and curried alike; frozen', () => {
+  it("andThen: the first step's diagnostics, then the second's, both in order, duplicates kept; applied and curried alike; frozen, also when the first box is clean and fn returns an unfrozen literal; a throw from fn propagates by identity", () => {
     const second = (x: number) => bestEffort(x + 1, ['c', 'd', 'c'])
     const expected = { value: 2, diagnostics: ['a', 'b', 'c', 'd', 'c'] }
     const applied = andThen(second, bestEffort(1, ['a', 'b']))
     expect(applied).toEqual(expected)
-    expect(andThen(second)(bestEffort(1, ['a', 'b']))).toEqual(expected)
+    const curried = andThen(second)(bestEffort(1, ['a', 'b']))
+    expect(curried).toEqual(expected)
     expect(frozen(applied)).toBe(true)
+    expect(frozen(curried)).toBe(true)
+    const literal: BestEffort<number, string> = { value: 2, diagnostics: ['x'] }
+    const passedThrough = andThen(() => literal, bestEffort(1))
+    expect(passedThrough).toEqual({ value: 2, diagnostics: ['x'] })
+    expect(passedThrough).not.toBe(literal)
+    expect(frozen(passedThrough)).toBe(true)
+    const thrown = new TypeError('from fn')
+    expect(
+      caught(() =>
+        andThen(() => {
+          throw thrown
+        }, bestEffort(1)),
+      ),
+    ).toBe(thrown)
   })
-  it('map keeps the diagnostics in order; applied and curried alike; frozen', () => {
+  it('map keeps the diagnostics in order; applied and curried alike; frozen; a throw from fn propagates by identity', () => {
     const expected = { value: 2, diagnostics: ['a', 'b', 'a'] }
     const applied = map((x: number) => x * 2, bestEffort(1, ['a', 'b', 'a']))
     expect(applied).toEqual(expected)
-    expect(map((x: number) => x * 2)(bestEffort(1, ['a', 'b', 'a']))).toEqual(
-      expected,
-    )
+    const curried = map((x: number) => x * 2)(bestEffort(1, ['a', 'b', 'a']))
+    expect(curried).toEqual(expected)
     expect(frozen(applied)).toBe(true)
+    expect(frozen(curried)).toBe(true)
+    const thrown = new TypeError('from fn')
+    expect(
+      caught(() =>
+        map(() => {
+          throw thrown
+        }, bestEffort(1)),
+      ),
+    ).toBe(thrown)
+    expect(
+      caught(() =>
+        map(() => {
+          throw 'plain'
+        }, bestEffort(1)),
+      ),
+    ).toBe('plain')
   })
-  it('note appends after the ones held, in its own order, duplicates kept; applied and curried alike; frozen', () => {
-    const expected = { value: 1, diagnostics: ['a', 'b', 'c', 'd', 'c'] }
-    const applied = note(['c', 'd', 'c'], bestEffort(1, ['a', 'b']))
+  it("note appends after the ones held, in its own order, duplicates kept, the caller's array untouched; applied and curried alike; frozen", () => {
+    const added = ['c', 'd', 'c', 'e']
+    const expected = { value: 1, diagnostics: ['a', 'b', 'c', 'd', 'c', 'e'] }
+    const applied = note(added, bestEffort(1, ['a', 'b']))
     expect(applied).toEqual(expected)
-    expect(note(['c', 'd', 'c'])(bestEffort(1, ['a', 'b']))).toEqual(expected)
+    const curried = note(added)(bestEffort(1, ['a', 'b']))
+    expect(curried).toEqual(expected)
+    expect(added).toEqual(['c', 'd', 'c', 'e'])
     expect(frozen(applied)).toBe(true)
+    expect(frozen(curried)).toBe(true)
   })
   it('gather: values in part order, diagnostics in part order and within a part, duplicates kept, an empty list gives an empty box; frozen', () => {
     const g = gather([
-      bestEffort(1, ['a', 'b']),
+      bestEffort(1, ['a', 'a', 'b']),
       bestEffort(2),
       bestEffort(3, ['b', 'a']),
     ])
-    expect(g).toEqual({ value: [1, 2, 3], diagnostics: ['a', 'b', 'b', 'a'] })
+    expect(g).toEqual({
+      value: [1, 2, 3],
+      diagnostics: ['a', 'a', 'b', 'b', 'a'],
+    })
     expect(gather([])).toEqual({ value: [], diagnostics: [] })
     expect(frozen(g)).toBe(true)
   })
-  it('recover: a Success is itself with no diagnostic, success(undefined) and success(null) included; a Failure is the fallback with the error; applied and curried alike', () => {
+  it('recover: a Success is itself with no diagnostic, success(undefined) and success(null) included; a Failure is the fallback with the error itself; applied and curried alike; both arms frozen', () => {
     const err = new RangeError('bad')
-    expect(recover(0, success(1))).toEqual({ value: 1, diagnostics: [] })
-    expect(recover(0)(success(1))).toEqual({ value: 1, diagnostics: [] })
+    const empty = { value: 1, diagnostics: [] }
+    expect(recover(0, success(1))).toEqual(empty)
+    expect(recover(0)(success(1))).toEqual(empty)
     const ofUndefined = success(undefined) as Result<string | undefined, Error>
-    expect(recover<string | undefined, Error>('fb', ofUndefined)).toEqual({
-      value: undefined,
-      diagnostics: [],
-    })
     const ofNull = success(null) as Result<string | null, Error>
-    expect(recover<string | null, Error>('fb', ofNull)).toEqual({
-      value: null,
-      diagnostics: [],
-    })
-    expect(recover(0, failure(err))).toEqual({ value: 0, diagnostics: [err] })
+    const none = { value: undefined, diagnostics: [] }
+    const nul = { value: null, diagnostics: [] }
+    expect(recover<string | undefined, Error>('fb', ofUndefined)).toEqual(none)
+    expect(recover<string | undefined>('fb')(ofUndefined)).toEqual(none)
+    expect(recover<string | null, Error>('fb', ofNull)).toEqual(nul)
+    expect(recover<string | null>('fb')(ofNull)).toEqual(nul)
+    const applied = recover(0, failure(err))
+    expect(applied).toEqual({ value: 0, diagnostics: [err] })
+    expect(applied.diagnostics[0]).toBe(err)
     expect(recover(0)(failure(err))).toEqual({ value: 0, diagnostics: [err] })
-    expect(frozen(recover(0, failure(err)))).toBe(true)
+    for (const be of [
+      applied,
+      recover(0)(failure(err)),
+      recover(0, success(1)),
+      recover(0)(success(1)),
+    ])
+      expect(frozen(be)).toBe(true)
   })
-  it('recoverWith: diagnose(error) is the one diagnostic on a Failure and is not called on a Success; a throw from diagnose propagates, Error or not; applied and curried alike', () => {
+  it('recoverWith: diagnose(error) is the one diagnostic on a Failure, handed the error itself, and is not called on a Success, success(undefined) and success(null) included; a throw from diagnose propagates by identity, Error or not; applied and curried alike; both arms frozen', () => {
     const err = new RangeError('bad')
-    let calls = 0
+    const seen: unknown[] = []
     const diagnose = (e: RangeError) => {
-      calls++
+      seen.push(e)
       return e.message
     }
-    expect(recoverWith(0, diagnose, failure(err))).toEqual({
-      value: 0,
-      diagnostics: ['bad'],
-    })
-    expect(recoverWith(0, diagnose)(failure(err))).toEqual({
-      value: 0,
-      diagnostics: ['bad'],
-    })
-    expect(recoverWith(0, diagnose, success(1))).toEqual({
-      value: 1,
-      diagnostics: [],
-    })
-    expect(calls).toBe(2)
+    const failed = { value: 0, diagnostics: ['bad'] }
+    expect(recoverWith(0, diagnose, failure(err))).toEqual(failed)
+    expect(recoverWith(0, diagnose)(failure(err))).toEqual(failed)
+    const clean = { value: 1, diagnostics: [] }
+    expect(recoverWith(0, diagnose, success(1))).toEqual(clean)
+    expect(recoverWith(0, diagnose)(success(1))).toEqual(clean)
+    const ofUndefined = success(undefined) as Result<string | undefined, Error>
+    const ofNull = success(null) as Result<string | null, Error>
+    const d = (e: Error) => e.message
+    const none = { value: undefined, diagnostics: [] }
+    const nul = { value: null, diagnostics: [] }
+    expect(
+      recoverWith<string | undefined, Error, string>('fb', d, ofUndefined),
+    ).toEqual(none)
+    expect(
+      recoverWith<string | undefined, Error, string>('fb', d)(ofUndefined),
+    ).toEqual(none)
+    expect(recoverWith<string | null, Error, string>('fb', d, ofNull)).toEqual(
+      nul,
+    )
+    expect(recoverWith<string | null, Error, string>('fb', d)(ofNull)).toEqual(
+      nul,
+    )
+    expect(seen).toEqual([err, err])
+    expect(seen[0]).toBe(err)
+    for (const be of [
+      recoverWith(0, diagnose, failure(err)),
+      recoverWith(0, diagnose)(failure(err)),
+      recoverWith(0, diagnose, success(1)),
+      recoverWith(0, diagnose)(success(1)),
+    ])
+      expect(frozen(be)).toBe(true)
     const thrown = new TypeError('from diagnose')
-    expect(() =>
-      recoverWith(
-        0,
-        () => {
-          throw thrown
-        },
-        failure(err),
-      ),
-    ).toThrow(thrown)
-    expect(() =>
-      recoverWith(
-        0,
-        () => {
-          throw 'plain'
-        },
-        failure(err),
-      ),
-    ).toThrow('plain')
+    const throwing = () => {
+      throw thrown
+    }
+    const throwingPlain = () => {
+      throw 'plain'
+    }
+    expect(caught(() => recoverWith(0, throwing, failure(err)))).toBe(thrown)
+    expect(caught(() => recoverWith(0, throwing)(failure(err)))).toBe(thrown)
+    expect(caught(() => recoverWith(0, throwingPlain, failure(err)))).toBe(
+      'plain',
+    )
+    expect(caught(() => recoverWith(0, throwingPlain)(failure(err)))).toBe(
+      'plain',
+    )
   })
   it('toResult: a Success of the value when the list is empty; else a Failure of toError(list), the whole list in order, falsy diagnostics counted; applied and curried alike', () => {
     expect(toResult(toErrors, bestEffort(1))).toBe(1)
@@ -152,34 +219,50 @@ describe('the kit', () => {
       (toResult(toList)(bestEffort(1, ['a', 'b'])) as ListError).list,
     ).toEqual(['a', 'b'])
     for (const falsy of [undefined, null, 0, '', false]) {
-      const r = toResult(toList, bestEffort(1, [falsy]))
-      expect(r).toBeInstanceOf(ListError)
-      expect((r as ListError).list).toEqual([falsy])
+      for (const r of [
+        toResult(toList, bestEffort(1, [falsy])),
+        toResult(toList)(bestEffort(1, [falsy])),
+      ]) {
+        expect(r).toBeInstanceOf(ListError)
+        expect((r as ListError).list).toEqual([falsy])
+      }
     }
   })
-  it('toResult: a throw from toError propagates, Error or not, and toError is not called on an empty list', () => {
+  it("toResult hands toError the box's own list and returns what toError returns, by identity", () => {
+    const be = bestEffort(1, ['d'])
+    let received: unknown
+    const made = new ListError([])
+    const r = toResult((d) => {
+      received = d
+      return made
+    }, be)
+    expect(received).toBe(be.diagnostics)
+    expect(r).toBe(made)
+  })
+  it('toResult: a throw from toError propagates by identity, Error or not, applied and curried, and toError is not called on an empty list', () => {
     const thrown = new TypeError('from toError')
-    expect(() =>
-      toResult(
-        () => {
-          throw thrown
-        },
-        bestEffort(1, ['d']),
-      ),
-    ).toThrow(thrown)
-    expect(() =>
-      toResult(
-        () => {
-          throw 'plain'
-        },
-        bestEffort(1, ['d']),
-      ),
-    ).toThrow('plain')
-    expect(
-      toResult(() => {
-        throw thrown
-      }, bestEffort(1)),
-    ).toBe(1)
+    const throwing = () => {
+      throw thrown
+    }
+    const throwingPlain = () => {
+      throw 'plain'
+    }
+    expect(caught(() => toResult(throwing, bestEffort(1, ['d'])))).toBe(thrown)
+    expect(caught(() => toResult(throwing)(bestEffort(1, ['d'])))).toBe(thrown)
+    expect(caught(() => toResult(throwingPlain, bestEffort(1, ['d'])))).toBe(
+      'plain',
+    )
+    expect(caught(() => toResult(throwingPlain)(bestEffort(1, ['d'])))).toBe(
+      'plain',
+    )
+    expect(toResult(throwing, bestEffort(1))).toBe(1)
+    expect(toResult(throwing)(bestEffort(1))).toBe(1)
+  })
+  it('frozen one level deep: the value is not frozen by the box', () => {
+    expect(Object.isFrozen(bestEffort({}).value)).toBe(false)
+    expect(Object.isFrozen(bestEffort(1, [{ m: 1 }]).diagnostics[0])).toBe(
+      false,
+    )
   })
   it('a plain object literal is a BestEffort structurally and is not frozen by being one', () => {
     const literal: BestEffort<number, string> = { value: 1, diagnostics: ['d'] }
@@ -363,7 +446,7 @@ describe('the consumer on the kit', () => {
       ],
     })
   })
-  it('order: document order for the readers, then the retry loop’s drops in the order World.from names them', () => {
+  it("order: document order for the readers, then the retry loop's drops in the order World.from names them", () => {
     const doc: RawDocument = {
       format: 'world-v2',
       id: 'w',
@@ -389,7 +472,7 @@ describe('the consumer on the kit', () => {
     expect(be.value.dto.stages).toEqual([])
     expect(be.value.dto.links).toEqual([])
   })
-  it('the pinned policy: an untagged shape problem, a missing world id, an unattributable rejection or an exhausted budget is the strict Failure, with its messages', () => {
+  it('the pinned policy: an untagged shape failure, a missing world id, an unattributable rejection or an exhausted budget is the strict Failure, with its messages', () => {
     expect(inert({ ...clean, boards: [{ pieces: [] }] })).toEqual([
       'Board #1 must have an id',
     ])
@@ -416,10 +499,25 @@ describe('the consumer on the kit', () => {
       isSuccess(parseWorldBestEffort({ ...clean, links: links.slice(0, 64) })),
     ).toBe(true)
   })
-  it('the format gate: a diagnostic of the prelude, first in the list, blocking in the port (the consumer reads past it)', () => {
+  it("the format gate: a diagnostic of the prelude, first in the list ahead of the readers' diagnostics, blocking in the port (the consumer reads past it)", () => {
     expect(inert({ ...clean, format: undefined, id: undefined })).toEqual([
       'format must be world-v2',
       'World is missing required key "id"',
+    ])
+    const withLint = {
+      ...clean,
+      format: undefined,
+      boards: [
+        {
+          id: 'a',
+          pieces: [{ id: 'p1', x: 0, y: 0, 'open-when': 'ghost' }],
+          signals: ['s'],
+        },
+      ],
+    }
+    expect(inert(withLint)).toEqual([
+      'format must be world-v2',
+      'unknown signal "ghost"',
     ])
   })
 })

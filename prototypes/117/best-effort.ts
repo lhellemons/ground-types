@@ -3,8 +3,9 @@
    it stands plus the diagnostics gathered while building it), a
    constructor, `map`, an `andThen` that keeps diagnostics in order, and a
    bridge each way with `Result`. Functional, value-last and curryable as
-   `/result` is, with the unapplied forms generic as `/result`'s are; a Box
-   is #89's question.
+   `/result` is; the unapplied `map`, `note`, `andThen` and `toResult` are
+   generic as `/result`'s `map(fn)` is, `recover` and `recoverWith` bind at
+   the call as `orElse(defaultValue)` does; a Box is #89's question.
 
    Two guard variants of the bridge out are kept side by side so the probes
    can measure them: `toResult` carries `success`'s `NotPossiblyAnError`
@@ -17,14 +18,18 @@ import type { NotPossiblyAnError, Result } from '../../src/result/index.js'
 
 /** A value usable as it stands, plus the diagnostics gathered while it was
  * built, in the order they were gathered. `D` is any value. The type is
- * structural; what the kit's functions return is frozen, one level deep. */
+ * structural. In a box the kit's functions return, the box and its list
+ * are frozen; the value and each diagnostic are not. */
 export type BestEffort<T, D> = {
   readonly value: T
   readonly diagnostics: readonly D[]
 }
 
-/** Rejects a value type with a `BestEffort` arm: a nested box would carry
- * its diagnostics out through `toResult` as a Success. Names the fix. */
+/** Rejects a value type with a `BestEffort` among its top-level union
+ * arms: a nested box would carry its diagnostics out through `toResult` as
+ * a Success. Structural, so any object with a `value` and an array
+ * `diagnostics` is refused; a box inside an array, a tuple or an object
+ * property is not reached. Names the fix. */
 export type NotABestEffort<U> = [
   Extract<U, BestEffort<unknown, unknown>>,
 ] extends [never]
@@ -124,9 +129,9 @@ export function gather<T, D>(
 }
 
 /** The bridge in: a Success is itself with no diagnostics; a Failure is
- * `fallback` with the error as its one diagnostic. Curryable by arity, as
- * `orElse` is; `T` is unresolved here, so no guard judges `fallback`.
- * {@link recoverWith} records something made from the error instead. */
+ * `fallback` with the error itself as its one diagnostic. Curryable by
+ * arity, as `orElse` is; `fallback` is unguarded. {@link recoverWith}
+ * records something made from the error instead. */
 export function recover<T, E extends Error>(
   fallback: T,
   result: Result<T, E>,

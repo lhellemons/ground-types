@@ -16,10 +16,9 @@ drop-a-piece, keep-the-board path of its `validateBoardEntry`) onto it
 in `prototypes/117/consumer.ts`, with the measurements in
 `prototypes/117/probe.test-d.ts` (types) and
 `prototypes/117/probe.runtime.ts` (runtime). The owner made the
-decisions below through the question tool. Each fact below names the
-probe that pins it, by the opening words of that probe's title; a
-sentence with no probe named is a decision, not a measurement. The
-module itself ships from the implementation ticket this ADR surfaces.
+decisions below through the question tool. A probe is cited by the
+opening words of its title. The module itself ships from the
+implementation ticket this ADR surfaces.
 
 ## Decision
 
@@ -30,16 +29,25 @@ and `diagnostics: readonly D[]`, in the order the diagnostics were
 gathered. A plain object literal with those members is a `BestEffort`
 and is not frozen by being one; what the kit's functions return is
 frozen one level deep, the box and its list, and the list is a copy of
-what was passed (probes "a plain object literal is a BestEffort",
-"bestEffort copies and freezes", and the "frozen" check in each
-combinator probe). The module is functional, value-last and curryable by
-arity as `/result`'s combinators are (ADR-0003), and its unapplied forms
-are generic as `/result`'s `map(fn)` is: `T` and the box's `D` bind at
-application, not at `map(fn)` (probes "an annotated callback types the
-result in both forms", "note unions its D", "andThen unions the
-diagnostic types", "toResult reads D from the value", "recover and
-recoverWith", "the curried forms sit in pipe", "the curried forms run in
-pipe"). Whether it gets a Box is #89's question (ADR-0005). Its surface:
+what was passed; the value and each diagnostic are not frozen by the
+box (probes "a plain object literal is a BestEffort", "bestEffort copies
+and freezes", "frozen one level deep", and the "frozen" checks in the
+probes of `map`, `andThen`, `note`, `gather`, `recover` and
+`recoverWith`, applied and curried, both arms of the two bridges in, and
+`andThen` over a clean first box whose callback returns an unfrozen
+literal). The module is functional, value-last and curryable by arity as
+`/result`'s combinators are (ADR-0003). The unapplied forms of `map`,
+`note`, `andThen` and `toResult` are generic as `/result`'s `map(fn)`
+is: `T` and the box's `D` bind at application, not at the call (probes
+"an annotated callback types the result in both forms", "note unions its
+D", "andThen unions the diagnostic types", "toResult reads D from the
+value", "the curried forms sit in pipe", "the curried forms run in
+pipe"). `recover(fallback)` binds `T` at the call, as `/result`'s
+`orElse(defaultValue)` does, and `E` at application; `recoverWith(fallback,
+diagnose)` binds `T`, `E` and `D` at the call, so `recoverWith(0, (e) =>
+e.code)(r)` over a `Result<number, Coded>` does not compile standalone,
+with `code` not on `Error` (probe "recover and recoverWith"). Whether
+the module gets a Box is #89's question (ADR-0005). Its surface:
 
 - `bestEffort(value, diagnostics = [])`: the constructor. `D` defaults
   to `never`, so `bestEffort(1)` is `BestEffort<number, never>` and is
@@ -54,8 +62,8 @@ pipe"). Whether it gets a Box is #89's question (ADR-0005). Its surface:
   "andThen: the first step's diagnostics", "andThen unions the
   diagnostic types").
 - `note(diagnostics)`: appends `diagnostics` after the ones held, in its
-  own order, duplicates kept, value unchanged (probe "note appends after
-  the ones held").
+  own order, duplicates kept, value unchanged, the caller's array
+  untouched (probe "note appends after the ones held").
 - `gather(parts)`: fans a list of Best Efforts in: the values in part
   order, the diagnostics in part order and within a part, duplicates
   kept, an empty list giving an empty box (probe "gather: values in part
@@ -69,18 +77,27 @@ pipe"). Whether it gets a Box is #89's question (ADR-0005). Its surface:
   included; a Failure is `fallback` with the error as the one diagnostic
   (`recover`, so `D` is `E`) or with `diagnose(error)` (`recoverWith`,
   so `D` is what `diagnose` returns), and `diagnose` is not called on a
-  Success (probes "recover: a Success is itself", "recoverWith:
-  diagnose(error) is the one diagnostic"). A throw from `diagnose`
-  propagates unchanged, an `Error` or a plain string (the same probe).
+  Success, and `recover` stores the error itself where `recoverWith`
+  hands `diagnose` the error itself (probes "recover: a Success is
+  itself", "recoverWith: diagnose(error) is the one diagnostic"). A throw
+  from `diagnose` propagates by identity, a `TypeError` or a plain string,
+  applied and curried (the `recoverWith` probe). A throw from `map`'s or
+  `andThen`'s callback propagates by identity too (probes "map keeps the
+  diagnostics in order", "andThen: the first step's diagnostics").
 - `toResult(toError)`: the bridge out, all or nothing. A Success of the
   value when the list is empty; else a Failure of `toError(list)`, handed
   the whole list in order, with `undefined`, `null`, `0`, `''` and
   `false` counted as diagnostics (probe "toResult: a Success of the
-  value when the list is empty"). `toError` is not called on an empty
-  list, and a throw from it propagates unchanged, an `Error` or a plain
-  string (probe "toResult: a throw from toError propagates"). It has no
-  predicate: the consumer decides which diagnostics block, on the list,
-  before it calls `toResult`.
+  value when the list is empty"). `toError` receives the box's own list
+  and its return is handed back as is (probe "toResult hands toError the
+  box's own list"). `toError` is not called on an empty list, and a throw
+  from it propagates by identity, a `TypeError` or a plain string,
+  applied and curried (probe "toResult: a throw from toError
+  propagates"). `toResult` has no predicate: any diagnostic makes it a
+  Failure. Which diagnostics block is the consumer's decision, made on
+  the list itself; the port's `parseWorldBestEffort` tests the list with
+  `blocking` and returns either the strict Failure or the Best Effort
+  (probe "the pinned policy").
 
 ### One list, `D` a union
 
@@ -94,9 +111,10 @@ typed `WorldFormatError | BestEffortDrop` (`partition` in
 consumer has it (probe "a Piece on a taken cell"); a dropped Link is a
 diagnostic, so `toResult` turns the Best Effort into a Failure and never
 lets the drop out as a Success (probe "a dangling Link"). The order
-across kinds is kept: the prelude's diagnostics, then document order for
-the readers, then the retry loop's drops (probes "order", "the format
-gate"). The kit carries no second channel.
+across kinds is kept: the prelude's diagnostics (the `format` gate ahead
+of a reader's lint), then document order for the readers, then the retry
+loop's drops (probes "order", "the format gate"). The kit carries no
+second channel.
 
 ### The guards sit on `toResult` and on `map`'s return
 
@@ -111,14 +129,25 @@ Generic code casts at the exit, as it does around `success`.
 
 A nested box would carry its diagnostics out as a Success: `toResult`
 checks the outer list only. So `map`'s callback may not return a
-`BestEffort`, through a `NotABestEffort` guard on its return type that
-names `andThen` as the fix, and `toResult` refuses a `BestEffort`-valued
-`T`. Pinned refusals (probe "a nested BestEffort is refused"): `map((x:
+`BestEffort`, through a `NotABestEffort` guard on its return type whose
+message names `andThen` as the fix (pinned in probe "a look-alike is
+refused"), and `toResult` refuses a `BestEffort`-valued `T`. The guard
+refuses a value type with a Best Effort among its top-level union arms.
+Pinned refusals (probe "a nested BestEffort is refused"): `map((x:
 number) => bestEffort(x, ['lost']), bestEffort(1))`, a callback returning
 `number | BestEffort<number, never>`, `toResult(toErrors,
 bestEffort(bestEffort(1, ['lost'])))`, a `BestEffort<BestEffort<number,
 string> | number, D>`, and the curried `toResult(toErrors)` applied to a
-nested box.
+nested box; the unapplied `toResult(toErrors)` and `map(fn)` carry the
+same guards (probe "the curried forms carry the guards"). A Best Effort
+inside an array, inside an object property, and the nested boxes of a
+`gather` over boxed boxes are not refused and leave `toResult` inside
+the Success, diagnostics and all (probe "a Best Effort inside a
+container is not refused"). The guard is structural: an object with a
+`value` and an array `diagnostics` and one more member is refused by
+`map` and by `toResult` as a Best Effort, and a generic `map(f, be)` with
+`f: (n: number) => V` is refused, as `/result`'s `map` refuses its
+equivalent (probe "a look-alike is refused").
 
 The constructor, `map`'s input and the fallback of `recover` and
 `recoverWith` carry no guard: the box keeps the value and the list
@@ -155,10 +184,10 @@ generic reader over `value: T | undefined`").
 - The consumer's `parseWorldBestEffort` ports as `Result<BestEffort<World,
 Diagnostic>, WorldFormatErrors>`: the pinned policy (an untagged shape
   error, a missing world id, an unattributable `World.from` rejection, an
-  exhausted drop budget) stays the strict Failure. The consumer decides
-  which diagnostics block, on the list, before it calls `toResult`
-  (`blocking` in `prototypes/117/consumer.ts`; probe "the pinned
-  policy"). The retry loop is `note([drop], map(withoutEntry, current))`
+  exhausted drop budget) stays the strict Failure: `parseWorldBestEffort`
+  tests the list with `blocking` and returns either the strict Failure
+  or the Best Effort, which never goes through `toResult` (probe "the
+  pinned policy"). The retry loop is `note([drop], map(withoutEntry, current))`
   per drop. `recoverWith` fits a part with a known fallback (a Piece to
   Nothing, with the drop as its diagnostic); the diagnose-and-retry loop
   is not a `recover`.
@@ -167,7 +196,8 @@ Diagnostic>, WorldFormatErrors>`: the pinned policy (an untagged shape
   gate"); the consumer reads past it, which its own test pins. That is a
   consumer choice, not a definition of `toResult`.
 - `map` and `andThen` infer their callback's parameter from the callback
-  alone, as `/result`'s `map` does. Pinned instances where an
+  alone, as `/result`'s `map` does for `map((x) => x, success(1))` (the
+  same probe). Pinned instances where an
   un-annotated parameter is `unknown`: `map((x) => x, bestEffort(1))`,
   the same over a `note`, a `gather`, a `map` with an annotated callback,
   an `andThen` with an annotated callback, `andThen((x) => bestEffort(x),

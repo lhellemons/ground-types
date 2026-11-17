@@ -1,9 +1,8 @@
 /* PROTOTYPE #117 — throwaway type probes: where the guards bite, how a
-   Maybe part reads, what each form infers. Every ADR sentence about the
-   types names one of these. */
+   Maybe part reads, what each form infers. ADR 0006 cites these by title. */
 import { describe, expectTypeOf, it } from 'vitest'
 import type { Result } from '../../src/result/index.js'
-import { success } from '../../src/result/index.js'
+import { map as mapResult, success } from '../../src/result/index.js'
 import { pipe } from '../../src/fn/index.js'
 import type { Maybe } from '../../src/maybe/index.js'
 import { just, maybe } from '../../src/maybe/index.js'
@@ -18,7 +17,7 @@ import {
   toResult,
   toResultUnguarded,
 } from './best-effort.js'
-import type { BestEffort } from './best-effort.js'
+import type { BestEffort, NotABestEffort } from './best-effort.js'
 import { readOpenWhen, World, WorldFormatErrors } from './consumer.js'
 import type { Diagnostic, WorldFormatError } from './consumer.js'
 
@@ -71,6 +70,47 @@ describe('the guards', () => {
     toResult(toErrors, union)
     // @ts-expect-error the curried toResult refuses it at application
     toResult(toErrors)(bestEffort(bestEffort(1, ['lost'])))
+  })
+  it('a Best Effort inside a container is not refused: an array, an object property and a gather of nested boxes pass map and toResult', () => {
+    const toE = (d: readonly unknown[]) => new Error(String(d.length))
+    expectTypeOf(
+      toResult(
+        toE,
+        map((x: number) => [bestEffort(x, ['lost'])], bestEffort(1)),
+      ),
+    ).toEqualTypeOf<Result<BestEffort<number, string>[], Error>>()
+    expectTypeOf(
+      toResult(
+        toE,
+        map((x: number) => ({ inner: bestEffort(x, ['lost']) }), bestEffort(1)),
+      ),
+    ).toEqualTypeOf<Result<{ inner: BestEffort<number, string> }, Error>>()
+    expectTypeOf(
+      toResult(toE, gather([bestEffort(bestEffort(1, ['lost']))])),
+    ).toEqualTypeOf<Result<readonly BestEffort<number, string>[], Error>>()
+  })
+  it("a look-alike is refused: any object with a value and an array diagnostics reads as a Best Effort, and a generic map callback is refused as /result's is", () => {
+    const toE = (d: readonly unknown[]) => new Error(String(d.length))
+    const rep = { value: 's', diagnostics: ['d'], file: 'f' }
+    // @ts-expect-error structurally a BestEffort
+    map(() => rep, bestEffort(1))
+    // @ts-expect-error structurally a BestEffort
+    toResult(toE, bestEffort(rep))
+    function generic<V>(f: (n: number) => V, be: BestEffort<number, never>) {
+      // @ts-expect-error an unresolved V may be a BestEffort
+      return map(f, be)
+    }
+    void generic
+    expectTypeOf<
+      NotABestEffort<BestEffort<number, string>>
+    >().toEqualTypeOf<'This value is a BestEffort — use andThen, not map, and toResult only on the inner value'>()
+    expectTypeOf<NotABestEffort<number>>().toEqualTypeOf<unknown>()
+  })
+  it('the curried forms carry the guards: toResult(toError) refuses an Error-typed box, map(fn) refuses a callback returning a box', () => {
+    // @ts-expect-error the unapplied toResult carries NotPossiblyAnError
+    toResult(toErrors)(bestEffort(new Error('x')))
+    // @ts-expect-error the unapplied map carries NotABestEffort
+    map((x: number) => bestEffort(x, ['l']))
   })
   it('the constructor, map and the recover fallback carry no guard: the box keeps value and diagnostics apart', () => {
     expectTypeOf(bestEffort(new Error('x'))).toEqualTypeOf<
@@ -192,6 +232,10 @@ describe('inference', () => {
       expectTypeOf(x).toEqualTypeOf<unknown>()
       return x
     })(bestEffort(1))
+    mapResult((x) => {
+      expectTypeOf(x).toEqualTypeOf<unknown>()
+      return x
+    }, success(1))
   })
   it('an annotated callback types the result in both forms, and the curried form binds D at application', () => {
     expectTypeOf(map((x: number) => String(x), bestEffort(1))).toEqualTypeOf<
@@ -212,7 +256,7 @@ describe('inference', () => {
       andThen((x: number) => bestEffort(String(x), ['s']))(first),
     ).toEqualTypeOf<BestEffort<string, Diagnostic | string>>()
   })
-  it('note unions its D with the value’s, applied and curried', () => {
+  it("note unions its D with the value's, applied and curried", () => {
     expectTypeOf(note([diag], bestEffort(1))).toEqualTypeOf<
       BestEffort<number, Diagnostic>
     >()
@@ -235,7 +279,23 @@ describe('inference', () => {
       Result<World, WorldFormatErrors>
     >()
   })
-  it('recover and recoverWith: D is E, or what diagnose returns; curried forms bind at application', () => {
+  it('recover and recoverWith: D is E, or what diagnose returns; recover(fallback) binds T at the call and E at application; recoverWith(fallback, diagnose) binds T, E and D at the call', () => {
+    class Coded extends Error {
+      readonly code = 7
+    }
+    const coded: Result<number, Coded> = success(1)
+    expectTypeOf(recover(0)).toEqualTypeOf<
+      <E extends Error>(result: Result<number, E>) => BestEffort<number, E>
+    >()
+    expectTypeOf(recover(0)(coded)).toEqualTypeOf<BestEffort<number, Coded>>()
+    expectTypeOf(recoverWith(0, (e: Coded) => e.code)).toEqualTypeOf<
+      (result: Result<number, Coded>) => BestEffort<number, number>
+    >()
+    expectTypeOf(recoverWith(0, (e: Coded) => e.code)(coded)).toEqualTypeOf<
+      BestEffort<number, number>
+    >()
+    // @ts-expect-error standalone, E is Error at the call: "Property 'code' does not exist on type 'Error'"
+    recoverWith(0, (e) => e.code)(coded)
     const r: Result<number, RangeError> = success(1)
     expectTypeOf(recover(0, r)).toEqualTypeOf<BestEffort<number, RangeError>>()
     expectTypeOf(recover(0)(r)).toEqualTypeOf<BestEffort<number, RangeError>>()

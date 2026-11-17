@@ -39,7 +39,7 @@ export type EntityLocalDetail = {
   readonly pieceId?: string
 }
 /** The consumer's `WorldFormatError`: a plain positioned object, not an Error.
- * Untagged (`detail` absent) is a shape problem the strict parse and the
+ * Untagged (`detail` absent) is a shape failure the strict parse and the
  * best-effort parse both refuse; tagged is tolerated by best effort. */
 export type WorldFormatError = {
   readonly message: string
@@ -285,7 +285,7 @@ function occupancy(
 
 /** The consumer's `validateBoardEntry`: a shape failure is a Nothing with an
  * untagged diagnostic; a parsed Piece that fails occupancy is dropped
- * through `recover`, with the drop as its diagnostic, and the Board is
+ * through `recoverWith`, with the drop as its diagnostic, and the Board is
  * kept. */
 export function validateBoardEntry(
   raw: RawBoard,
@@ -389,8 +389,10 @@ export function parseWorld(doc: RawDocument): Result<World, WorldFormatErrors> {
 
 const MAX_BEST_EFFORT_DROPS = 64
 
-/* The consumer decides which diagnostics block, on the list, before it
-   calls `toResult`: an untagged `WorldFormatError`. */
+/* `toResult` has no predicate: any diagnostic makes it a Failure. Which
+   diagnostics block is the consumer's decision, made on the list itself:
+   `parseWorldBestEffort` tests the list with `blocking` and returns either
+   the strict Failure or the Best Effort. */
 const blocking = (d: Diagnostic): boolean =>
   !isDrop(d) && d.detail === undefined
 
