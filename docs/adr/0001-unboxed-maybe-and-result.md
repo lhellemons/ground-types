@@ -904,7 +904,8 @@ fallback)` turns a Failure into the fallback value with the error
   slider's arrays (a `toResult` that read only `diagnostics` would let a
   dropped Link through as a Success), and writes the module's own ADR and
   its CONTEXT.md entries from what it finds; this amendment records the
-  rulings, not the shape. Whether the
+  rulings, not the shape; the shape is
+  recorded in ADR-0006 (#117). Whether the
   module gets a fifth Box is #89's question.
 - **Accumulation waits for a ticket of its own**, after #115 has shipped
   `collect` and after the best-effort prototype has measured the kit, so

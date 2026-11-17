@@ -2,30 +2,38 @@
    kit as ticket 65 ruled it: a boxed `BestEffort<T, D>` (a value usable as
    it stands plus the diagnostics gathered while building it), a
    constructor, `map`, an `andThen` that keeps diagnostics in order, and a
-   bridge each way with `Result`. Functional, value-last and curryable like
-   `/result`; a Box is #89's question.
+   bridge each way with `Result`. Functional, value-last and curryable as
+   `/result` is, with the unapplied forms generic as `/result`'s are; a Box
+   is #89's question.
 
-   Two guard variants are kept side by side so the probes can measure them:
-   `toResult` carries `success`'s `NotPossiblyAnError` guard on `T`,
-   `toResultUnguarded` bypasses it with a cast as `orElse` and `fromMaybe`
-   do. The constructor, `map` and `recover`'s fallback carry no guard: the
-   box keeps the value and the list apart, so an Error-typed value is
-   unambiguous until it leaves through `toResult`. */
+   Two guard variants of the bridge out are kept side by side so the probes
+   can measure them: `toResult` carries `success`'s `NotPossiblyAnError`
+   guard on `T`, `toResultUnguarded` bypasses it with a cast as `orElse`
+   and `fromMaybe` do. */
 import { curry } from '../../src/fn/index.js'
 import type { CurryableMapper } from '../../src/fn/index.js'
 import { failure, isFailure } from '../../src/result/index.js'
 import type { NotPossiblyAnError, Result } from '../../src/result/index.js'
 
 /** A value usable as it stands, plus the diagnostics gathered while it was
- * built, in the order they were gathered. `D` is any value. */
+ * built, in the order they were gathered. `D` is any value. The type is
+ * structural; what the kit's functions return is frozen, one level deep. */
 export type BestEffort<T, D> = {
   readonly value: T
   readonly diagnostics: readonly D[]
 }
 
+/** Rejects a value type with a `BestEffort` arm: a nested box would carry
+ * its diagnostics out through `toResult` as a Success. Names the fix. */
+export type NotABestEffort<U> = [
+  Extract<U, BestEffort<unknown, unknown>>,
+] extends [never]
+  ? unknown
+  : 'This value is a BestEffort — use andThen, not map, and toResult only on the inner value'
+
 /** The constructor: a value with the diagnostics already known, none by
- * default. `D` defaults to `never`, so a clean value flows into any
- * `BestEffort<T, D>`. */
+ * default. `D` defaults to `never`. Returns a frozen object over a frozen
+ * copy of `diagnostics`. */
 export function bestEffort<T, D = never>(
   value: T,
   diagnostics: readonly D[] = [],
@@ -33,36 +41,43 @@ export function bestEffort<T, D = never>(
   return Object.freeze({ value, diagnostics: Object.freeze([...diagnostics]) })
 }
 
-/** Appends diagnostics to a BestEffort without touching its value: the
- * Writer's `tell`. The consumer's readers push a diagnostic and go on. */
-export function note<T, D>(
+/** Appends `diagnostics` after the ones already held; the value is
+ * unchanged. Curryable by arity, as `/result`'s combinators are; the
+ * unapplied form binds `T` and the box's own `D2` at application. */
+export function note<D, T, D2>(
   diagnostics: readonly D[],
-  value: BestEffort<T, D>,
-): BestEffort<T, D>
-export function note<T, D>(
+  value: BestEffort<T, D2>,
+): BestEffort<T, D | D2>
+export function note<D>(
   diagnostics: readonly D[],
-): (value: BestEffort<T, D>) => BestEffort<T, D>
-export function note<T, D>(
+): <T, D2 = never>(value: BestEffort<T, D2>) => BestEffort<T, D | D2>
+export function note<D, T, D2>(
   diagnostics: readonly D[],
-  ...value: [] | [BestEffort<T, D>]
-): CurryableMapper<BestEffort<T, D>, BestEffort<T, D>> {
+  ...value: [] | [BestEffort<T, D2>]
+): CurryableMapper<BestEffort<T, D2>, BestEffort<T, D | D2>> {
   return curry(
-    (value: BestEffort<T, D>) =>
-      bestEffort(value.value, [...value.diagnostics, ...diagnostics]),
+    (value: BestEffort<T, D2>) =>
+      bestEffort<T, D | D2>(value.value, [
+        ...value.diagnostics,
+        ...diagnostics,
+      ]),
     ...value,
   )
 }
 
-/** Transforms the value; the diagnostics ride along unchanged. */
-export function map<T, U, D>(
-  fn: (value: T) => U,
+/** Transforms the value; the diagnostics ride along unchanged. `fn` must
+ * not return a `BestEffort` (see {@link NotABestEffort}); {@link andThen}
+ * chains a second best-effort step. Curryable; the unapplied form binds
+ * `T` and `D` at application. */
+export function map<A, U extends NotABestEffort<U>, T extends A, D>(
+  fn: (value: A) => U,
   value: BestEffort<T, D>,
 ): BestEffort<U, D>
-export function map<T, U, D>(
-  fn: (value: T) => U,
-): (value: BestEffort<T, D>) => BestEffort<U, D>
-export function map<T, U, D>(
-  fn: (value: T) => U,
+export function map<A, U extends NotABestEffort<U>>(
+  fn: (value: A) => U,
+): <T extends A, D>(value: BestEffort<T, D>) => BestEffort<U, D>
+export function map<A, U extends NotABestEffort<U>, T extends A, D>(
+  fn: (value: A) => U,
   ...value: [] | [BestEffort<T, D>]
 ): CurryableMapper<BestEffort<T, D>, BestEffort<U, D>> {
   return curry(
@@ -72,16 +87,17 @@ export function map<T, U, D>(
 }
 
 /** Chains a second best-effort step: the diagnostics of the first come
- * before those of the second. The diagnostic types union. */
-export function andThen<T, U, D, D2>(
-  fn: (value: T) => BestEffort<U, D2>,
+ * before those of the second, and the diagnostic types union. Curryable;
+ * the unapplied form binds `T` and `D` at application. */
+export function andThen<A, U, D2, T extends A, D>(
+  fn: (value: A) => BestEffort<U, D2>,
   value: BestEffort<T, D>,
 ): BestEffort<U, D | D2>
-export function andThen<T, U, D, D2>(
-  fn: (value: T) => BestEffort<U, D2>,
-): (value: BestEffort<T, D>) => BestEffort<U, D | D2>
-export function andThen<T, U, D, D2>(
-  fn: (value: T) => BestEffort<U, D2>,
+export function andThen<A, U, D2>(
+  fn: (value: A) => BestEffort<U, D2>,
+): <T extends A, D>(value: BestEffort<T, D>) => BestEffort<U, D | D2>
+export function andThen<A, U, D2, T extends A, D>(
+  fn: (value: A) => BestEffort<U, D2>,
   ...value: [] | [BestEffort<T, D>]
 ): CurryableMapper<BestEffort<T, D>, BestEffort<U, D | D2>> {
   return curry(
@@ -96,10 +112,8 @@ export function andThen<T, U, D, D2>(
   )
 }
 
-/** Fans a list of best-effort parts in: every value, with every part's
- * diagnostics in part order. The Writer's applicative over a list; a
- * question for #118, measured here because the consumer's drop-a-piece path
- * needs it. */
+/** Fans a list of best-effort parts in: every value, in part order, with
+ * every part's diagnostics in part order. */
 export function gather<T, D>(
   parts: readonly BestEffort<T, D>[],
 ): BestEffort<readonly T[], D> {
@@ -110,41 +124,73 @@ export function gather<T, D>(
 }
 
 /** The bridge in: a Success is itself with no diagnostics; a Failure is
- * `fallback` with the error recorded as the one diagnostic, as `diagnose`
- * reads it (the error itself when `diagnose` is absent). `T` is unresolved
- * here, as in `orElse`, so no guard judges `fallback`. */
+ * `fallback` with the error as its one diagnostic. Curryable by arity, as
+ * `orElse` is; `T` is unresolved here, so no guard judges `fallback`.
+ * {@link recoverWith} records something made from the error instead. */
 export function recover<T, E extends Error>(
-  result: Result<T, E>,
   fallback: T,
-): BestEffort<T, E>
-export function recover<T, E extends Error, D>(
   result: Result<T, E>,
+): BestEffort<T, E>
+export function recover<T>(
+  fallback: T,
+): <E extends Error>(result: Result<T, E>) => BestEffort<T, E>
+export function recover<T, E extends Error>(
+  fallback: T,
+  ...result: [] | [Result<T, E>]
+): CurryableMapper<Result<T, E>, BestEffort<T, E>> {
+  return curry(
+    (result: Result<T, E>): BestEffort<T, E> =>
+      isFailure(result) ? bestEffort(fallback, [result]) : bestEffort(result),
+    ...result,
+  )
+}
+
+/** The bridge in with a diagnostic of the consumer's own shape: a Success
+ * is itself with no diagnostics; a Failure is `fallback` with
+ * `diagnose(error)` as its one diagnostic. A throw from `diagnose`
+ * propagates. Curryable by arity. */
+export function recoverWith<T, E extends Error, D>(
   fallback: T,
   diagnose: (error: E) => D,
-): BestEffort<T, D>
-export function recover<T, E extends Error, D>(
   result: Result<T, E>,
+): BestEffort<T, D>
+export function recoverWith<T, E extends Error, D>(
   fallback: T,
-  diagnose?: (error: E) => D,
-): BestEffort<T, D | E> {
-  if (isFailure(result))
-    return bestEffort<T, D | E>(fallback, [
-      diagnose === undefined ? result : diagnose(result),
-    ])
-  return bestEffort(result)
+  diagnose: (error: E) => D,
+): (result: Result<T, E>) => BestEffort<T, D>
+export function recoverWith<T, E extends Error, D>(
+  fallback: T,
+  diagnose: (error: E) => D,
+  ...result: [] | [Result<T, E>]
+): CurryableMapper<Result<T, E>, BestEffort<T, D>> {
+  return curry(
+    (result: Result<T, E>): BestEffort<T, D> =>
+      isFailure(result)
+        ? bestEffort(fallback, [diagnose(result)])
+        : bestEffort(result),
+    ...result,
+  )
 }
 
 /** The bridge out, guarded: a Success of the value when no diagnostic
- * exists, else a Failure of `toError(diagnostics)`. `T` must pass
- * `success`'s guard, since the Success arm is unboxed. */
-export function toResult<T extends NotPossiblyAnError<T>, D, E extends Error>(
+ * exists, else a Failure of `toError(diagnostics)`, handed the whole list
+ * in order. A throw from `toError` propagates. `T` must pass `success`'s
+ * guard, since the Success arm is unboxed, and must not itself be a
+ * `BestEffort`. Curryable; the unapplied form binds `T` at application. */
+export function toResult<
+  T extends NotPossiblyAnError<T> & NotABestEffort<T>,
+  D,
+  E extends Error,
+>(
   toError: (diagnostics: readonly D[]) => E,
   value: BestEffort<T, D>,
 ): Result<T, E>
-export function toResult<T extends NotPossiblyAnError<T>, D, E extends Error>(
+export function toResult<D, E extends Error>(
   toError: (diagnostics: readonly D[]) => E,
-): (value: BestEffort<T, D>) => Result<T, E>
-export function toResult<T extends NotPossiblyAnError<T>, D, E extends Error>(
+): <T extends NotPossiblyAnError<T> & NotABestEffort<T>>(
+  value: BestEffort<T, D>,
+) => Result<T, E>
+export function toResult<T, D, E extends Error>(
   toError: (diagnostics: readonly D[]) => E,
   ...value: [] | [BestEffort<T, D>]
 ): CurryableMapper<BestEffort<T, D>, Result<T, E>> {

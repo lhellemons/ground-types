@@ -21,7 +21,7 @@ import {
   gather,
   map,
   note,
-  recover,
+  recoverWith,
   toResult,
 } from './best-effort.js'
 import type { BestEffort } from './best-effort.js'
@@ -38,7 +38,7 @@ export type EntityLocalDetail = {
   readonly boardId: string
   readonly pieceId?: string
 }
-/** the consumer's `WorldFormatError`: a plain positioned object, not an Error.
+/** The consumer's `WorldFormatError`: a plain positioned object, not an Error.
  * Untagged (`detail` absent) is a shape problem the strict parse and the
  * best-effort parse both refuse; tagged is tolerated by best effort. */
 export type WorldFormatError = {
@@ -46,7 +46,7 @@ export type WorldFormatError = {
   readonly line?: number
   readonly detail?: WiringDetail | EntityLocalDetail
 }
-/** the consumer's `BestEffortDrop`: what was excluded, with its raw DTO so the
+/** The consumer's `BestEffortDrop`: what was excluded, with its raw DTO so the
  * printer can re-merge it. A Piece drop names its Board. */
 export type BestEffortDrop =
   | {
@@ -77,7 +77,7 @@ export type BestEffortDrop =
 export type Diagnostic = WorldFormatError | BestEffortDrop
 export const isDrop = (d: Diagnostic): d is BestEffortDrop => 'kind' in d
 
-/** the consumer's `WorldFormatErrors`: the list as one Error, for `Result`'s
+/** The consumer's `WorldFormatErrors`: the list as one Error, for `Result`'s
  * error channel. */
 export class WorldFormatErrors extends Error {
   constructor(readonly errors: readonly Diagnostic[]) {
@@ -86,7 +86,7 @@ export class WorldFormatErrors extends Error {
   }
 }
 
-/** the consumer's two arrays, read off the one list. A Piece excluded after it
+/** The consumer's two arrays, read off the one list. A Piece excluded after it
  * parsed is one `kind: 'piece'` drop in the list and appears in both
  * projections: as the drop, and as the entity-local diagnostic derived
  * from it, as the consumer's `BestEffortWorld` has it. */
@@ -205,10 +205,12 @@ export type RawDocument = {
   links?: LinkDTO[]
 }
 
-/** the consumer's `readOpenWhen` through the kit: ok is a Just with no
+/** The consumer's `readOpenWhen` through the kit: ok is a Just with no
  * diagnostic, absent a Nothing with none, error a Nothing with one. The
- * wiring lint (an unknown Signal name) is a tagged diagnostic over a kept
- * value, as the consumer's `WiringDetail` is. */
+ * consumer's own reader has only those three states and runs its wiring
+ * lints later, on the built Board; the port models one lint (an unknown
+ * Signal name) at the reader, as a tagged diagnostic over a kept value, to
+ * exercise the fourth state, a Just with a diagnostic. */
 export function readOpenWhen(
   raw: unknown,
   boardId: string,
@@ -257,7 +259,8 @@ function readPiece(
     ])
   const { id, x, y } = raw
   return map(
-    (openWhen) => (isJust(openWhen) ? { id, x, y, openWhen } : { id, x, y }),
+    (openWhen: Maybe<string>): PieceDTO =>
+      isJust(openWhen) ? { id, x, y, openWhen } : { id, x, y },
     readOpenWhen(raw['open-when'], boardId, signals, line),
   )
 }
@@ -280,7 +283,7 @@ function occupancy(
   return success(piece)
 }
 
-/** the consumer's `validateBoardEntry`: a shape failure is a Nothing with an
+/** The consumer's `validateBoardEntry`: a shape failure is a Nothing with an
  * untagged diagnostic; a parsed Piece that fails occupancy is dropped
  * through `recover`, with the drop as its diagnostic, and the Board is
  * kept. */
@@ -298,31 +301,37 @@ export function validateBoardEntry(
     (raw.pieces ?? []).map((p, i) => readPiece(p, boardId, signals, i)),
   )
   const seen = new Map<string, string>()
+  /* Every callback parameter below is annotated: the kit's `map` and
+     `andThen` infer their callback's parameter from the callback alone, as
+     `/result`'s do (probe "an un-annotated callback parameter"). */
   return map(
-    /* The callback parameter is annotated: `map` infers `T` from the
-       callback alone, as `/result`'s `map` does (#115), so without it
-       `kept` is `unknown`. */
     (kept: readonly Maybe<PieceDTO>[]): Maybe<BoardDTO> => ({
       id: boardId,
       pieces: kept.filter(isJust),
       signals,
     }),
     andThen(
-      (pieces) =>
+      (pieces: readonly Maybe<PieceDTO>[]) =>
         gather(
-          pieces.filter(isJust).map((piece, i) =>
-            recover(
-              occupancy(piece, seen),
-              undefined,
-              (offense): Diagnostic => ({
-                kind: 'piece',
-                id: piece.id,
-                boardId,
-                message: offense.message,
-                line: i,
-                raw: piece,
-              }),
-            ),
+          /* `line` is the entry's raw index: `parsed` has one slot per raw
+             entry, a malformed one as a Nothing. */
+          pieces.flatMap((piece, line) =>
+            isJust(piece)
+              ? [
+                  recoverWith(
+                    undefined as Maybe<PieceDTO>,
+                    (offense: CellTaken): Diagnostic => ({
+                      kind: 'piece',
+                      id: piece.id,
+                      boardId,
+                      message: offense.message,
+                      line,
+                      raw: piece,
+                    }),
+                    occupancy(piece, seen),
+                  ),
+                ]
+              : [],
           ),
         ),
       parsed,
@@ -332,10 +341,11 @@ export function validateBoardEntry(
 
 /* ---- the parse --------------------------------------------------------- */
 
-/** the consumer's `assembleWorldDocument` plus its prelude: every reader's
- * diagnostics, in document order, over a Maybe of the WorldDTO (Nothing
- * when the world id is missing). The `format` gate is a diagnostic here,
- * where the consumer keeps it beside `assembled` (see `parseWorldBestEffort`). */
+/** The consumer's `assembleWorldDocument` plus its prelude: every reader's
+ * diagnostics in document order (the `format` gate, the world id, then
+ * the boards) over a Maybe of the WorldDTO (Nothing when the world id is
+ * missing). The `format` gate is a diagnostic here, where the consumer
+ * keeps it beside `assembled` (see `parseWorldBestEffort`). */
 export function assemble(
   doc: RawDocument,
 ): BestEffort<Maybe<WorldDTO>, Diagnostic> {
@@ -343,30 +353,27 @@ export function assemble(
     doc.format === 'world-v2'
       ? []
       : [{ message: 'format must be world-v2', line: 0 }]
-  const boards = gather((doc.boards ?? []).map(validateBoardEntry))
   const idError: Diagnostic[] =
     typeof doc.id === 'string'
       ? []
       : [{ message: 'World is missing required key "id"', line: 0 }]
   const id = doc.id
-  return note(
-    idError,
-    map(
-      (boards: readonly Maybe<BoardDTO>[]): Maybe<WorldDTO> =>
-        typeof id === 'string'
-          ? {
-              id,
-              boards: boards.filter(isJust),
-              stages: doc.stages ?? [],
-              links: doc.links ?? [],
-            }
-          : undefined,
-      note(gate, boards),
-    ),
+  const prelude = bestEffort(undefined, [...gate, ...idError])
+  return map(
+    (boards: readonly Maybe<BoardDTO>[]): Maybe<WorldDTO> =>
+      typeof id === 'string'
+        ? {
+            id,
+            boards: boards.filter(isJust),
+            stages: doc.stages ?? [],
+            links: doc.links ?? [],
+          }
+        : undefined,
+    andThen(() => gather((doc.boards ?? []).map(validateBoardEntry)), prelude),
   )
 }
 
-/** the consumer's strict `parseWorld`: any diagnostic at all is a Failure. */
+/** The consumer's strict `parseWorld`: any diagnostic at all is a Failure. */
 export function parseWorld(doc: RawDocument): Result<World, WorldFormatErrors> {
   const strict = toResult((d) => new WorldFormatErrors(d), assemble(doc))
   /* A Failure is re-wrapped to retarget its phantom `T`, as the consumer writes
@@ -382,10 +389,12 @@ export function parseWorld(doc: RawDocument): Result<World, WorldFormatErrors> {
 
 const MAX_BEST_EFFORT_DROPS = 64
 
+/* The consumer decides which diagnostics block, on the list, before it
+   calls `toResult`: an untagged `WorldFormatError`. */
 const blocking = (d: Diagnostic): boolean =>
   !isDrop(d) && d.detail === undefined
 
-/** the consumer's `parseWorldBestEffort`. The pinned policy: an untagged
+/** The consumer's `parseWorldBestEffort`. The pinned policy: an untagged
  * diagnostic, a missing world id, an unattributable `World.from`
  * rejection or an exhausted drop budget is the strict Failure; else the
  * World built from what validated, with every tolerated diagnostic and
@@ -417,7 +426,7 @@ export function parseWorldBestEffort(
     current = note(
       [drop],
       map(
-        (dto): WorldDTO =>
+        (dto: WorldDTO): WorldDTO =>
           drop.kind === 'stage'
             ? { ...dto, stages: dto.stages.filter((s) => s.id !== drop.id) }
             : { ...dto, links: dto.links.filter((l) => l.id !== drop.id) },

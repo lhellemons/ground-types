@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# PROTOTYPE #117 — typecheck the kit and the consumer port against src/ on
-# main, then run the type and runtime probes.
+# PROTOTYPE #117 — typecheck the kit and the consumer port against the
+# checked-out src/, then run the type and runtime probes.
 #   prototypes/117/run.sh
 # Nothing in src/ changes; the kit imports the library by relative path.
 set -euo pipefail
