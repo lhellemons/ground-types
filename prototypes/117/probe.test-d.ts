@@ -76,11 +76,6 @@ describe('the guards', () => {
     toResult(toErrors, union)
     // @ts-expect-error the curried toResult refuses it at application
     toResult(toErrors)(bestEffort(bestEffort(1, ['lost'])))
-    const tuple: BestEffort<readonly [BestEffort<number, string>], Diagnostic> =
-      bestEffort([bestEffort(1, ['lost'])] as const)
-    expectTypeOf(toResult(toErrors, tuple)).toEqualTypeOf<
-      Result<readonly [BestEffort<number, string>], WorldFormatErrors>
-    >()
     const ofMaybe: BestEffort<
       Maybe<BestEffort<number, string>>,
       Diagnostic
@@ -93,16 +88,24 @@ describe('the guards', () => {
     > = bestEffort([])
     // @ts-expect-error a box or a list of boxes has the box as a top-level arm
     toResult(toErrors, orList)
-    const promised: BestEffort<
-      Promise<BestEffort<number, string>>,
-      Diagnostic
-    > = bestEffort(Promise.resolve(bestEffort(1, ['lost'])))
-    expectTypeOf(toResult(toErrors, promised)).toEqualTypeOf<
-      Result<Promise<BestEffort<number, string>>, WorldFormatErrors>
-    >()
   })
-  it('a Best Effort inside a container is not refused: an array, an object property, a gather of nested boxes, and a declared return { readonly value: number } or { value?: number; diagnostics: readonly string[] } pass map and toResult', () => {
+  it('a Best Effort inside a container is not refused: an array, a tuple, an object property, a Promise, and a declared return { readonly value: number } or { value?: number; diagnostics: readonly string[] } pass map and toResult, and a gather of nested boxes passes toResult', () => {
     const toE = (d: readonly unknown[]) => new Error(String(d.length))
+    expectTypeOf(
+      toResult(
+        toE,
+        map((x: number) => [bestEffort(x, ['lost'])] as const, bestEffort(1)),
+      ),
+    ).toEqualTypeOf<Result<readonly [BestEffort<number, string>], Error>>()
+    expectTypeOf(
+      toResult(
+        toE,
+        map(
+          (x: number) => Promise.resolve(bestEffort(x, ['lost'])),
+          bestEffort(1),
+        ),
+      ),
+    ).toEqualTypeOf<Result<Promise<BestEffort<number, string>>, Error>>()
     expectTypeOf(
       toResult(
         toE,
@@ -140,13 +143,34 @@ describe('the guards', () => {
       Result<{ value?: number; diagnostics: readonly string[] }, Error>
     >()
   })
-  it("a look-alike is refused: any object with a required value and a required array diagnostics reads as a Best Effort, and a generic map callback is refused as /result's is", () => {
+  it("a look-alike is refused: an arm assignable to BestEffort<unknown, unknown> reads as a Best Effort (a public required value and a required diagnostics that readonly unknown[] accepts, any included), a private value does not, and a generic map callback is refused as /result's is", () => {
     const toE = (d: readonly unknown[]) => new Error(String(d.length))
     const rep = { value: 's', diagnostics: ['d'], file: 'f' }
     // @ts-expect-error structurally a BestEffort
     map(() => rep, bestEffort(1))
     // @ts-expect-error structurally a BestEffort
     toResult(toE, bestEffort(rep))
+    const anyList: { value: number; diagnostics: any } = {
+      value: 1,
+      diagnostics: 0,
+    }
+    // @ts-expect-error a diagnostics typed any is accepted by readonly unknown[]
+    map(() => anyList, bestEffort(1))
+    // @ts-expect-error a diagnostics typed any is accepted by readonly unknown[]
+    toResult(toE, bestEffort(anyList))
+    class Hidden {
+      private readonly value = 1
+      readonly diagnostics: readonly string[] = ['d']
+      get sum() {
+        return this.value
+      }
+    }
+    expectTypeOf(
+      toResult(
+        toE,
+        map(() => new Hidden(), bestEffort(1)),
+      ),
+    ).toEqualTypeOf<Result<Hidden, Error>>()
     function generic<V>(f: (n: number) => V, be: BestEffort<number, never>) {
       // @ts-expect-error an unresolved V may be a BestEffort
       return map(f, be)
@@ -160,6 +184,17 @@ describe('the guards', () => {
       NotABestEffort<BestEffort<number, string>>
     >().toEqualTypeOf<'This value is a BestEffort — use andThen, not map, and toResult only on the inner value'>()
     expectTypeOf<NotABestEffort<number>>().toEqualTypeOf<unknown>()
+  })
+  it("toResult refuses a T of any: the two guards together, with no fix named, applied and curried; map's guard passes any", () => {
+    const toE = (d: readonly unknown[]) => new Error(String(d.length))
+    const ofAny = bestEffort(JSON.parse('1'))
+    // @ts-expect-error any passes each guard alone and fails their intersection
+    toResult(toE, ofAny)
+    // @ts-expect-error any passes each guard alone and fails their intersection
+    toResult(toE)(ofAny)
+    expectTypeOf(map((): any => JSON.parse('1'), bestEffort(1))).toEqualTypeOf<
+      BestEffort<any, never>
+    >()
   })
   it('the curried forms carry the guards: toResult(toError) refuses an Error-typed box, map(fn) refuses a callback returning a box', () => {
     // @ts-expect-error the unapplied toResult carries NotPossiblyAnError
@@ -300,6 +335,9 @@ describe('inference', () => {
       BestEffort<string, never>
     >()
     expectTypeOf(
+      map((x: number) => String(x), bestEffort(1, [diag])),
+    ).toEqualTypeOf<BestEffort<string, Diagnostic>>()
+    expectTypeOf(
       map((x: number) => String(x))(bestEffort(1, [diag])),
     ).toEqualTypeOf<BestEffort<string, Diagnostic>>()
     // @ts-expect-error the curried map rejects a value whose T does not fit the callback
@@ -317,6 +355,9 @@ describe('inference', () => {
   it("note unions its D with the value's, applied and curried", () => {
     expectTypeOf(note([diag], bestEffort(1))).toEqualTypeOf<
       BestEffort<number, Diagnostic>
+    >()
+    expectTypeOf(note([diag], bestEffort(1, ['s']))).toEqualTypeOf<
+      BestEffort<number, Diagnostic | string>
     >()
     expectTypeOf(note([diag])(bestEffort(1, ['s']))).toEqualTypeOf<
       BestEffort<number, Diagnostic | string>

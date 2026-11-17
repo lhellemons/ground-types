@@ -29,9 +29,11 @@ export type BestEffort<T, D> = {
 }
 
 /** Rejects a value type with a `BestEffort` among its top-level union
- * arms. Structural, so any object with a required `value` and a required
- * array `diagnostics` is refused; a box inside an array, a tuple, an
- * object property or a Promise is not reached. Names the fix. */
+ * arms: an arm assignable to `BestEffort<unknown, unknown>`, so one with
+ * a public required `value` and a required `diagnostics` that `readonly
+ * unknown[]` accepts, a `diagnostics` typed `any` included; a class with
+ * a private `value` is not refused, and a box inside an array, a tuple,
+ * an object property or a Promise is not reached. Names the fix. */
 export type NotABestEffort<U> = [
   Extract<U, BestEffort<unknown, unknown>>,
 ] extends [never]
@@ -181,8 +183,9 @@ export function recoverWith<T, E extends Error, D>(
 
 /** The bridge out, guarded: a Success of the value when no diagnostic
  * exists, else a Failure of `toError(diagnostics)`, handed the whole list
- * in order. A throw from `toError` propagates. `T` must pass `success`'s
- * guard and must not itself be a `BestEffort`. Curryable; the unapplied form binds `T` at application. */
+ * in order. A throw from `toError` propagates. `T` must pass both guards
+ * together, `success`'s and {@link NotABestEffort}; a `T` of `any` is
+ * refused, with no fix named. Curryable; the unapplied form binds `T` at application. */
 export function toResult<
   T extends NotPossiblyAnError<T> & NotABestEffort<T>,
   D,

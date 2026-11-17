@@ -58,12 +58,15 @@ describe('the kit', () => {
     expect(be.diagnostics).toEqual(['d'])
     expect(frozen(be)).toBe(true)
   })
-  it("andThen: the first step's diagnostics, then the second's, both in order, duplicates kept; applied and curried alike; frozen, also when the first box is clean and fn returns an unfrozen literal; a throw from fn propagates by identity", () => {
-    const second = (x: number) => bestEffort(x + 1, ['c', 'd', 'c', 'e'])
-    const expected = { value: 2, diagnostics: ['a', 'b', 'c', 'd', 'c', 'e'] }
-    const applied = andThen(second, bestEffort(1, ['a', 'b']))
+  it("andThen: the first step's diagnostics, then the second's, both in order, duplicates kept within and across the steps; applied and curried alike; frozen, also when the first box is clean and fn returns an unfrozen literal; a throw from fn propagates by identity", () => {
+    const second = (x: number) => bestEffort(x + 1, ['b', 'c', 'd', 'c'])
+    const expected = {
+      value: 2,
+      diagnostics: ['a', 'a', 'b', 'b', 'c', 'd', 'c'],
+    }
+    const applied = andThen(second, bestEffort(1, ['a', 'a', 'b']))
     expect(applied).toEqual(expected)
-    const curried = andThen(second)(bestEffort(1, ['a', 'b']))
+    const curried = andThen(second)(bestEffort(1, ['a', 'a', 'b']))
     expect(curried).toEqual(expected)
     expect(frozen(applied)).toBe(true)
     expect(frozen(curried)).toBe(true)
@@ -105,14 +108,14 @@ describe('the kit', () => {
     expect(caught(() => map(throwingPlain, bestEffort(1)))).toBe('plain')
     expect(caught(() => map(throwingPlain)(bestEffort(1)))).toBe('plain')
   })
-  it("note appends after the ones held, in its own order, duplicates kept, the caller's array untouched; applied and curried alike; frozen", () => {
-    const added = ['c', 'd', 'c', 'e']
-    const expected = { value: 1, diagnostics: ['a', 'b', 'c', 'd', 'c', 'e'] }
+  it("note appends after the ones held, in its own order, duplicates kept within the added list and against the held one, the caller's array untouched; applied and curried alike; frozen", () => {
+    const added = ['b', 'c', 'd', 'c']
+    const expected = { value: 1, diagnostics: ['a', 'b', 'b', 'c', 'd', 'c'] }
     const applied = note(added, bestEffort(1, ['a', 'b']))
     expect(applied).toEqual(expected)
     const curried = note(added)(bestEffort(1, ['a', 'b']))
     expect(curried).toEqual(expected)
-    expect(added).toEqual(['c', 'd', 'c', 'e'])
+    expect(added).toEqual(['b', 'c', 'd', 'c'])
     expect(frozen(applied)).toBe(true)
     expect(frozen(curried)).toBe(true)
   })
@@ -454,7 +457,27 @@ describe('the consumer on the kit', () => {
       ],
     })
   })
-  it("order: document order for the readers, then the retry loop's drops in the order World.from names them", () => {
+  it("order: document order across boards; within a board, the piece readers' diagnostics, then the occupancy drops, each in document order; then the retry loop's drops in the order World.from names them", () => {
+    const oneBoard = leave({
+      ...clean,
+      boards: [
+        {
+          id: 'a',
+          pieces: [
+            { id: 'p1', x: 0, y: 0 },
+            { id: 'p2', x: 0, y: 0 },
+            { id: 'p3', x: 1, y: 1, 'open-when': 'ghost' },
+          ],
+        },
+      ],
+      stages: [],
+      links: [],
+    })
+    expect(
+      oneBoard.diagnostics.map((d) =>
+        'kind' in d ? `${d.kind}:${d.id}@${d.line}` : `${d.message}@${d.line}`,
+      ),
+    ).toEqual(['unknown signal "ghost"@2', 'piece:p2@1'])
     const doc: RawDocument = {
       format: 'world-v2',
       id: 'w',

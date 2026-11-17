@@ -65,11 +65,13 @@ the module gets a Box is #89's question (ADR-0005). Its surface:
   `BestEffort` (below).
 - `andThen(fn)`: chains a step that returns a Best Effort; the first
   step's diagnostics come before the second's, each in its own order,
-  duplicates kept, and the diagnostic types union to `D | D2` (probes
+  duplicates kept within and across the steps, and the diagnostic types
+  union to `D | D2` (probes
   "andThen: the first step's diagnostics", "andThen unions the
   diagnostic types").
 - `note(diagnostics)`: appends `diagnostics` after the ones held, in its
-  own order, duplicates kept, value unchanged, the caller's array
+  own order, duplicates kept within the added list and against the held
+  one, value unchanged, the caller's array
   untouched (probe "note appends after the ones held").
 - `gather(parts)`: fans a list of Best Efforts in: the values in part
   order, the diagnostics in part order and within a part, duplicates
@@ -122,8 +124,10 @@ consumer has it (probe "a Piece on a taken cell"); a dropped Link is a
 diagnostic, so `toResult` turns the Best Effort into a Failure and never
 lets the drop out as a Success (probe "a dangling Link"). The order
 across kinds is kept: the prelude's diagnostics (the `format` gate ahead
-of a reader's lint), then document order for the readers, then the retry
-loop's drops (probes "order", "the format gate"). The kit carries no
+of a reader's lint), then document order across boards, and within a
+board the piece readers' diagnostics, then the occupancy drops, each in
+document order, then the retry loop's drops (probes "order", "the format
+gate"). The kit carries no
 second channel.
 
 ### The guards sit on `toResult` and on `map`'s return
@@ -135,7 +139,12 @@ carries NotPossiblyAnError"): a `BestEffort<Error, D>`, a
 D>`, and a `BestEffort<T, D>` with `T` an unresolved type parameter.
 `BestEffort<World, D>` with `World` a class passes, as does
 `BestEffort<Maybe<string>, D>` (probe "toResult of a Maybe part").
-Generic code casts at the exit, as it does around `success`.
+Generic code casts at the exit, as it does around `success`. `T` must
+pass both guards together, this one and `NotABestEffort` below: a `T` of
+`any` passes each alone and is refused by `toResult`, applied and
+curried, with a `never` message that names no fix, where `map`'s guard
+passes `any` (probe "toResult refuses a T of any"). Composing the guards
+so that `any` gets a named message is the implementation ticket's.
 
 A nested box would carry its diagnostics out as a Success: `toResult`
 checks the outer list only. So `map`'s callback may not return a
@@ -149,26 +158,31 @@ number) => bestEffort(x, ['lost']), bestEffort(1))`, a callback returning
 bestEffort(bestEffort(1, ['lost'])))`, a `BestEffort<BestEffort<number,
 string> | number, D>`, and the curried `toResult(toErrors)` applied to a
 nested box, a `BestEffort<Maybe<BestEffort<…>>, D>` and a
-`BestEffort<BestEffort<…> | BestEffort<…>[], D>`; the unapplied
-`toResult(toErrors)` and `map(fn)` carry the same guards (probe "the
-curried forms carry the guards"). A Best Effort inside an array, inside
-a `readonly [BestEffort<…>]` tuple, inside an object property, inside a
-`Promise` (where `/result`'s `NotAResult` refuses a thenable), and the
-nested boxes of a `gather` over boxed boxes are not refused and leave
+`BestEffort<BestEffort<…> | BestEffort<…>[], D>` (probe "a nested
+BestEffort is refused"); the unapplied `toResult(toErrors)` and
+`map(fn)` carry the same guards (probe "the curried forms carry the
+guards"). A Best Effort inside an array, inside a `readonly
+[BestEffort<…>]` tuple, inside an object property, inside a `Promise`
+(where `/result`'s `NotAResult` refuses a thenable), and the nested
+boxes of a `gather` over boxed boxes are not refused and leave
 `toResult` inside the Success, diagnostics and all; a declared type the
-box is assignable to, with no top-level arm with both a required `value`
-and a required array `diagnostics`, such as `{ readonly value: number }`
-or `{ value?: number; diagnostics: readonly string[] }` as a `map`
+box is assignable to, with no top-level arm assignable to
+`BestEffort<unknown, unknown>`, such as `{ readonly value: number }` or
+`{ value?: number; diagnostics: readonly string[] }` as a `map`
 callback's declared return, is not refused by `NotABestEffort`; where
 `NotPossiblyAnError` also passes it, the box leaves `toResult` inside the
-Success as that type, diagnostics and all (probes "a nested
-BestEffort is refused", "a Best Effort inside a container is not
-refused", and at runtime "a box inside a container leaves toResult
-inside the Success"). The guard is structural: an object with a required
-`value` and a required array `diagnostics` and one more member is refused by `map` and
-by `toResult` as a Best Effort, and a generic `map(f, be)` with `f: (n:
-number) => V` is refused, as `/result`'s `map` refuses `mapResult(f, r)`
-with the same `f` (probe "a look-alike is refused").
+Success as that type, diagnostics and all (probe "a Best Effort inside a
+container is not refused", and at runtime "a box inside a container
+leaves toResult inside the Success"). The guard is structural, as the
+type has it: an arm assignable to `BestEffort<unknown, unknown>`, so one
+with a public required `value` and a required `diagnostics` that
+`readonly unknown[]` accepts, a `diagnostics` typed `any` included, is
+refused by `map` and by `toResult` as a Best Effort, an object with one
+more member and a `{ value: number; diagnostics: any }` among the pinned
+instances; a class with a `private readonly value` and a public
+`diagnostics` array is not refused; and a generic `map(f, be)` with `f:
+(n: number) => V` is refused, as `/result`'s `map` refuses `mapResult(f,
+r)` with the same `f` (probe "a look-alike is refused").
 
 The constructor, `map`'s return and the fallback of `recover` and
 `recoverWith` admit an `Error`: the box keeps the value and the list
