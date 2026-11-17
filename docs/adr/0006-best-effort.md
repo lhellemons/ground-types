@@ -155,7 +155,9 @@ curried forms carry the guards"). A Best Effort inside an array, inside
 a `readonly [BestEffort<…>]` tuple, inside an object property, inside a
 `Promise` (where `/result`'s `NotAResult` refuses a thenable), and the
 nested boxes of a `gather` over boxed boxes are not refused and leave
-`toResult` inside the Success, diagnostics and all (probes "a nested
+`toResult` inside the Success, diagnostics and all; a wider type a box
+fits, such as `{ readonly value: number }` as a `map` callback's declared
+return, is not refused either, and the box leaves as that type (probes "a nested
 BestEffort is refused", "a Best Effort inside a container is not
 refused", and at runtime "a box inside a container leaves toResult
 inside the Success"). The guard is structural: an object with a `value`
@@ -236,6 +238,11 @@ bestEffort(1))`, and the curried `map((x) => x)(bestEffort(1))` (probe
   phantom by hand, `failure<WorldFormatErrors, World>(strict)`, as the
   consumer writes today (`parseWorld` in `prototypes/117/consumer.ts`).
 - The implementation ticket ships `bestEffort`, `map`, `andThen`, `note`,
-  `gather`, `recover`, `recoverWith` and `toResult` at `/best-effort`,
-  with the probes above as its tests, and leaves accumulation to #118 and
-  a Box to #89.
+  `gather`, `recover`, `recoverWith` and `toResult`, and the types
+  `BestEffort` and `NotABestEffort`, at `/best-effort`. It leaves
+  accumulation to #118 and a Box to #89. Its tests are the kit probes,
+  rewritten on local fixtures: the runtime describe "the kit", and the
+  type describes "the guards", "a Maybe part" and "inference". The port
+  probes (the runtime describe "the consumer on the kit", and the two
+  type probes built on `readOpenWhen`) and "toResultUnguarded admits all
+  of them" stay in the prototype.
