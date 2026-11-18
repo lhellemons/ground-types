@@ -75,7 +75,7 @@ list: the first Failure among the members of the object, tuple or list, or
 the parts themselves with every member unboxed. The imperative counterpart
 is **Attempt**.
 
-_Avoid_: all, sequence, traverse (a fan-in that needs a container; see
+_Avoid_: all, sequence, traverse (a fan-in that needs a Box; see
 docs/adr/0001-unboxed-maybe-and-result.md).
 
 ### Attempt
