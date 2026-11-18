@@ -1,6 +1,6 @@
 import { getEventListeners } from 'node:events'
 import vm from 'node:vm'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { isAbortError } from '../abort/index.js'
 import { AbortablePromise, type AbortContext } from './abortable.js'
 
@@ -44,6 +44,12 @@ async function unhandledDuring(body: () => void): Promise<unknown[]> {
 
 /** The abort listeners on `signal`. */
 const listeners = (signal: AbortSignal) => getEventListeners(signal, 'abort')
+
+// A test that fakes the timers must not leave them faked: in a shuffled run,
+// a later test that waits on a real `setTimeout` would hang.
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 describe('AbortablePromise', () => {
   it('is a Promise', async () => {
@@ -1564,16 +1570,26 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
   ]
 
   /**
+   * The settled states `resolveUnderPatchedThen` reports for a promise that
+   * fulfils and one that rejects.
+   */
+  const fulfilled = { status: 'fulfilled', value: 'value' }
+  const rejected = { status: 'rejected', reason: new RangeError('patched') }
+
+  /**
    * Resolves one promise inside its executor and one with a later `resolve`,
    * both with `delegate`, with `Promise.prototype.then` patched to throw.
    * `'construction'` has the patch in place only while the promises are made,
    * so it is undone before the job that calls the delegate's `then` runs.
    * `'job'` puts it in place from a microtask queued ahead of that job, and
-   * undoes it ten turns later.
+   * undoes it ten turns later. `'held'` puts it in place before the promises
+   * are made, and keeps it through the same ten turns.
+   * Returns how the two promises settled, as `settled`, and what the later
+   * `resolve` threw to its caller, as `thrownToCaller`.
    */
   async function resolveUnderPatchedThen(
     delegate: unknown,
-    patchedAround: 'construction' | 'job',
+    patchedAround: 'construction' | 'held' | 'job',
   ) {
     // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below
     const original = Promise.prototype.then
@@ -1587,8 +1603,11 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     let resolveLater!: (value: PromiseLike<string>) => void
     let thrownToCaller: unknown
     let restored = false
+    // The test runner calls `then` on the promise a test returns, when the test
+    // first yields: let it, before a patch that throws is put in place.
+    await Promise.resolve()
     try {
-      if (patchedAround === 'construction') {
+      if (patchedAround !== 'job') {
         patch()
       } else {
         queueMicrotask(() => {
@@ -1606,7 +1625,7 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
       } catch (error) {
         thrownToCaller = error
       }
-      if (patchedAround === 'job') {
+      if (patchedAround !== 'construction') {
         for (let turn = 0; turn < 10; turn++) {
           await Promise.resolve()
         }
@@ -1615,19 +1634,41 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
       restored = true
       Promise.prototype.then = original
     }
-    return { both: Promise.all([inExecutor, later]), thrownToCaller }
+    return {
+      settled: Promise.allSettled([inExecutor, later]),
+      thrownToCaller,
+    }
   }
 
   it.each(delegatesUnderPatchedThen)(
     'fulfils with %s while a Promise.prototype.then that throws is patched and undone before the job that calls the delegate’s then, in the executor and in a later resolve',
     async (_, make) => {
-      const { both, thrownToCaller } = await resolveUnderPatchedThen(
+      const { settled, thrownToCaller } = await resolveUnderPatchedThen(
         make(),
         'construction',
       )
 
       expect(thrownToCaller).toBeUndefined()
-      expect(await both).toEqual(['value', 'value'])
+      expect(await settled).toEqual([fulfilled, fulfilled])
+    },
+  )
+
+  it.each(
+    delegatesUnderPatchedThen.map(
+      ([name, make, outcome]) => [outcome, name, make] as const,
+    ),
+  )(
+    '%s with %s while a Promise.prototype.then that throws is put in place before the promises are made and kept in place when the job that calls the delegate’s then runs',
+    async (outcome, _, make) => {
+      const { settled, thrownToCaller } = await resolveUnderPatchedThen(
+        make(),
+        'held',
+      )
+
+      expect(thrownToCaller).toBeUndefined()
+      expect(await settled).toEqual(
+        outcome === 'fulfils' ? [fulfilled, fulfilled] : [rejected, rejected],
+      )
     },
   )
 
@@ -1638,30 +1679,41 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
   )(
     '%s with %s while a Promise.prototype.then that throws is still patched when the job that calls the delegate’s then runs',
     async (outcome, _, make) => {
-      const { both, thrownToCaller } = await resolveUnderPatchedThen(
+      const { settled, thrownToCaller } = await resolveUnderPatchedThen(
         make(),
         'job',
       )
 
       expect(thrownToCaller).toBeUndefined()
-      if (outcome === 'fulfils') {
-        expect(await both).toEqual(['value', 'value'])
-      } else {
-        await expect(both).rejects.toThrow(new RangeError('patched'))
-      }
+      expect(await settled).toEqual(
+        outcome === 'fulfils' ? [fulfilled, fulfilled] : [rejected, rejected],
+      )
     },
   )
 
-  it('rejects with a native promise while a Promise.prototype.then that throws is patched, and a later resolve throws nothing to its caller', async () => {
-    const delegate = Promise.resolve('value')
+  it.each(['construction', 'held'] as const)(
+    'rejects with a native promise while a Promise.prototype.then that throws is patched (%s), and a later resolve throws nothing to its caller',
+    async (patchedAround) => {
+      const delegate = Promise.resolve('value')
 
-    const { both, thrownToCaller } = await resolveUnderPatchedThen(
-      delegate,
-      'construction',
+      const { settled, thrownToCaller } = await resolveUnderPatchedThen(
+        delegate,
+        patchedAround,
+      )
+
+      expect(thrownToCaller).toBeUndefined()
+      expect(await settled).toEqual([rejected, rejected])
+    },
+  )
+
+  it('fulfils with a native promise while a Promise.prototype.then that throws is still patched when the job that calls the delegate’s then runs', async () => {
+    const { settled, thrownToCaller } = await resolveUnderPatchedThen(
+      Promise.resolve('value'),
+      'job',
     )
 
     expect(thrownToCaller).toBeUndefined()
-    await expect(both).rejects.toThrow(new RangeError('patched'))
+    expect(await settled).toEqual([fulfilled, fulfilled])
   })
 
   it('compares the then of a delegate with the Promise.prototype.then captured at load', async () => {

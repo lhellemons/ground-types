@@ -361,13 +361,22 @@ RejectionError(reason)` no longer read the public `ThrownError.describe`: in
   `AbortablePromise` was rejected with the error, or, for a `resolve` called
   after the executor returned, the error was thrown to its caller and the
   promise stayed pending; now it fulfils, as long as the patch is undone before
-  the job that calls the delegate's `then` runs. With the patch still in place
-  when that job runs, a plain thenable and a promise from another realm still
-  fulfil, and a subclass that overrides `then`, a thenable that wraps a native
-  promise and an `AbortablePromise` reject with the error. A native promise
-  under the patch is rejected with the error: in the executor, as before; for a
-  `resolve` called after the executor returned, where before the error was
-  thrown to its caller and the promise stayed pending.
+  the job that calls the delegate's `then` runs. With the patch put in place
+  before `resolve` and still in place when that job runs, a plain thenable and
+  a promise from another realm now fulfil, where v0.4.0 rejected them in the
+  executor or threw the error to the caller of a later `resolve`; a subclass
+  that overrides `then`, a thenable that wraps a native promise and an
+  `AbortablePromise` are rejected with the error: in the executor, as before;
+  in a later `resolve`, which now throws nothing to its caller, where v0.4.0
+  threw it and the promise stayed pending. With the patch put in place only
+  after `resolve` and still in place when that job runs, those five end as in
+  v0.4.0: the plain thenable and the promise from another realm fulfil, and the
+  other three reject. A native promise resolved while the patch is in place is
+  rejected with the error: in the executor, as before; for a `resolve` called
+  after the executor returned, where before the error was thrown to its caller
+  and the promise stayed pending. With the patch put in place only after
+  `resolve` and still in place when that job runs, a native promise fulfils, as
+  in v0.4.0.
 - A delegate's `then` is called at once when it is the `Promise.prototype.then`
   captured when the module loads, and from a job otherwise. Before, it was
   called at once when `Promise.resolve` returned the delegate as it was: a
