@@ -1515,7 +1515,10 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     }
   })
 
-  /** Delegates, with whether each fulfils while a patch that throws is still in place when the job that calls its `then` runs. */
+  /**
+   * Delegates, with whether each fulfils while a patch that throws is still in
+   * place when the job that calls its `then` runs.
+   */
   const delegatesUnderPatchedThen: [
     string,
     () => unknown,
@@ -1566,9 +1569,7 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
    * `'construction'` has the patch in place only while the promises are made,
    * so it is undone before the job that calls the delegate's `then` runs.
    * `'job'` puts it in place from a microtask queued ahead of that job, and
-   * undoes it a few turns later: the test runner calls `then` on a promise the
-   * test returns, so a patch that is in place when the test suspends fails the
-   * runner, not the promises.
+   * undoes it ten turns later.
    */
   async function resolveUnderPatchedThen(
     delegate: unknown,
@@ -1585,11 +1586,14 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     let later: AbortablePromise<string> | undefined
     let resolveLater!: (value: PromiseLike<string>) => void
     let thrownToCaller: unknown
+    let restored = false
     try {
       if (patchedAround === 'construction') {
         patch()
       } else {
-        queueMicrotask(patch)
+        queueMicrotask(() => {
+          if (!restored) patch()
+        })
       }
       inExecutor = new AbortablePromise<string>((resolve) =>
         resolve(delegate as PromiseLike<string>),
@@ -1608,6 +1612,7 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
         }
       }
     } finally {
+      restored = true
       Promise.prototype.then = original
     }
     return { both: Promise.all([inExecutor, later]), thrownToCaller }
@@ -2348,11 +2353,10 @@ describe('AbortablePromise.abortOn', () => {
 
 describe('AbortablePromise abort context', () => {
   /**
-   * Counts the AbortControllers built while `build` runs, and returns what it
-   * returned. `build` is synchronous, so the global is back before anything is
-   * awaited.
+   * Counts the AbortControllers built while `build` runs and for ten microtask
+   * turns after it, and returns what `build` returned.
    */
-  function countingControllers<T>(build: () => T) {
+  async function countingControllers<T>(build: () => T) {
     const Real = globalThis.AbortController
     let built = 0
     class Counting extends Real {
@@ -2365,6 +2369,9 @@ describe('AbortablePromise abort context', () => {
     let result: T
     try {
       result = build()
+      for (let turn = 0; turn < 10; turn++) {
+        await Promise.resolve()
+      }
     } finally {
       globalThis.AbortController = Real
     }
@@ -2372,7 +2379,7 @@ describe('AbortablePromise abort context', () => {
   }
 
   it('allocates no AbortController for a chain that never reads the signal', async () => {
-    const { built, result } = countingControllers(() =>
+    const { built, result } = await countingControllers(() =>
       AbortablePromise.resolve('x')
         .then((v) => `${v}y`)
         .then((v) => `${v}z`),
@@ -2386,7 +2393,7 @@ describe('AbortablePromise abort context', () => {
     let first: AbortSignal | undefined
     let second: AbortSignal | undefined
 
-    const { built, result } = countingControllers(
+    const { built, result } = await countingControllers(
       () =>
         new AbortablePromise<string>((resolve, _reject, context) => {
           first = context.signal
@@ -2414,7 +2421,7 @@ describe('AbortablePromise abort context', () => {
   })
 
   it('aborts correctly even though no controller was ever created', async () => {
-    const { built, result } = countingControllers(() => {
+    const { built, result } = await countingControllers(() => {
       const ap = new AbortablePromise<string>(() => {})
       ap.abort()
       return ap
@@ -2425,7 +2432,7 @@ describe('AbortablePromise abort context', () => {
   })
 
   it('propagates upstream without a controller on either promise', async () => {
-    const { built, result } = countingControllers(() => {
+    const { built, result } = await countingControllers(() => {
       const source = new AbortablePromise<string>(() => {})
       const derived = source.then((v) => v)
 

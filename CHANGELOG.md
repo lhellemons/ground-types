@@ -8,15 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Upgrading from 0.4.0: `success`, `failure` and `result` no longer need type
-arguments in early-return code, and several calls that compiled now do not;
-some calls also behave differently at run time. The entries marked **Breaking**
-below list each break in ordinary use. The entries not marked change an outcome
-only in an edge case they name: a Proxy whose traps throw or a revoked Proxy, a
-patched or replaced intrinsic or a `Symbol.hasInstance` hook, a `then` or
-`constructor` accessor that answers differently when it is read twice, an
-`abort()` that throws, a promise resolved with itself, a value forged with
-`Object.create(AbortablePromise.prototype)`, or the moment a Promise subclass
-instance is followed. TypeScript 5.4 or later is required.
+arguments in early-return code, and several calls that compiled now do not; some
+calls also behave differently at run time. The entries marked **Breaking** below
+list each break in ordinary use. The entries not marked change a run-time
+outcome only in an edge case the entry names, such as a Proxy whose traps throw
+or a revoked Proxy, a patched or replaced intrinsic, a `then` replaced or spied
+on a single promise, a prototype swapped after the fact or an `abort()` that
+throws, or they add fewer signal listeners than v0.4.0 did. TypeScript 5.4 or
+later is required.
 
 - `success(x)`, `failure(e)` and `result(x)` now infer at a site typed to a
   narrower `Result`: `(n: number): Result<number, Invalid> => success(n)`,
@@ -338,9 +337,9 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   when that job runs, a plain thenable and a promise from another realm still
   fulfil, and a subclass that overrides `then`, a thenable that wraps a native
   promise and an `AbortablePromise` reject with the error. A native promise
-  under the patch is rejected with the error, as before; a `resolve` called
-  after the executor returned no longer throws it to its caller and the promise
-  no longer stays pending.
+  under the patch is rejected with the error: in the executor, as before; for a
+  `resolve` called after the executor returned, where before the error was
+  thrown to its caller and the promise stayed pending.
 - A delegate's `then` is called at once when it is the `Promise.prototype.then`
   captured when the module loads, and from a job otherwise. Before, it was
   called at once when `Promise.resolve` returned the delegate as it was: a
