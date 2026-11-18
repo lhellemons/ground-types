@@ -1569,7 +1569,10 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     ['an AbortablePromise', () => AbortablePromise.resolve('value'), 'rejects'],
   ]
 
-  /** How a promise in `resolveUnderPatchedThen` settles, one way or the other. */
+  /**
+   * The settled states `resolveUnderPatchedThen` reports for a promise that
+   * fulfils and one that rejects.
+   */
   const fulfilled = { status: 'fulfilled', value: 'value' }
   const rejected = { status: 'rejected', reason: new RangeError('patched') }
 
@@ -1581,8 +1584,8 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
    * `'job'` puts it in place from a microtask queued ahead of that job, and
    * undoes it ten turns later. `'held'` puts it in place before the promises
    * are made, and keeps it through the same ten turns.
-   * Returns the outcome of each of the two promises, so that a test can pin
-   * each one rather than only that one of them settled that way.
+   * Returns how the two promises settled, as `settled`, and what the later
+   * `resolve` threw to its caller, as `thrownToCaller`.
    */
   async function resolveUnderPatchedThen(
     delegate: unknown,
@@ -1601,8 +1604,7 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     let thrownToCaller: unknown
     let restored = false
     // The test runner calls `then` on the promise a test returns, when the test
-    // first yields: let it, before a patch that throws is put in place for the
-    // rest of this test.
+    // first yields: let it, before a patch that throws is put in place.
     await Promise.resolve()
     try {
       if (patchedAround !== 'job') {
@@ -1703,6 +1705,16 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
       expect(await settled).toEqual([rejected, rejected])
     },
   )
+
+  it('fulfils with a native promise while a Promise.prototype.then that throws is still patched when the job that calls the delegate’s then runs', async () => {
+    const { settled, thrownToCaller } = await resolveUnderPatchedThen(
+      Promise.resolve('value'),
+      'job',
+    )
+
+    expect(thrownToCaller).toBeUndefined()
+    expect(await settled).toEqual([fulfilled, fulfilled])
+  })
 
   it('compares the then of a delegate with the Promise.prototype.then captured at load', async () => {
     // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below
