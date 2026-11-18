@@ -1287,20 +1287,53 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     const delegate = new AbortablePromise<string>(() => {})
     const outer = new AbortablePromise<string>((resolve) => resolve(delegate))
     Object.setPrototypeOf(delegate, Promise.prototype)
+    // Recorded through the native `then`, since a race against an already
+    // resolved promise settles with that one whatever the delegate has done.
+    const delegateSettled: string[] = []
+    void Promise.prototype.then.call(
+      delegate,
+      () => delegateSettled.push('fulfilled'),
+      () => delegateSettled.push('rejected'),
+    )
 
     expect(() => outer.abort()).not.toThrow()
 
     await expect(outer).rejects.toSatisfy(isAbortError)
-    await expect(
-      Promise.race([
-        Promise.prototype.then.call(
-          delegate,
-          () => 'fulfilled',
-          () => 'rejected',
-        ),
-        Promise.resolve('pending'),
-      ]),
-    ).resolves.toBe('pending')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(delegateSettled).toEqual([])
+  })
+
+  it('skips a delegate swapped to a prototype that does not inherit AbortablePromise.prototype, whether or not that prototype has an abort(), and aborts one swapped to a subclass prototype', async () => {
+    class Sub<T> extends AbortablePromise<T> {}
+    const protoAbort = vi.fn()
+    const withAbort = Object.assign(
+      Object.create(Promise.prototype) as object,
+      {
+        abort: protoAbort,
+      },
+    )
+    const settledOf = async (delegate: object) => {
+      const settled: string[] = []
+      void Promise.prototype.then.call(
+        delegate,
+        () => settled.push('fulfilled'),
+        () => settled.push('rejected'),
+      )
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      return settled
+    }
+    const swapAndAbort = async (prototype: object | null) => {
+      const delegate = new AbortablePromise<string>(() => {})
+      const outer = new AbortablePromise<string>((resolve) => resolve(delegate))
+      Object.setPrototypeOf(delegate, prototype)
+      expect(() => outer.abort()).not.toThrow()
+      await expect(outer).rejects.toSatisfy(isAbortError)
+      return settledOf(delegate)
+    }
+
+    expect(await swapAndAbort(withAbort)).toEqual([])
+    expect(protoAbort).not.toHaveBeenCalled()
+    expect(await swapAndAbort(Sub.prototype)).toEqual(['rejected'])
   })
 
   it('follows a delegate in the turns its then allows', async () => {
@@ -1339,6 +1372,61 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     expect(await turns(() => Overriding.resolve('value'))).toBe(4)
     expect(await turns(() => AbortablePromise.resolve('value'))).toBe(4)
     expect(await turns(spied)).toBe(4)
+  })
+
+  it('follows a delegate later than new Promise does exactly when its then is not the one captured at load', async () => {
+    class Sub<T> extends Promise<T> {}
+    class Overriding<T> extends Promise<T> {
+      override then<A = T, B = never>(
+        onFulfilled?: ((value: T) => A | PromiseLike<A>) | null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        onRejected?: ((reason: any) => B | PromiseLike<B>) | null,
+      ): Promise<A | B> {
+        return super.then(onFulfilled, onRejected)
+      }
+    }
+    const turnsBoth = async (make: () => unknown) => ({
+      abortable: await turnsToSettle(
+        () => new AbortablePromise((resolve) => resolve(make())),
+      ),
+      native: await turnsToSettle(
+        () => new Promise((resolve) => resolve(make())),
+      ),
+    })
+
+    // The captured `then` is called at once.
+    for (const make of [
+      () => Promise.resolve('value'),
+      () => Sub.resolve('value'),
+      () =>
+        Object.defineProperty(Promise.resolve('value'), 'constructor', {
+          value: Object,
+        }),
+    ]) {
+      const { abortable, native } = await turnsBoth(make)
+      expect(abortable).toBeLessThan(native)
+    }
+    // Any other `then` is called from a job.
+    for (const make of [
+      () => Overriding.resolve('value'),
+      () => AbortablePromise.resolve('value'),
+      () => ({
+        then(onFulfilled: (value: string) => void) {
+          onFulfilled('value')
+        },
+      }),
+      () => {
+        const promise = Promise.resolve('value')
+        return Object.assign(promise, {
+          then(...args: Parameters<Promise<string>['then']>) {
+            return Promise.prototype.then.apply(promise, args)
+          },
+        })
+      },
+    ]) {
+      const { abortable, native } = await turnsBoth(make)
+      expect(abortable).toBeGreaterThan(native)
+    }
   })
 
   it('follows a native promise from another realm as before, in four turns', async () => {
@@ -1388,6 +1476,40 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     }
 
     await expect(outer).resolves.toBe('value')
+  })
+
+  it('does not call a Promise.prototype.then patched after load while resolve runs, for a plain thenable, a native promise or a Promise subclass instance', async () => {
+    class Sub<T> extends Promise<T> {}
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below
+    const original = Promise.prototype.then
+    for (const make of [
+      () => ({
+        then(onFulfilled: (value: string) => void) {
+          onFulfilled('value')
+        },
+      }),
+      () => Promise.resolve('value'),
+      () => Sub.resolve('value'),
+    ]) {
+      let calls = 0
+      Promise.prototype.then = function (
+        this: Promise<unknown>,
+        ...args: Parameters<Promise<unknown>['then']>
+      ) {
+        calls++
+        return original.apply(this, args)
+      } as typeof original
+      let outer: AbortablePromise<string> | undefined
+      try {
+        outer = new AbortablePromise<string>((resolve) =>
+          resolve(make() as PromiseLike<string>),
+        )
+        expect(calls).toBe(0)
+      } finally {
+        Promise.prototype.then = original
+      }
+      await expect(outer).resolves.toBe('value')
+    }
   })
 
   it('compares the then of a delegate with the Promise.prototype.then captured at load', async () => {

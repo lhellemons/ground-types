@@ -315,19 +315,28 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   follow the delegate, as it does for `new Promise`.
 - A delegate is followed with the `Promise` captured when the module loads: a
   global `Promise` replaced afterwards is not used, where `Promise.resolve` was
-  called on the replacement when `resolve` ran.
+  called on the replacement when `resolve` ran. Likewise a
+  `Promise.prototype.then` patched afterwards is not called while `resolve`
+  runs, for a plain thenable, a native promise or an instance of a Promise
+  subclass; before, it was called on the promise `Promise.resolve` made of the
+  delegate, as `resolve` ran. With a patched `then` that throws, a promise
+  resolved with a plain thenable was rejected with the error, and now it
+  fulfils.
 - A delegate's `then` is called at once when it is the `Promise.prototype.then`
   captured when the module loads, and from a job otherwise. Before, it was
   called at once when `Promise.resolve` returned the delegate as it was: a
   native promise of this realm whose `constructor` is `Promise`. A delegate that
   passes only the new test (a native promise whose `constructor` was replaced,
-  an instance of a Promise subclass that does not override `then`) is followed
-  sooner, without the job that was queued for it, and the species constructor
-  of a subclass, user code, runs before `resolve` returns. One that passes only
+  other than one whose `constructor` getter throws, which rejects the promise,
+  as the `resolve` entry above says; an instance of a Promise subclass that
+  does not override `then`) is followed sooner, without the job that was
+  queued for it, and the species constructor of a subclass, user code, runs
+  before `resolve` returns. One that passes only
   the old test (such a native promise with its own `then` replaced or spied on,
   or any native promise once `Promise.prototype.then` has been patched after
   the module loaded) is followed later, through a job. Every other delegate is
-  followed as it was: a plain thenable, an `AbortablePromise`, a subclass that
+  followed as it was: a plain thenable (except while `Promise.prototype.then` is
+  patched, see the entry above), an `AbortablePromise`, a subclass that
   overrides `then`, a promise from another realm, a thenable that wraps a
   native promise.
 - A delegate is followed before the upstream link to it is registered. Before,
@@ -342,8 +351,10 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   nothing is still unhandled, as before. A delegate is checked again when the
   promise is aborted: one whose prototype was swapped after `resolve` to one
   that does not inherit `AbortablePromise.prototype` and has no `abort()` made
-  `abort()` throw a `TypeError`, and now is skipped, as is one whose new
-  prototype has an `abort()`, which was called.
+  `abort()` throw a `TypeError`, and now is skipped, as is one swapped to a
+  prototype that does not inherit `AbortablePromise.prototype` but has an
+  `abort()`, which was called. One swapped to the prototype of a subclass of
+  `AbortablePromise` is aborted, as before.
   `Object.create(AbortablePromise.prototype)`, as a delegate or as a member
   below, is skipped, where `abort()` threw a `TypeError`.
 - Aborting the promise returned by `all`, `race`, `any` or `allSettled` aborts

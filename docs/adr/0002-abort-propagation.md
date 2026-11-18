@@ -307,8 +307,10 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   nothing for each other. Each of those docblocks says so.
 - Wrapping asynchronous work by delegating to it keeps the abort, so the
   obvious way to write such a promise is also the correct one. The price
-  is a microtask: an adopted resolution reaches the underlying promise a
-  tick later than the platform's own adoption would.
+  is latency for a delegate whose `then` is not the `Promise.prototype.then`
+  captured when the module loads (an `AbortablePromise`, a plain thenable, a
+  subclass that overrides `then`, a native promise with its own `then`): it
+  is followed later than `new Promise` follows it.
 - Fan-in costs three promises per member rather than one. Recorded rather
   than optimised, because the alternative is reimplementing four
   combinators whose semantics are worth inheriting exactly.
