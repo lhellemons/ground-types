@@ -345,7 +345,8 @@ class PrivateReturn<T> extends Error {
     throw this
   }
 }
-// `detail` is `T` four levels down (`detail`, `a`, `b`, `c`), then five.
+// `T` sits four levels down (`detail`, `a`, `b`, `c`) in the first class and
+// five in the second.
 class PrivateFourDeep<T> extends Error {
   private constructor(
     readonly detail: { readonly a: { readonly b: { readonly c: T } } },
