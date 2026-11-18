@@ -11,16 +11,27 @@
 #
 # A tag with a hyphen before any `+` (v1.0.0-rc.1) is created and published as
 # a pre-release and is never Latest. A plain tag is Latest only when no higher
-# stable vX.Y.Z is published, among the newest 100 releases; build metadata
+# stable vX.Y.Z is published, among the newest 1000 releases; build metadata
 # (`+build.1`) is ignored when versions are compared.
 #
 # A step that fails while the release is absent or a draft leaves it a draft
 # (or not created), so a rerun completes it. The already-published path writes
-# nothing.
+# nothing. A draft must not be published by hand while this script runs: the
+# state is read again just before the upload, and a release found published
+# then takes the already-published path.
 # test/release/publish-release.test.ts drives this script with a stub `gh`.
 set -euo pipefail
 
 : "${RELEASE_TAG:?RELEASE_TAG must be set}"
+
+# vMAJOR.MINOR.PATCH, optionally -prerelease and +build identifiers.
+version_re='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+# The same without a pre-release part, as a listed stable release is read.
+stable_re='^v[0-9]+\.[0-9]+\.[0-9]+(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+if ! printf '%s\n' "$RELEASE_TAG" | grep -Eq "$version_re"; then
+  echo "::error::RELEASE_TAG '$RELEASE_TAG' is not a version tag (vMAJOR.MINOR.PATCH, optionally -prerelease and +build)"
+  exit 1
+fi
 
 shopt -s nullglob
 tarballs=(release-artifacts/*.tgz)
@@ -41,53 +52,63 @@ esac
 work=$(mktemp -d "${TMPDIR:-/tmp}/publish-release.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 
-# Distinguish "no such release" from a failed lookup, so an auth or network
-# error cannot be mistaken for a missing release.
-if is_draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>"$work/view.err"); then
-  :
-elif grep -q 'release not found' "$work/view.err"; then
-  is_draft=none
-else
-  cat "$work/view.err" >&2
-  echo "::error::Could not look up release $RELEASE_TAG"
-  exit 1
-fi
-
-# Anything else would fall through to replacing the asset.
-case "$is_draft" in
-  true | false | none) ;;
-  *)
-    echo "::error::Unexpected isDraft value '$is_draft' for release $RELEASE_TAG"
+# Sets is_draft to true, false or none (no such release). A failed lookup exits
+# 1 and is not read as none.
+lookup_is_draft() {
+  if is_draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>"$work/view.err"); then
+    :
+  elif grep -q 'release not found' "$work/view.err"; then
+    is_draft=none
+  else
+    cat "$work/view.err" >&2
+    echo "::error::Could not look up release $RELEASE_TAG"
     exit 1
-    ;;
-esac
+  fi
+  # Any other value exits 1.
+  case "$is_draft" in
+    true | false | none) ;;
+    *)
+      echo "::error::Unexpected isDraft value '$is_draft' for release $RELEASE_TAG"
+      exit 1
+      ;;
+  esac
+}
 
-if [ "$is_draft" = false ]; then
-  # Already public: consumers may be installing it, so never replace the asset.
+# Compares the built tarball with the asset of the published release, and always
+# exits. Nothing is written to the release.
+handle_published() {
   if ! gh release download "$RELEASE_TAG" --pattern "$asset" --dir "$work/published" 2>"$work/download.err"; then
     cat "$work/download.err" >&2
     echo "::error::Could not download $asset from the published release $RELEASE_TAG: it has no such asset, or the download failed. Refusing to modify a published release. If the asset is missing, convert the release back to a draft and rerun."
     exit 1
   fi
   published=$work/published/$asset
+  # Each side is decompressed to a file, and its gzip exit status is checked
+  # before any comparison. A side that does not decompress cleanly is reported
+  # on its own, not as a difference. Otherwise the tarballs match when
+  # byte-identical or when the decompressed contents are.
+  built_bad=false
+  published_bad=false
+  gzip -dc "$tarball" >"$work/built.tar" 2>"$work/built.err" || built_bad=true
+  gzip -dc "$published" >"$work/published.tar" 2>"$work/published.err" || published_bad=true
+  if [ "$built_bad" = true ] || [ "$published_bad" = true ]; then
+    cat "$work/built.err" "$work/published.err" >&2
+    if [ "$published_bad" = false ]; then
+      subjects="the built $asset"
+      next="Rebuild the tarball and rerun."
+    elif [ "$built_bad" = false ]; then
+      subjects="the published $asset"
+      next="Convert the release back to a draft and rerun."
+    else
+      subjects="the built $asset and the published $asset"
+      next="Rebuild the tarball, convert the release back to a draft and rerun."
+    fi
+    echo "::error::Release $RELEASE_TAG is already published, and gzip could not decompress $subjects (see the gzip output above), so the two cannot be compared. Refusing to modify a published release. $next"
+    exit 1
+  fi
   if cmp -s "$tarball" "$published"; then
     echo "Release $RELEASE_TAG is already published with an identical $asset. Nothing to do."
     exit 0
-  fi
-  # The same contents can compress to different bytes under another zlib. Each
-  # side is decompressed to a file so its exit status counts: gzip streams the
-  # payload before it reports a bad trailer, so a truncated or corrupt asset
-  # could otherwise compare equal. A side that does not decompress cleanly is
-  # reported on its own, since "differs" would send the maintainer to a new
-  # version when the remedy for a damaged published asset is a draft rerun.
-  damaged=
-  gzip -dc "$tarball" >"$work/built.tar" 2>"$work/built.err" || damaged="the built $asset"
-  gzip -dc "$published" >"$work/published.tar" 2>"$work/published.err" ||
-    damaged="${damaged:+$damaged and }the published $asset"
-  if [ -n "$damaged" ]; then
-    cat "$work/built.err" "$work/published.err" >&2
-    echo "::error::Release $RELEASE_TAG is already published, and $damaged does not decompress cleanly (see the gzip output above), so the two cannot be compared. Refusing to modify a published release. If the published asset is damaged, convert the release back to a draft and rerun."
-    exit 1
   fi
   if cmp -s "$work/built.tar" "$work/published.tar"; then
     echo "Release $RELEASE_TAG is already published with the same contents in $asset, compressed differently. Nothing to do."
@@ -95,6 +116,11 @@ if [ "$is_draft" = false ]; then
   fi
   echo "::error::Release $RELEASE_TAG is already published and its $asset differs from this build (published sha256 $(sha256sum "$published" | cut -d' ' -f1), built sha256 $(sha256sum "$tarball" | cut -d' ' -f1)). Refusing to replace a published asset; release a new version instead."
   exit 1
+}
+
+lookup_is_draft
+if [ "$is_draft" = false ]; then
+  handle_published
 fi
 
 if [ "$is_draft" = none ]; then
@@ -105,24 +131,47 @@ if [ "$is_draft" = none ]; then
   gh release create "$RELEASE_TAG" "${create_args[@]}"
 fi
 
+# The state is read again right before the upload; `--clobber` replaces the
+# asset.
+lookup_is_draft
+case "$is_draft" in
+  false) handle_published ;;
+  none)
+    echo "::error::Release $RELEASE_TAG no longer exists. Rerun to start over."
+    exit 1
+    ;;
+esac
+
 gh release upload "$RELEASE_TAG" "$tarball" --clobber
 
 # Only the newest stable version is Latest: never a pre-release or a back-port
 # tagged after a newer stable release. Publishing a draft marks it Latest unless
-# told otherwise. The list is fetched on its own line so a failure stops the
-# script instead of reading as "no other release".
+# told otherwise. Each step of the comparison is checked on its own: a failure
+# of the list, grep (status above 1), sed, sort or tail leaves the draft.
+compare_failed() {
+  echo "::error::Could not compare versions to decide Latest. The release stays a draft; rerun to complete it."
+  exit 1
+}
 latest=true
 if [ "$prerelease" = true ]; then
   latest=false
 else
-  tags=$(gh release list --exclude-drafts --exclude-pre-releases --limit 100 --json tagName --jq '.[].tagName') || {
+  tags=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1000 --json tagName --jq '.[].tagName') || {
     echo "::error::Could not list releases to decide Latest. The release stays a draft; rerun to complete it."
     exit 1
   }
-  highest=$(printf '%s\n' "$tags" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$' | sed 's/+.*//' | sort -V | tail -n 1 || true)
-  if [ -n "$highest" ] &&
-    [ "$(printf '%s\n%s\n' "$highest" "$core" | sort -V | tail -n 1)" != "$core" ]; then
-    latest=false
+  # grep exits 1 when nothing matches, and above 1 when it fails.
+  grep_status=0
+  stable=$(printf '%s\n' "$tags" | grep -E "$stable_re") || grep_status=$?
+  if [ "$grep_status" -gt 1 ]; then
+    compare_failed
+  fi
+  highest=$(printf '%s\n' "$stable" | sed 's/+.*//' | sort -V | tail -n 1) || compare_failed
+  if [ -n "$highest" ]; then
+    top=$(printf '%s\n%s\n' "$highest" "$core" | sort -V | tail -n 1) || compare_failed
+    if [ "$top" != "$core" ]; then
+      latest=false
+    fi
   fi
 fi
 

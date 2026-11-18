@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process'
 import {
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -22,19 +23,34 @@ const script = fileURLToPath(
 )
 
 /* Prints what `gh` would print after its own --jq filter, driven by env:
-   STUB_VIEW     none | error | draft | published | empty | null
+   STUB_VIEW     none | error | draft | published | empty | null; `none`
+                 reads as a draft once a `release create` has been logged
+   STUB_VIEW_LATER  what every `release view` after the first prints, in place
+                 of STUB_VIEW
    STUB_ASSET    file served by `release download`; unset fails the download
-   STUB_LIST     newline-separated tags printed by `release list`
+   STUB_LIST     newline-separated tags `release list` prints, cut to --limit
    STUB_LIST_FAIL  set to make `release list` fail
+   STUB_FAIL_WRITE  space-separated `release` subcommands (create, upload,
+                 edit) that fail
    Every call is appended to STUB_LOG, one line each, and the GH_TOKEN,
    GH_REPO and HOME it saw to STUB_LOG.env. */
 const stub = `#!/usr/bin/env bash
 echo "$*" >> "$STUB_LOG"
 echo "GH_TOKEN=\${GH_TOKEN-unset} GH_REPO=\${GH_REPO-unset} HOME=\${HOME-unset}" >> "$STUB_LOG.env"
 case "$1 $2" in
+  "release create" | "release upload" | "release edit")
+    case " \${STUB_FAIL_WRITE:-} " in
+      *" $2 "*) echo "HTTP 500: stub $2 failure" >&2; exit 1 ;;
+    esac ;;
   "release view")
-    case "$STUB_VIEW" in
-      none) echo "release not found" >&2; exit 1 ;;
+    views=$(( $(cat "$STUB_LOG.views" 2>/dev/null || echo 0) + 1 ))
+    echo "$views" > "$STUB_LOG.views"
+    view=$STUB_VIEW
+    [ "$views" -eq 1 ] || view=\${STUB_VIEW_LATER:-$STUB_VIEW}
+    case "$view" in
+      none)
+        if [[ "$(<"$STUB_LOG")" == *"release create"* ]]; then echo true
+        else echo "release not found" >&2; exit 1; fi ;;
       error) echo "HTTP 401: Bad credentials" >&2; exit 1 ;;
       draft) echo true ;;
       published) echo false ;;
@@ -50,7 +66,11 @@ case "$1 $2" in
     mkdir -p "$dir" && cp "$STUB_ASSET" "$dir/$pattern" ;;
   "release list")
     [ -z "\${STUB_LIST_FAIL:-}" ] || { echo "HTTP 502" >&2; exit 1; }
-    printf '%s' "\${STUB_LIST:-}" ;;
+    while [ $# -gt 0 ]; do
+      case "$1" in --limit) limit=$2 ;; esac
+      shift
+    done
+    printf '%s\n' "\${STUB_LIST:-}" | head -n "\${limit:-30}" | grep . ;;
 esac
 exit 0
 `
@@ -59,6 +79,24 @@ exit 0
 const failingGzip = `#!/usr/bin/env bash
 echo "gzip: stub failure" >&2
 exit 1
+`
+
+/* A shim for one of the coreutils the version comparison pipes through. Its
+   `call`th use exits `code` after reading its input and writing nothing; every
+   other use, and every `grep` without -E, runs the real tool. */
+const failingTool = (
+  tool: string,
+  code: number,
+  call: number,
+) => `#!/usr/bin/env bash
+real=$(PATH=\${PATH#*:} command -v ${tool})
+${tool === 'grep' ? '[[ " $* " == *" -E "* ]] || exec "$real" "$@"' : ''}
+count=$(( $(cat "$STUB_LOG.${tool}" 2>/dev/null || echo 0) + 1 ))
+echo "$count" > "$STUB_LOG.${tool}"
+[ "$count" -eq ${call} ] || exec "$real" "$@"
+cat > /dev/null
+echo "${tool}: stub failure" >&2
+exit ${code}
 `
 
 const dirs: string[] = []
@@ -80,6 +118,16 @@ interface Options {
   listFails?: boolean
   /** Put a `gzip` that always fails first on PATH. */
   gzipFails?: boolean
+  /** What every `gh release view` after the first reports, as STUB_VIEW does. */
+  viewLater?: string
+  /** `gh release` subcommands that fail. */
+  writeFails?: Array<'create' | 'upload' | 'edit'>
+  /** Make the `call`th use of a tool in the version comparison exit `code`. */
+  toolFails?: {
+    tool: 'grep' | 'sed' | 'sort' | 'tail'
+    code?: number
+    call?: number
+  }
 }
 
 const run = (options: Options) => {
@@ -94,6 +142,12 @@ const run = (options: Options) => {
   }
   if (options.gzipFails) {
     writeFileSync(join(dir, 'bin', 'gzip'), failingGzip, { mode: 0o755 })
+  }
+  if (options.toolFails) {
+    const { tool, code = 1, call = 1 } = options.toolFails
+    writeFileSync(join(dir, 'bin', tool), failingTool(tool, code, call), {
+      mode: 0o755,
+    })
   }
   // Only PATH is inherited, after the stub's bin, for bash and the coreutils.
   // The rest is set here: HOME is the temp directory, which keeps a real gh's
@@ -112,6 +166,10 @@ const run = (options: Options) => {
     STUB_LIST: (options.list ?? []).join('\n'),
     ...(options.published && { STUB_ASSET: join(dir, 'published') }),
     ...(options.listFails && { STUB_LIST_FAIL: '1' }),
+    ...(options.viewLater && { STUB_VIEW_LATER: options.viewLater }),
+    ...(options.writeFails && {
+      STUB_FAIL_WRITE: options.writeFails.join(' '),
+    }),
   }
   if (options.published) {
     writeFileSync(join(dir, 'published'), options.published)
@@ -139,16 +197,19 @@ const run = (options: Options) => {
   }
 }
 
+const VIEW_ARGS = 'release view v0.5.0 --json isDraft --jq .isDraft'
+
 const LIST_ARGS =
-  'release list --exclude-drafts --exclude-pre-releases --limit 100 --json tagName --jq .[].tagName'
+  'release list --exclude-drafts --exclude-pre-releases --limit 1000 --json tagName --jq .[].tagName'
 
 describe('a release that does not exist yet', () => {
   it('creates a draft, uploads, then publishes as Latest', () => {
     const result = run({ view: 'none', list: ['v0.4.0', 'v0.3.0'] })
     expect(result.status).toBe(0)
     expect(result.calls).toEqual([
-      'release view v0.5.0 --json isDraft --jq .isDraft',
+      VIEW_ARGS,
       'release create v0.5.0 --verify-tag --generate-notes --draft',
+      VIEW_ARGS,
       'release upload v0.5.0 release-artifacts/a.tgz --clobber',
       LIST_ARGS,
       'release edit v0.5.0 --draft=false --prerelease=false --latest=true',
@@ -220,6 +281,31 @@ describe('a release that does not exist yet', () => {
     )
   })
 
+  it('does not rank a listed tag above the same version by its build metadata', () => {
+    // sort -V puts v1.0.0+build.1 above v1.0.0 unless the metadata is stripped.
+    const result = run({
+      tag: 'v1.0.0',
+      view: 'none',
+      list: ['v1.0.0+build.1', 'v0.9.0'],
+    })
+    expect(result.writes.at(-1)).toBe(
+      'release edit v1.0.0 --draft=false --prerelease=false --latest=true',
+    )
+  })
+
+  it('finds a higher version beyond the first 100 releases', () => {
+    // Newest first: 119 lower releases, then the highest stable one.
+    const list = [
+      ...Array.from({ length: 119 }, (_, i) => `v0.1.${118 - i}`),
+      'v0.9.0',
+    ]
+    const result = run({ tag: 'v0.5.0', view: 'none', list })
+    expect(result.status).toBe(0)
+    expect(result.writes.at(-1)).toBe(
+      'release edit v0.5.0 --draft=false --prerelease=false --latest=false',
+    )
+  })
+
   it.each(['v9.0.0+/../x', 'v2.0.0+', 'v2.0.0+a+b', 'v2.0.0+a.'])(
     'ignores a listed tag with malformed build metadata (%s)',
     (listed) => {
@@ -261,6 +347,77 @@ describe('a release that does not exist yet', () => {
   })
 })
 
+describe('a version comparison that fails', () => {
+  // A listed tag, so the comparison runs; call 2 of sort and tail is the one
+  // that compares the highest listed version with the released one.
+  it.each([
+    ['grep fails', { tool: 'grep', code: 2 }],
+    ['sed fails', { tool: 'sed' }],
+    ['the first sort fails', { tool: 'sort' }],
+    ['the first tail fails', { tool: 'tail' }],
+    ['the second sort fails', { tool: 'sort', call: 2 }],
+    ['the second tail fails', { tool: 'tail', call: 2 }],
+  ] as const)('leaves a draft for a rerun when %s', (_name, toolFails) => {
+    const result = run({ view: 'none', list: ['v0.4.0'], toolFails })
+    expect(result.status).toBe(1)
+    expect(result.writes).toEqual([
+      'release create v0.5.0 --verify-tag --generate-notes --draft',
+      'release upload v0.5.0 release-artifacts/a.tgz --clobber',
+    ])
+    expect(result.output).toContain('stays a draft')
+    expect(result.output).toContain('rerun')
+  })
+
+  it('still reads grep finding no stable version as no higher version', () => {
+    const result = run({
+      view: 'none',
+      list: ['nightly'],
+      toolFails: { tool: 'grep', code: 1 },
+    })
+    expect(result.status).toBe(0)
+    expect(result.writes.at(-1)).toContain('--latest=true')
+  })
+})
+
+describe('a write that fails', () => {
+  it.each([
+    ['create', 'none', ['create']],
+    ['upload', 'none', ['create', 'upload']],
+    ['edit', 'none', ['create', 'upload', 'edit']],
+    ['upload', 'draft', ['upload']],
+    ['edit', 'draft', ['upload', 'edit']],
+  ] as const)(
+    'stops after a failed %s (release: %s)',
+    (failing, view, expected) => {
+      const result = run({ view, list: ['v0.4.0'], writeFails: [failing] })
+      expect(result.status).toBe(1)
+      expect(result.writes.map((call) => call.split(' ')[1])).toEqual(expected)
+      expect(result.output).toContain(`stub ${failing} failure`)
+    },
+  )
+
+  it('completes a pre-release draft left by a failed upload as a pre-release, never Latest', () => {
+    const tag = 'v0.6.0-rc.1'
+    const failed = run({
+      tag,
+      view: 'none',
+      list: ['v0.4.0'],
+      writeFails: ['upload'],
+    })
+    expect(failed.status).toBe(1)
+    expect(failed.writes).toEqual([
+      `release create ${tag} --verify-tag --generate-notes --draft --prerelease`,
+      `release upload ${tag} release-artifacts/a.tgz --clobber`,
+    ])
+    const rerun = run({ tag, view: 'draft', list: ['v0.4.0'] })
+    expect(rerun.status).toBe(0)
+    expect(rerun.writes).toEqual([
+      `release upload ${tag} release-artifacts/a.tgz --clobber`,
+      `release edit ${tag} --draft=false --prerelease=true --latest=false`,
+    ])
+  })
+})
+
 describe('a draft release', () => {
   it('replaces the asset and publishes without creating', () => {
     const result = run({ view: 'draft', list: ['v0.4.0'] })
@@ -269,6 +426,49 @@ describe('a draft release', () => {
       'release upload v0.5.0 release-artifacts/a.tgz --clobber',
       'release edit v0.5.0 --draft=false --prerelease=false --latest=true',
     ])
+  })
+})
+
+describe('a draft whose state changes before the upload', () => {
+  it('takes the published path when it was published by hand', () => {
+    const result = run({
+      view: 'draft',
+      viewLater: 'published',
+      published: gzipSync('built'),
+    })
+    expect(result.status).toBe(0)
+    expect(result.writes).toEqual([])
+    expect(
+      result.calls.filter((call) => call.startsWith('release view')),
+    ).toHaveLength(2)
+    expect(result.output).toContain('already published with an identical')
+  })
+
+  it('does not replace the asset of a release published by hand while building a new one', () => {
+    const result = run({
+      view: 'none',
+      viewLater: 'published',
+      published: gzipSync('other'),
+    })
+    expect(result.status).toBe(1)
+    expect(result.writes).toEqual([
+      'release create v0.5.0 --verify-tag --generate-notes --draft',
+    ])
+    expect(result.output).toContain('differs from this build')
+  })
+
+  it('fails when the second lookup fails', () => {
+    const result = run({ view: 'draft', viewLater: 'error' })
+    expect(result.status).toBe(1)
+    expect(result.writes).toEqual([])
+    expect(result.output).toContain('Could not look up release')
+  })
+
+  it('fails when the release is gone at the second lookup', () => {
+    const result = run({ view: 'draft', viewLater: 'none' })
+    expect(result.status).toBe(1)
+    expect(result.writes).toEqual([])
+    expect(result.output).toContain('no longer exists')
   })
 })
 
@@ -339,9 +539,14 @@ describe('an already published release', () => {
       })
       expect(result.status).toBe(1)
       expect(result.writes).toEqual([])
-      expect(result.output).toContain('does not decompress cleanly')
-      expect(result.output).toContain('convert the release back to a draft')
-      expect(result.output).toContain('the published a.tgz')
+      expect(result.output).toContain(
+        'gzip could not decompress the published a.tgz (see',
+      )
+      expect(result.output).toContain(
+        'Convert the release back to a draft and rerun.',
+      )
+      expect(result.output).not.toContain('the built a.tgz')
+      expect(result.output).not.toContain('Rebuild')
       // gzip's own reason is kept.
       expect(result.output).toMatch(/gzip: /)
       expect(result.output).not.toContain('differs from this build')
@@ -355,8 +560,12 @@ describe('an already published release', () => {
       })
       expect(result.status).toBe(1)
       expect(result.writes).toEqual([])
-      expect(result.output).toContain('the built a.tgz does not decompress')
+      expect(result.output).toContain(
+        'gzip could not decompress the built a.tgz (see',
+      )
+      expect(result.output).toContain('Rebuild the tarball and rerun')
       expect(result.output).not.toContain('the published a.tgz')
+      expect(result.output).not.toContain('onvert the release')
     })
   })
 
@@ -369,8 +578,28 @@ describe('an already published release', () => {
     })
     expect(result.status).toBe(1)
     expect(result.writes).toEqual([])
-    expect(result.output).toContain('does not decompress cleanly')
+    expect(result.output).toContain(
+      'gzip could not decompress the built a.tgz and the published a.tgz (see',
+    )
     expect(result.output).toContain('gzip: stub failure')
+    expect(result.output).toContain(
+      'Rebuild the tarball, convert the release back to a draft and rerun.',
+    )
+  })
+
+  it('fails without changes when the built and published tarballs are the same damaged bytes', () => {
+    const damaged = gzipSync('built').subarray(0, 12)
+    const result = run({
+      view: 'published',
+      tarballs: { 'a.tgz': damaged },
+      published: damaged,
+    })
+    expect(result.status).toBe(1)
+    expect(result.writes).toEqual([])
+    expect(result.output).toContain(
+      'gzip could not decompress the built a.tgz and the published a.tgz (see',
+    )
+    expect(result.output).not.toContain('identical')
   })
 
   it('fails without changes when the asset is missing or cannot be downloaded', () => {
@@ -419,10 +648,49 @@ describe("the script's environment", () => {
     const result = run({ view: 'none' })
     expect(result.status).toBe(0)
     expect(result.calls.join('\n')).not.toContain('BYPASS')
-    expect(result.calls).toHaveLength(5)
+    expect(result.calls).toHaveLength(6)
     expect(new Set(result.envSeen)).toEqual(
       new Set([`GH_TOKEN=unset GH_REPO=invalid/invalid HOME=${result.dir}`]),
     )
+  })
+})
+
+describe('the work directory', () => {
+  it('is created under TMPDIR', () => {
+    const result = run({ view: 'published', published: gzipSync('built') })
+    expect(result.status).toBe(0)
+    const download = result.calls.find((call) =>
+      call.startsWith('release download'),
+    )
+    expect(download).toContain(`--dir ${result.dir}/publish-release.`)
+  })
+
+  it('is removed when the script ends', () => {
+    const result = run({ view: 'published', published: gzipSync('built') })
+    expect(
+      readdirSync(result.dir).filter((name) =>
+        name.startsWith('publish-release.'),
+      ),
+    ).toEqual([])
+  })
+})
+
+describe('the release tag', () => {
+  it.each([
+    'v1.0',
+    '1.0.0',
+    'v1.0.0+',
+    'v1.0.0-',
+    'v1.0.0-rc..1',
+    'v1.0.0+a+b',
+    'v1.0.0+a.',
+    'v1.0.0 x',
+    'v1.0.0-rc.1+/../x',
+  ])('is refused before any gh call when it is %j', (tag) => {
+    const result = run({ tag })
+    expect(result.status).toBe(1)
+    expect(result.calls).toEqual([])
+    expect(result.output).toContain('RELEASE_TAG')
   })
 })
 
