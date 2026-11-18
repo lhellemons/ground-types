@@ -40,13 +40,16 @@ later is required.
   (`{ id?: string }`, `{ name?: number }`) reject it. A `void`-typed
   expression also compiles where `T` admits `void`, since the `void` arm
   below: `(f: () => void): Result<void, Invalid> => f()`.
-- **Breaking:** `Success<undefined>`, `Success<null>` and `Success<void>` no
-  longer reduce to `never`; each is the bare `undefined`, `null` or `void`,
-  with no error phantom, and a nullish member of `T` is a Success arm of its
-  own. So `success(undefined)` and `success(null)` are no longer assignable to
-  every `Result`: `(): Result<User, Invalid> => success(undefined)` is now an
-  error, while `Result<User | undefined, Invalid>`, `Result<void, Invalid>`
-  and `Result<undefined, Invalid>` accept it. Narrowing a
+- **Breaking:** `Success<undefined>` and `Success<null>` no longer reduce to
+  `never`, and `Success<void>`, which did not reduce to `never`, is no longer
+  `void` with an error phantom: each is the bare `undefined`, `null` or
+  `void`, with no error phantom, and a nullish member of `T` is a Success arm
+  of its own. A bare `undefined` or a `void`-typed value is now assignable to
+  `Success<void>`; neither was. So `success(undefined)` and `success(null)` are
+  no longer assignable to every `Result`:
+  `(): Result<User, Invalid> => success(undefined)` is now an error, while
+  `Result<User | undefined, Invalid>`, `Result<void, Invalid>` and
+  `Result<undefined, Invalid>` accept it. Narrowing a
   `Result<number | undefined, E>` with `!isFailure` or `isSuccess` keeps the
   `undefined` (it narrowed to `number` before, so the branch handling
   `undefined` was typed unreachable), and `Result<undefined, E>` is
