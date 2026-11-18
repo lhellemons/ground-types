@@ -250,6 +250,20 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   Success. TypeScript rejects the bound `Error`, `Map` and class and `Proxy`,
   and accepts `Number.bind(null)` and the bound ES5-style constructor. A foreign
   `class ... extends Error` is refused.
+- A method named `class` with a block or line comment before its parameters
+  (`{ class/*c*/(e) { return e } }.class`) is accepted as a `tryCatch` handler,
+  as it was in v0.4.0, and is no longer refused as a class; a class whose
+  comment holds a `(` (`class /*(*/ Named {}`) is still refused.
+- `catchOnly` rethrows the original value when an entry's `Symbol.hasInstance`
+  hook matches it but leaves it no longer an `Error` (a hook that calls
+  `Object.setPrototypeOf(value, null)` and returns `true`). In v0.4.0 the
+  handler returned that value as a Failure that `isFailure` then reported as
+  `false`. `catchOnly` also no longer reads `Array.prototype.some` while it
+  matches, and `new ThrownError(value)` no longer reads the public
+  `ThrownError.describe`: in v0.4.0 a thrown Proxy whose `getPrototypeOf` trap
+  replaced `Array.prototype.some` made the handler throw that function's
+  exception instead of rethrowing the original, and a replaced
+  `ThrownError.describe` made the default `tryCatch` handler throw.
 - When a value's prototype chain cannot be read (a Proxy whose
   `getPrototypeOf` trap throws, a revoked Proxy), `catchOnly` rethrows the
   original value and the default `tryCatch` handler wraps it in a
