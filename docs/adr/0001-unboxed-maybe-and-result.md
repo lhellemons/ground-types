@@ -1024,11 +1024,11 @@ repository changed to make this pass, and `src/result/api-surface.test-d.ts`
 gained the assertions for the two aliases, for the `_error` marker and for the
 index signature.
 
-**An object spread, and an object rest, stay open.** The spread copies the
-marker properties into a fresh object type, and that type is written out with
-its symbol keys. The three spread cases and the two rest cases above still
-fail with TS4023 or TS4058. They are pinned as failing, each with its
-explicit-type workaround pinned as emitting, in the tests of
+**An object spread, and an object rest, stay open.** A spread or a rest
+copies the marker properties into a fresh object type, and that type is
+written out with its symbol keys. The three spread cases and the two rest
+cases above still fail with TS4023 or TS4058. They are pinned as failing,
+each with its explicit-type workaround pinned as emitting, in the tests of
 `test/declaration-emit/result.test.ts` named "still fails with TS4023 or
 TS4058, naming a marker symbol" and "emits with an explicit type on the
 exported value", so that a later fix flips the first. The README gives the
