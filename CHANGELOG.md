@@ -9,8 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Upgrading from 0.4.0: `success`, `failure` and `result` no longer need type
 arguments in early-return code, and several calls that compiled now do not;
-some calls also behave differently at run time. The **Breaking** entries below
-list each; TypeScript 5.4 or later is required.
+some calls also behave differently at run time. The entries marked **Breaking**
+below list each break; some entries not marked also change outcomes, for
+example the one on the `resolve` an executor receives. TypeScript 5.4 or later
+is required.
 
 - `success(x)`, `failure(e)` and `result(x)` now infer at a site typed to a
   narrower `Result`: `(n: number): Result<number, Invalid> => success(n)`,
@@ -361,20 +363,22 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   every `AbortablePromise` member whose `then` is a function on the one read
   `AbortablePromise` makes as it takes the member. A throw from one member's
   `abort()` no longer stops the loop: `abort()` is called on every member, then
-  the first error is thrown. The same holds for the links of one promise (a promise
+  the first error is thrown, except when the combined promise was aborted while
+  it was being made (a subclass constructor that aborts `this`): that error is
+  dropped, where `Sub.all()` threw it. The links of one promise (a promise
   derived by `then` whose handler returns an `AbortablePromise` has a link to
-  its source and one to that delegate): `abort()` fires each link, then throws
-  the first error. Before, the throw (a subclass's override, an `abort`
-  assigned to the instance, a derived member whose upstream `abort()` throws)
-  ended the loop and left the members after it running, and so did the trap of
-  a Proxy whose `getPrototypeOf` throws, or a revoked Proxy, which are now
-  skipped without `abort()` throwing. A member whose `then` was replaced by a
-  non-function was taken by the combinator as a plain value, and one with a
-  `then` getter that throws was taken as a member rejected with the getter's
-  error: neither had a handler, and aborting it rejected it unhandled, which
-  ends a Node process. They are no longer aborted. A member with a `then`
-  function that subscribes nothing is still aborted, and unhandled, as before.
-  A member whose prototype is swapped after the combinator was made is skipped
+  its source and one to that delegate) are fired the same way: `abort()` fires
+  each link, then throws the first error. Before, the throw (a subclass's
+  override, an `abort` assigned to the instance, a derived member whose upstream
+  `abort()` throws) ended the loop and left the members after it running, and so
+  did the trap of a Proxy whose `getPrototypeOf` throws, or a revoked Proxy,
+  which are now skipped without `abort()` throwing. A member whose `then` was
+  replaced by a non-function was taken by the combinator as a plain value, and
+  one with a `then` getter that throws was taken as a member rejected with the
+  getter's error: neither had a handler, and aborting it rejected it unhandled,
+  which ends a Node process. They are no longer aborted. A member with a `then`
+  function that subscribes nothing is still aborted, and unhandled, as before. A
+  member whose prototype is swapped after the combinator was made is skipped
   when it is aborted, as it was before. A promise's signal listeners are
   released even when a link throws; before, they stayed on the signal until it
   aborted. A throw reached through a signal that aborts later (`abortOn`, a
@@ -469,10 +473,7 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   a subclass's static `resolve` receives the thenable, where it received the
   member. A member whose `then` is not a function on that read is handed over
   as it is: a getter that returns a function on `Promise`'s own read of it is
-  subscribed to and not aborted, where it was aborted. When the combined
-  promise was aborted while it was being made (a subclass constructor that
-  aborts `this`), a throw from a member's `abort()` is dropped, where
-  `Sub.all()` threw it.
+  subscribed to and not aborted, where it was aborted.
 - Aborting an `AbortablePromise` made with a controller whose `abort()` throws
   (an `AbortController` subclass) rejects it with the `AbortError`, aborts its
   delegate and releases its signal listeners, then throws the controller's
@@ -484,6 +485,8 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   abort again: a promise made with one rejected with the error its `abort()`
   threw, and one aborted by another holder threw it inside the signal's
   listener, an uncaught exception.
+- `abortOn(signal)` on a promise that has already fulfilled or rejected adds no
+  listener to `signal`; before, it added one.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`

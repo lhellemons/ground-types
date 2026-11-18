@@ -1748,19 +1748,19 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
   it('an executor resolving with an AbortablePromise whose prototype has been swapped aborts only itself', async () => {
     const swapped = new AbortablePromise<string>(() => {})
     Object.setPrototypeOf(swapped, Promise.prototype)
-    const swappedOutcome = Promise.prototype.then.call(
+    const swappedSettled: string[] = []
+    void Promise.prototype.then.call(
       swapped,
-      () => 'fulfilled',
-      () => 'rejected',
+      () => swappedSettled.push('fulfilled'),
+      () => swappedSettled.push('rejected'),
     )
 
     const outer = new AbortablePromise<string>((resolve) => resolve(swapped))
 
     expect(() => outer.abort()).not.toThrow()
     await expect(outer).rejects.toSatisfy(isAbortError)
-    await expect(
-      Promise.race([swappedOutcome, Promise.resolve('pending')]),
-    ).resolves.toBe('pending')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(swappedSettled).toEqual([])
   })
 
   it('of() wraps an AbortablePromise whose prototype is a Proxy that throws, and fulfils as Promise.resolve does', async () => {
@@ -2036,6 +2036,27 @@ describe('AbortablePromise.abortOn', () => {
 
     await expect(ap).rejects.toSatisfy(isAbortError)
   })
+
+  it.each([
+    ['fulfilled', () => AbortablePromise.resolve('value')],
+    ['rejected', () => AbortablePromise.reject(new Error('refused'))],
+  ])(
+    'adds no listener to the signal of a promise that has %s',
+    async (_, make) => {
+      const ap = make()
+      await ap.then(
+        () => {},
+        () => {},
+      )
+      const controller = new AbortController()
+      const addEventListener = vi.spyOn(controller.signal, 'addEventListener')
+
+      expect(ap.abortOn(controller.signal)).toBe(ap)
+      controller.abort()
+
+      expect(addEventListener).not.toHaveBeenCalled()
+    },
+  )
 
   it('returns the same promise, so it can be bound inline', () => {
     const controller = new AbortController()
@@ -2437,6 +2458,41 @@ describe('AbortablePromise resolve functions, as a native promise has them', () 
     },
   )
 
+  it.each([
+    ['a delegate', (work: AbortablePromise<string>) => work],
+    ['a plain value', () => 'plain'],
+  ])(
+    'hands over only the first of two resolves called after the abort, when it is %s',
+    async (_, first) => {
+      let resolveLate!: (value: string | PromiseLike<string>) => void
+      const outer = new AbortablePromise<string>((resolve) => {
+        resolveLate = resolve
+      })
+      const work = new AbortablePromise<string>(() => {})
+      const other = new AbortablePromise<string>(() => {})
+      const settledOf = (promise: object) => {
+        const settled: string[] = []
+        void Promise.prototype.then.call(
+          promise,
+          () => settled.push('fulfilled'),
+          () => settled.push('rejected'),
+        )
+        return settled
+      }
+      const workSettled = settledOf(work)
+      const otherSettled = settledOf(other)
+      void outer.catch(() => {})
+
+      outer.abort()
+      resolveLate(first(work))
+      resolveLate(other)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(workSettled).toEqual(first(work) === work ? ['rejected'] : [])
+      expect(otherSettled).toEqual([])
+    },
+  )
+
   it('stays abortable, and aborts its delegate, after a later resolve was ignored', async () => {
     const work = new AbortablePromise<string>(() => {})
     const ap = new AbortablePromise<string>((resolve) => {
@@ -2721,6 +2777,16 @@ describe('AbortablePromise combinators, as the native ones are called', () => {
   const nativeThen = Promise.prototype.then
 
   describe.each(names)('%s', (name) => {
+    it('throws a TypeError for a receiver that is not an AbortablePromise', () => {
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- called with `call`
+      const combinator = AbortablePromise[name] as unknown as (
+        this: unknown,
+        values: unknown,
+      ) => unknown
+
+      expect(() => combinator.call(Promise, [1])).toThrow(TypeError)
+    })
+
     it.each([null, undefined, 5, {}])(
       'returns a rejected AbortablePromise, as Promise does, for the non-iterable %j',
       async (values) => {
@@ -3108,14 +3174,89 @@ describe('AbortablePromise fan-in aborted while its values are iterated', () => 
     await expect(member).rejects.toSatisfy(isAbortError)
   })
 
-  it('throws the brand-check error for a receiver that is not an AbortablePromise', () => {
-    // eslint-disable-next-line @typescript-eslint/unbound-method -- called with `call`
-    const all = AbortablePromise.all as unknown as (
-      this: unknown,
-      values: unknown,
-    ) => unknown
+  it('aborts every member of a combined promise aborted while its values were iterated, including those taken after the abort', async () => {
+    let combined: AbortablePromise<unknown> | undefined
+    class Exposing<T> extends AbortablePromise<T> {
+      constructor(
+        executor: ConstructorParameters<typeof AbortablePromise<T>>[0],
+        controller?: AbortController,
+      ) {
+        super(executor, controller)
+        // eslint-disable-next-line @typescript-eslint/no-this-alias -- exposed to the test
+        combined = this
+      }
+    }
+    const before = new AbortablePromise<string>(() => {})
+    const after = new AbortablePromise<string>(() => {})
+    const afterThat = new AbortablePromise<string>(() => {})
+    function* values() {
+      yield before
+      combined?.abort()
+      yield after
+      yield afterThat
+    }
 
-    expect(() => all.call(Promise, [1])).toThrow(TypeError)
+    const result = Exposing.all(values())
+
+    await expect(result).rejects.toSatisfy(isAbortError)
+    await expect(before).rejects.toSatisfy(isAbortError)
+    await expect(after).rejects.toSatisfy(isAbortError)
+    await expect(afterThat).rejects.toSatisfy(isAbortError)
+  })
+
+  it('aborts every member of a combined promise aborted by a subclass constructor', async () => {
+    let made = 0
+    class Aborting<T> extends AbortablePromise<T> {
+      constructor(
+        executor: ConstructorParameters<typeof AbortablePromise<T>>[0],
+        controller?: AbortController,
+      ) {
+        super(executor, controller)
+        // Only the combined promise, which the combinator constructs first.
+        if (made++ === 0) {
+          this.abort()
+        }
+      }
+    }
+    const members = [
+      new AbortablePromise<string>(() => {}),
+      new AbortablePromise<string>(() => {}),
+    ]
+
+    const result = Aborting.all(members)
+
+    await expect(result).rejects.toSatisfy(isAbortError)
+    for (const member of members) {
+      await expect(member).rejects.toSatisfy(isAbortError)
+    }
+  })
+
+  it('returns a combined promise aborted by a subclass constructor, without throwing, when a member’s abort() throws', async () => {
+    let made = 0
+    class Aborting<T> extends AbortablePromise<T> {
+      constructor(
+        executor: ConstructorParameters<typeof AbortablePromise<T>>[0],
+        controller?: AbortController,
+      ) {
+        super(executor, controller)
+        // Only the combined promise, which the combinator constructs first.
+        if (made++ === 0) {
+          this.abort()
+        }
+      }
+    }
+    const member = new AbortablePromise<string>(() => {})
+    member.abort = () => {
+      throw new RangeError('refused')
+    }
+    void member.catch(() => {})
+
+    let result: Promise<unknown> | undefined
+    expect(() => {
+      result = Aborting.all([member])
+    }).not.toThrow()
+
+    await expect(result).rejects.toSatisfy(isAbortError)
   })
 
   it('returns the combined promise, aborted, when a member’s abort() throws for the link that fires at once', async () => {
@@ -3163,5 +3304,41 @@ describe('AbortablePromise with an Object.prototype that has a promise property'
     } finally {
       delete (Object.prototype as { promise?: unknown }).promise
     }
+  })
+
+  it('does not call an inherited setter for it', async () => {
+    const setter = vi.fn()
+    Object.defineProperty(Object.prototype, 'promise', {
+      set: setter,
+      configurable: true,
+    })
+    let outcome: boolean | undefined
+    try {
+      outcome = await new AbortablePromise<boolean>((resolve) => resolve(true))
+    } finally {
+      delete (Object.prototype as { promise?: unknown }).promise
+    }
+
+    expect(outcome).toBe(true)
+    expect(setter).not.toHaveBeenCalled()
+  })
+})
+
+describe('AbortablePromise with an Object.create replaced after the module loaded', () => {
+  it('is made without calling it', async () => {
+    const original = Object.create
+    const replacement = vi.fn(() => {
+      throw new RangeError('replaced')
+    })
+    let outcome: boolean | undefined
+    Object.create = replacement
+    try {
+      outcome = await new AbortablePromise<boolean>((resolve) => resolve(true))
+    } finally {
+      Object.create = original
+    }
+
+    expect(outcome).toBe(true)
+    expect(replacement).not.toHaveBeenCalled()
   })
 })
