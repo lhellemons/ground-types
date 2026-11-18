@@ -447,6 +447,13 @@ describe('inference', () => {
     // @ts-expect-error a BestEffort-valued T would carry its list out as a Success
     toResult(toList, nested)
   })
+  it('the curried note on an any box is a BestEffort<unknown, unknown>', () => {
+    const anyValue: any = JSON.parse('1')
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- the case under test: an any box
+    expectTypeOf(note(['n'])(anyValue)).toEqualTypeOf<
+      BestEffort<unknown, unknown>
+    >()
+  })
   it("note unions its D with the value's, applied and curried", () => {
     expectTypeOf(note([diag], bestEffort(1))).toEqualTypeOf<
       BestEffort<number, Diagnostic>
@@ -529,7 +536,7 @@ describe('inference', () => {
       BestEffort<readonly number[], Diagnostic>
     >()
   })
-  it('gather does not union D across parts: parts of different D need gather<T, D>(…), and a readonly array of parts is accepted', () => {
+  it('gather does not union D across parts: parts of different D need gather<T, D>(…), parts of different T need it too, and a readonly array of parts is accepted', () => {
     // @ts-expect-error the parts of one gather share one D
     gather([bestEffort(1, ['a']), bestEffort(2, [3])])
     expectTypeOf(
@@ -538,6 +545,11 @@ describe('inference', () => {
         bestEffort(2, [3]),
       ]),
     ).toEqualTypeOf<BestEffort<readonly number[], string | number>>()
+    // @ts-expect-error the parts of one gather share one T
+    gather([bestEffort(1), bestEffort('a')])
+    expectTypeOf(
+      gather<number | string, never>([bestEffort(1), bestEffort('a')]),
+    ).toEqualTypeOf<BestEffort<readonly (number | string)[], never>>()
     const parts: readonly BestEffort<number, string>[] = [bestEffort(1, ['a'])]
     expectTypeOf(gather(parts)).toEqualTypeOf<
       BestEffort<readonly number[], string>

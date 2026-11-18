@@ -283,7 +283,7 @@ describe('the kit', () => {
       Object.isFrozen(recoverWith({ id: 'fb' }, () => 'd')(bad).value),
     ).toBe(false)
   })
-  it('map, gather and note on a box without diagnostics throw a TypeError', () => {
+  it('map, gather, note, andThen and toResult on a box without diagnostics throw a TypeError', () => {
     const malformed = JSON.parse('{"value":1}') as BestEffort<number, string>
     expect(caught(() => map((x: number) => x, malformed))).toBeInstanceOf(
       TypeError,
@@ -294,6 +294,20 @@ describe('the kit', () => {
     expect(caught(() => gather([malformed]))).toBeInstanceOf(TypeError)
     expect(caught(() => note(['n'], malformed))).toBeInstanceOf(TypeError)
     expect(caught(() => note(['n'])(malformed))).toBeInstanceOf(TypeError)
+    expect(
+      caught(() => andThen((x: number) => bestEffort(x), malformed)),
+    ).toBeInstanceOf(TypeError)
+    expect(
+      caught(() => andThen((x: number) => bestEffort(x))(malformed)),
+    ).toBeInstanceOf(TypeError)
+    expect(
+      caught(() => andThen(() => malformed, bestEffort(1))),
+    ).toBeInstanceOf(TypeError)
+    expect(
+      caught(() => andThen(() => malformed)(bestEffort(1))),
+    ).toBeInstanceOf(TypeError)
+    expect(caught(() => toResult(toList, malformed))).toBeInstanceOf(TypeError)
+    expect(caught(() => toResult(toList)(malformed))).toBeInstanceOf(TypeError)
   })
   it('gather flattens the diagnostics one level only, does not freeze the caller parts array, and takes the same part twice as two values and its diagnostics twice', () => {
     expect(gather([bestEffort(1, [['a', 'b']])]).diagnostics).toEqual([
