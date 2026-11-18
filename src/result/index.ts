@@ -1,5 +1,6 @@
 import type { Maybe } from '../maybe/index.js'
 import { curry } from '../fn/index.js'
+import { describeThrown } from '../internal/describe-thrown.js'
 import { isError, isErrorPrototype } from '../internal/is-error.js'
 import type { CurryableMapper, Mapper } from '../fn/index.js'
 /* The phantom-handle symbols and their readers live in ./internal.ts — a
@@ -200,24 +201,6 @@ export class ThrownError<T = unknown> extends Error {
    */
   static describe(value: unknown): string {
     return describeThrown(value)
-  }
-}
-
-/* The renderer behind `ThrownError.describe`, which the constructor calls
-   directly so that a replaced `ThrownError.describe` is not consulted. */
-function describeThrown(value: unknown): string {
-  // `String` first: it is special-cased for symbols, where template
-  // interpolation throws. `Object.prototype.toString` is the fallback; it
-  // still reads `Symbol.toStringTag`, so a hostile Proxy can throw there
-  // too, and the constant is the last resort.
-  try {
-    return String(value)
-  } catch {
-    try {
-      return Object.prototype.toString.call(value)
-    } catch {
-      return '[object Unknown]'
-    }
   }
 }
 
@@ -459,10 +442,8 @@ function isClassLike(candidate: Function): boolean {
 }
 
 /* Whether the source text starts with `class`, not followed by a parameter
-   list: a method named `class` has a `(` next, after any whitespace and
-   comments. The lookahead captures the whitespace and comments at once and
-   `\1` consumes it, so the regular expression cannot backtrack into a comment
-   and mistake a `(` inside it for a parameter list. */
+   list: a method named `class` has a `(` next, after any whitespace and block
+   or line comments. */
 function isClassSource(source: string): boolean {
   return (
     regExpExec(

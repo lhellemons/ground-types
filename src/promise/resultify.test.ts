@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { fail, recoverWith, resultify } from './resultify.js'
 import { AbortablePromise } from './abortable.js'
 import { isAbortError } from '../abort/index.js'
-import { failure, isFailure, map, orElse, success } from '../result/index.js'
+import {
+  failure,
+  isFailure,
+  map,
+  orElse,
+  success,
+  ThrownError,
+} from '../result/index.js'
 import { RejectionError } from './types.js'
 
 describe('resultify', () => {
@@ -39,6 +46,23 @@ describe('resultify', () => {
     await expect(resultify(fail, Promise.reject(noPrototype))).resolves.toEqual(
       failure(new RejectionError(noPrototype)),
     )
+  })
+
+  it('resolves to a Failure when ThrownError.describe is replaced by a function that throws', async () => {
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below, never called detached
+    const original = ThrownError.describe
+    let outcome: unknown
+    try {
+      ThrownError.describe = () => {
+        throw new RangeError('describe replaced')
+      }
+      outcome = await resultify(fail, Promise.reject('x'))
+    } finally {
+      ThrownError.describe = original
+    }
+
+    expect(outcome).toBeInstanceOf(RejectionError)
+    expect((outcome as RejectionError).message).toBe('promise rejected with x')
   })
 
   it('wraps a rejection reason whose Error guard throws, not the guard error', async () => {

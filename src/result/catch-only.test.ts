@@ -642,6 +642,14 @@ describe('tryCatch handler dispatch', () => {
       'return { class//c\n(e) { return e } }.class',
     )() as (e: unknown) => A
     // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const separators = new Function(
+      'return { class//c\u2028(e) { return e } }.class',
+    )() as (e: unknown) => A
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const carriageReturn = new Function(
+      'return { class//c\r\n(e) { return e } }.class',
+    )() as (e: unknown) => A
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
     const mixed = new Function(
       'return { class /* a */ // b\n /* c */ (e) { return e } }.class',
     )() as (e: unknown) => A
@@ -662,6 +670,8 @@ describe('tryCatch handler dispatch', () => {
       spaced,
       blockCommented,
       lineCommented,
+      separators,
+      carriageReturn,
       mixed,
     ]
     for (const handler of handlers) {
