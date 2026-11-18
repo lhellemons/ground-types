@@ -42,6 +42,9 @@ async function unhandledDuring(body: () => void): Promise<unknown[]> {
   return seen
 }
 
+/** The abort listeners on `signal`. */
+const listeners = (signal: AbortSignal) => getEventListeners(signal, 'abort')
+
 describe('AbortablePromise', () => {
   it('is a Promise', async () => {
     const apThatResolves = new AbortablePromise((resolve) => {
@@ -1512,14 +1515,24 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
     }
   })
 
-  it.each([
+  /**
+   * Delegates, with whether each fulfils while a patch that throws is still in
+   * place when the job that calls its `then` runs.
+   */
+  const delegatesUnderPatchedThen: [
+    string,
+    () => unknown,
+    'fulfils' | 'rejects',
+  ][] = [
     [
       'a plain thenable',
       () => ({ then: (fulfil: (value: string) => void) => fulfil('value') }),
+      'fulfils',
     ],
     [
       'a promise from another realm',
       () => vm.runInNewContext('Promise.resolve("value")'),
+      'fulfils',
     ],
     [
       'a subclass that overrides then',
@@ -1535,6 +1548,7 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
         }
         return Overriding.resolve('value')
       },
+      'rejects',
     ],
     [
       'a thenable that wraps a native promise',
@@ -1544,41 +1558,111 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
           reject: (reason: unknown) => void,
         ) => void Promise.resolve('value').then(fulfil, reject),
       }),
+      'rejects',
     ],
-  ])(
-    'fulfils with %s while a Promise.prototype.then that throws is patched, in the executor and in a later resolve',
-    async (_, make) => {
-      // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below
-      const original = Promise.prototype.then
-      const delegate = make() as PromiseLike<string>
-      let inExecutor: AbortablePromise<string> | undefined
-      let later: AbortablePromise<string> | undefined
-      let resolveLater!: (value: PromiseLike<string>) => void
-      let thrownToCaller: unknown
+    ['an AbortablePromise', () => AbortablePromise.resolve('value'), 'rejects'],
+  ]
+
+  /**
+   * Resolves one promise inside its executor and one with a later `resolve`,
+   * both with `delegate`, with `Promise.prototype.then` patched to throw.
+   * `'construction'` has the patch in place only while the promises are made,
+   * so it is undone before the job that calls the delegate's `then` runs.
+   * `'job'` puts it in place from a microtask queued ahead of that job, and
+   * undoes it ten turns later.
+   */
+  async function resolveUnderPatchedThen(
+    delegate: unknown,
+    patchedAround: 'construction' | 'job',
+  ) {
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below
+    const original = Promise.prototype.then
+    const patch = () => {
       Promise.prototype.then = function (): never {
         throw new RangeError('patched')
       }
-      try {
-        inExecutor = new AbortablePromise<string>((resolve) =>
-          resolve(delegate),
-        )
-        later = new AbortablePromise<string>((resolve) => {
-          resolveLater = resolve
+    }
+    let inExecutor: AbortablePromise<string> | undefined
+    let later: AbortablePromise<string> | undefined
+    let resolveLater!: (value: PromiseLike<string>) => void
+    let thrownToCaller: unknown
+    let restored = false
+    try {
+      if (patchedAround === 'construction') {
+        patch()
+      } else {
+        queueMicrotask(() => {
+          if (!restored) patch()
         })
-        try {
-          resolveLater(delegate)
-        } catch (error) {
-          thrownToCaller = error
-        }
-      } finally {
-        Promise.prototype.then = original
       }
+      inExecutor = new AbortablePromise<string>((resolve) =>
+        resolve(delegate as PromiseLike<string>),
+      )
+      later = new AbortablePromise<string>((resolve) => {
+        resolveLater = resolve
+      })
+      try {
+        resolveLater(delegate as PromiseLike<string>)
+      } catch (error) {
+        thrownToCaller = error
+      }
+      if (patchedAround === 'job') {
+        for (let turn = 0; turn < 10; turn++) {
+          await Promise.resolve()
+        }
+      }
+    } finally {
+      restored = true
+      Promise.prototype.then = original
+    }
+    return { both: Promise.all([inExecutor, later]), thrownToCaller }
+  }
+
+  it.each(delegatesUnderPatchedThen)(
+    'fulfils with %s while a Promise.prototype.then that throws is patched and undone before the job that calls the delegate’s then, in the executor and in a later resolve',
+    async (_, make) => {
+      const { both, thrownToCaller } = await resolveUnderPatchedThen(
+        make(),
+        'construction',
+      )
 
       expect(thrownToCaller).toBeUndefined()
-      expect(await inExecutor).toBe('value')
-      expect(await later).toBe('value')
+      expect(await both).toEqual(['value', 'value'])
     },
   )
+
+  it.each(
+    delegatesUnderPatchedThen.map(
+      ([name, make, outcome]) => [outcome, name, make] as const,
+    ),
+  )(
+    '%s with %s while a Promise.prototype.then that throws is still patched when the job that calls the delegate’s then runs',
+    async (outcome, _, make) => {
+      const { both, thrownToCaller } = await resolveUnderPatchedThen(
+        make(),
+        'job',
+      )
+
+      expect(thrownToCaller).toBeUndefined()
+      if (outcome === 'fulfils') {
+        expect(await both).toEqual(['value', 'value'])
+      } else {
+        await expect(both).rejects.toThrow(new RangeError('patched'))
+      }
+    },
+  )
+
+  it('rejects with a native promise while a Promise.prototype.then that throws is patched, and a later resolve throws nothing to its caller', async () => {
+    const delegate = Promise.resolve('value')
+
+    const { both, thrownToCaller } = await resolveUnderPatchedThen(
+      delegate,
+      'construction',
+    )
+
+    expect(thrownToCaller).toBeUndefined()
+    await expect(both).rejects.toThrow(new RangeError('patched'))
+  })
 
   it('compares the then of a delegate with the Promise.prototype.then captured at load', async () => {
     // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below
@@ -1590,17 +1674,16 @@ describe('AbortablePromise with a value whose prototype chain throws', () => {
       return original.apply(this, args)
     }
     const delegate = Promise.resolve('value')
+    let outer: AbortablePromise<string> | undefined
     Promise.prototype.then = patched as typeof original
     try {
-      // Its `then` is no longer the captured one, so it is called from a job.
-      expect(
-        await turnsToSettle(
-          () => new AbortablePromise((resolve) => resolve(delegate)),
-        ),
-      ).toBe(4)
+      outer = new AbortablePromise<string>((resolve) => resolve(delegate))
     } finally {
       Promise.prototype.then = original
     }
+
+    // Its `then` is no longer the captured one, so it is called from a job.
+    expect(await turnsToSettle(() => outer)).toBe(4)
   })
 
   it('an executor resolving with a forgery with no private field is abortable, and abort() does not throw', async () => {
@@ -2086,6 +2169,48 @@ describe('AbortablePromise fan-in typing', () => {
   })
 })
 
+describe('AbortablePromise signal listeners on a promise that has settled', () => {
+  it('reading context.signal adds no listener to it', async () => {
+    let context: AbortContext | undefined
+    await new AbortablePromise<string>((resolve, _reject, executorContext) => {
+      context = executorContext
+      resolve('value')
+    })
+
+    expect(listeners(context!.signal)).toHaveLength(0)
+  })
+
+  it('peer() adds one listener to the shared signal while the peer is pending, and none once it settles', async () => {
+    const ap = AbortablePromise.resolve('value')
+    await ap
+    let signal: AbortSignal | undefined
+    let resolvePeer!: (value: string) => void
+    const peer = ap.peer<string>((resolve, _reject, context) => {
+      signal = context.signal
+      resolvePeer = resolve
+    })
+
+    expect(listeners(signal!)).toHaveLength(1)
+
+    resolvePeer('peer')
+    await peer
+
+    expect(listeners(signal!)).toHaveLength(0)
+  })
+
+  it('peer() adds no listener to the shared signal when the peer settles in its executor', async () => {
+    const ap = AbortablePromise.resolve('value')
+    await ap
+    let signal: AbortSignal | undefined
+    await ap.peer((resolve, _reject, context) => {
+      signal = context.signal
+      resolve('peer')
+    })
+
+    expect(listeners(signal!)).toHaveLength(0)
+  })
+})
+
 describe('AbortablePromise.abortOn', () => {
   it('aborts when the signal it is bound to aborts', async () => {
     const controller = new AbortController()
@@ -2106,8 +2231,6 @@ describe('AbortablePromise.abortOn', () => {
   })
 
   describe('on a promise that has settled', () => {
-    const adds = (signal: AbortSignal) => getEventListeners(signal, 'abort')
-
     it.each([
       ['fulfilled', () => AbortablePromise.resolve('value')],
       ['rejected', () => AbortablePromise.reject(new Error('refused'))],
@@ -2124,33 +2247,9 @@ describe('AbortablePromise.abortOn', () => {
 
         expect(ap.abortOn(controller.signal)).toBe(ap)
 
-        expect(adds(controller.signal)).toHaveLength(0)
+        expect(listeners(controller.signal)).toHaveLength(0)
       },
     )
-
-    it('reading context.signal adds no listener to it', async () => {
-      let context: AbortContext | undefined
-      await new AbortablePromise<string>(
-        (resolve, _reject, executorContext) => {
-          context = executorContext
-          resolve('value')
-        },
-      )
-
-      expect(adds(context!.signal)).toHaveLength(0)
-    })
-
-    it('peer() adds no listener to the shared signal', async () => {
-      const ap = AbortablePromise.resolve('value')
-      await ap
-      let signal: AbortSignal | undefined
-      await ap.peer((resolve, _reject, context) => {
-        signal = context.signal
-        resolve('peer')
-      })
-
-      expect(adds(signal!)).toHaveLength(0)
-    })
   })
 
   it('returns the same promise, so it can be bound inline', () => {
@@ -2253,8 +2352,11 @@ describe('AbortablePromise.abortOn', () => {
 })
 
 describe('AbortablePromise abort context', () => {
-  /** Counts AbortControllers built while `body` runs. */
-  async function countingControllers(body: () => Promise<void>) {
+  /**
+   * Counts the AbortControllers built while `build` runs and for ten microtask
+   * turns after it, and returns what `build` returned.
+   */
+  async function countingControllers<T>(build: () => T) {
     const Real = globalThis.AbortController
     let built = 0
     class Counting extends Real {
@@ -2264,21 +2366,26 @@ describe('AbortablePromise abort context', () => {
       }
     }
     globalThis.AbortController = Counting
+    let result: T
     try {
-      await body()
+      result = build()
+      for (let turn = 0; turn < 10; turn++) {
+        await Promise.resolve()
+      }
     } finally {
       globalThis.AbortController = Real
     }
-    return built
+    return { built, result }
   }
 
   it('allocates no AbortController for a chain that never reads the signal', async () => {
-    const built = await countingControllers(async () => {
-      await AbortablePromise.resolve('x')
+    const { built, result } = await countingControllers(() =>
+      AbortablePromise.resolve('x')
         .then((v) => `${v}y`)
-        .then((v) => `${v}z`)
-    })
+        .then((v) => `${v}z`),
+    )
 
+    await result
     expect(built).toBe(0)
   })
 
@@ -2286,15 +2393,16 @@ describe('AbortablePromise abort context', () => {
     let first: AbortSignal | undefined
     let second: AbortSignal | undefined
 
-    const built = await countingControllers(async () => {
-      const ap = new AbortablePromise<string>((resolve, _reject, context) => {
-        first = context.signal
-        second = context.signal
-        resolve('done')
-      })
-      await ap
-    })
+    const { built, result } = await countingControllers(
+      () =>
+        new AbortablePromise<string>((resolve, _reject, context) => {
+          first = context.signal
+          second = context.signal
+          resolve('done')
+        }),
+    )
 
+    await result
     expect(built).toBe(1)
     expect(first).toBeInstanceOf(AbortSignal)
     expect(first).toBe(second)
@@ -2313,26 +2421,28 @@ describe('AbortablePromise abort context', () => {
   })
 
   it('aborts correctly even though no controller was ever created', async () => {
-    const built = await countingControllers(async () => {
+    const { built, result } = await countingControllers(() => {
       const ap = new AbortablePromise<string>(() => {})
       ap.abort()
-      await expect(ap).rejects.toSatisfy(isAbortError)
+      return ap
     })
 
+    await expect(result).rejects.toSatisfy(isAbortError)
     expect(built).toBe(0)
   })
 
   it('propagates upstream without a controller on either promise', async () => {
-    const built = await countingControllers(async () => {
+    const { built, result } = await countingControllers(() => {
       const source = new AbortablePromise<string>(() => {})
       const derived = source.then((v) => v)
 
       derived.abort()
 
-      await expect(derived).rejects.toSatisfy(isAbortError)
-      await expect(source).rejects.toSatisfy(isAbortError)
+      return { source, derived }
     })
 
+    await expect(result.derived).rejects.toSatisfy(isAbortError)
+    await expect(result.source).rejects.toSatisfy(isAbortError)
     expect(built).toBe(0)
   })
 })
@@ -3370,13 +3480,14 @@ describe('AbortablePromise with an Object.prototype that has a promise property'
       configurable: true,
       writable: true,
     })
+    let ap: AbortablePromise<boolean> | undefined
     try {
-      await expect(
-        new AbortablePromise<boolean>((resolve) => resolve(true)),
-      ).resolves.toBe(true)
+      ap = new AbortablePromise<boolean>((resolve) => resolve(true))
     } finally {
       delete (Object.prototype as { promise?: unknown }).promise
     }
+
+    await expect(ap).resolves.toBe(true)
   })
 
   it('does not call an inherited setter for it', async () => {

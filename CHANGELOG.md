@@ -8,9 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Upgrading from 0.4.0: `success`, `failure` and `result` no longer need type
-arguments in early-return code, and several calls that compiled now do not;
-some calls also behave differently at run time. The entries marked **Breaking**
-below list each break. TypeScript 5.4 or later is required.
+arguments in early-return code, and several calls that compiled now do not; some
+calls also behave differently at run time. The entries marked **Breaking** below
+list each break in ordinary use. The entries not marked change a run-time
+outcome only in an edge case the entry names, such as a Proxy whose traps throw
+or a revoked Proxy, a patched or replaced intrinsic, a `then` replaced or spied
+on a single promise, a prototype swapped after the fact or an `abort()` that
+throws, or they add fewer signal listeners than v0.4.0 did. TypeScript 5.4 or
+later is required.
 
 - `success(x)`, `failure(e)` and `result(x)` now infer at a site typed to a
   narrower `Result`: `(n: number): Result<number, Invalid> => success(n)`,
@@ -304,13 +309,14 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   throws, a promise whose `constructor` getter throws, a native promise whose
   own `then` throws. It rejects the promise with the error, as a native resolve
   function does. Before, the error was thrown to the caller of `resolve`: into
-  the executor when `resolve` was called inside it, so that `new AbortablePromise(r => { try
-{ r(revoked) } catch { r('fallback') } })` fulfilled with `'fallback'`, and to
-  whoever called `resolve` later, in which case the promise stayed pending
-  forever. A thenable Proxy whose `getPrototypeOf` trap throws is now adopted;
-  before, the trap's error was thrown to the caller of `resolve` in the same two
-  ways. An `AbortablePromise` whose prototype is such a Proxy is adopted too,
-  and is not aborted with the outer promise; before, `resolve` threw.
+  the executor when `resolve` was called inside it, so that
+  `new AbortablePromise(r => { try { r(revoked) } catch { r('fallback') } })`
+  fulfilled with `'fallback'`, and to whoever called `resolve` later, in which
+  case the promise stayed pending forever. A thenable Proxy whose
+  `getPrototypeOf` trap throws is now adopted; before, the trap's error was
+  thrown to the caller of `resolve` in the same two ways. An `AbortablePromise`
+  whose prototype is such a Proxy is adopted too, and is not aborted with the
+  outer promise; before, `resolve` threw.
 - The `then` of a delegate, and the `constructor` of a promise delegate, are
   each read once, as `new Promise` reads them; before they were read twice. A
   `then` getter that throws only on its second read now makes the promise
@@ -323,9 +329,17 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   subclass; before, it was called on the promise `Promise.resolve` made of the
   delegate, as `resolve` ran. With a patched `then` that throws, a promise
   resolved with a plain thenable, a promise from another realm, a subclass that
-  overrides `then` or a thenable that wraps a native promise was rejected with
-  the error, or, for a `resolve` called after the executor returned, the error
-  was thrown to its caller and the promise stayed pending; now it fulfils.
+  overrides `then`, a thenable that wraps a native promise or an
+  `AbortablePromise` was rejected with the error, or, for a `resolve` called
+  after the executor returned, the error was thrown to its caller and the
+  promise stayed pending; now it fulfils, as long as the patch is undone before
+  the job that calls the delegate's `then` runs. With the patch still in place
+  when that job runs, a plain thenable and a promise from another realm still
+  fulfil, and a subclass that overrides `then`, a thenable that wraps a native
+  promise and an `AbortablePromise` reject with the error. A native promise
+  under the patch is rejected with the error: in the executor, as before; for a
+  `resolve` called after the executor returned, where before the error was
+  thrown to its caller and the promise stayed pending.
 - A delegate's `then` is called at once when it is the `Promise.prototype.then`
   captured when the module loads, and from a job otherwise. Before, it was
   called at once when `Promise.resolve` returned the delegate as it was: a
@@ -365,29 +379,32 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   `AbortablePromise` makes as it takes the member. A throw from one member's
   `abort()` no longer stops the loop: `abort()` is called on every member, then
   the first error is thrown, except when the combined promise was aborted while
-  it was being made (a subclass constructor that aborts `this`, or exposes it
-  to an iterator that aborts it): that error is dropped, where `Sub.all()`
-  threw it. The links of one promise (a promise derived by `then` whose handler
-  returns an `AbortablePromise` has a link to its source and one to that
-  delegate) are fired the same way: `abort()` fires each link, then throws the
-  first error. Before, the throw (a subclass's
-  override, an `abort` assigned to the instance, a derived member whose upstream
-  `abort()` throws) ended the loop and left the members after it running, and so
-  did the trap of a Proxy whose `getPrototypeOf` throws, or a revoked Proxy,
-  which are now skipped without `abort()` throwing. A member whose `then` was
-  replaced by a non-function was taken by the combinator as a plain value, and
-  one with a `then` getter that throws was taken as a member rejected with the
-  getter's error: neither had a handler, and aborting it rejected it unhandled,
-  which ends a Node process. They are no longer aborted. A member with a `then`
-  function that subscribes nothing is still aborted, and unhandled, as before. A
-  member whose prototype is swapped after the combinator was made is skipped
-  when it is aborted, as it was before. A promise's signal listeners are
-  released even when a link throws; before, they stayed on the signal until it
-  aborted. A throw reached through a signal that aborts later (`abortOn`, a
-  controller passed to the constructor, `peer`) is thrown inside the signal's
-  event listener and so reported as an uncaught exception, as before; `abortOn`
-  with a signal that has already aborted throws it to the caller of `abortOn`,
-  as before.
+  it was being made. For a subclass constructor that aborts `this`, that error
+  is dropped, where `Sub.all()` threw it. An iterator that aborts the combined
+  promise, which a subclass constructor can expose to it, is new with the lazy
+  iteration below, and its error is dropped too: v0.4.0 took every item of
+  `values` before it made the combined promise, so an iterator could not abort
+  it, and `Sub.all()` threw nothing in that case. The links of one promise (a
+  promise derived by `then` whose handler returns an `AbortablePromise` has a
+  link to its source and one to that delegate) are fired the same way:
+  `abort()` fires each link, then throws the first error. Before, the throw (a
+  subclass's override, an `abort` assigned to the instance, a derived member
+  whose upstream `abort()` throws) ended the loop and left the members after it
+  running, and so did the trap of a Proxy whose `getPrototypeOf` throws, or a
+  revoked Proxy, which are now skipped without `abort()` throwing. A member
+  whose `then` was replaced by a non-function was taken by the combinator as a
+  plain value, and one with a `then` getter that throws was taken as a member
+  rejected with the getter's error: neither had a handler, and aborting it
+  rejected it unhandled, which ends a Node process. They are no longer aborted.
+  A member with a `then` function that subscribes nothing is still aborted, and
+  unhandled, as before. A member whose prototype is swapped after the
+  combinator was made is skipped when it is aborted, as it was before. A
+  promise's signal listeners are released even when a link throws; before, they
+  stayed on the signal until it aborted. A throw reached through a signal that
+  aborts later (`abortOn`, a controller passed to the constructor, `peer`) is
+  thrown inside the signal's event listener and so reported as an uncaught
+  exception, as before; `abortOn` with a signal that has already aborted throws
+  it to the caller of `abortOn`, as before.
 - "Is an `AbortablePromise`", asked by `of`, the four combinators and an
   executor that resolves with a thenable, now asks whether the value carries the
   private field that only this class's constructor sets, and whether
@@ -488,8 +505,10 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   threw, and one aborted by another holder threw it inside the signal's
   listener, an uncaught exception.
 - `abortOn(signal)` on a promise that has already fulfilled or rejected adds no
-  listener to `signal`, and neither does reading `context.signal` or calling
-  `peer()` on such a promise; before, each added one.
+  listener to `signal`, and neither does reading `context.signal` on such a
+  promise; before, each added one. `peer()` on such a promise adds none for the
+  settled promise: the peer adds its own listener to the shared signal until it
+  settles, where v0.4.0 added two, one of which stayed after the peer settled.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`
