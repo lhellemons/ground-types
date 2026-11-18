@@ -905,7 +905,9 @@ fallback)` turns a Failure into the fallback value with the error
   dropped Link through as a Success), and writes the module's own ADR and
   its CONTEXT.md entries from what it finds; this amendment records the
   rulings, not the shape. Whether the
-  module gets a fifth Box is #89's question.
+  module gets a fifth Box is #89's question. (**Update, 2026-11-17:** the
+  shape, including the value-last `recover(fallback, result)` and
+  `recoverWith`, is recorded in ADR-0006 (#117).)
 - **Accumulation waits for a ticket of its own**, after #115 has shipped
   `collect` and after the best-effort prototype has measured the kit, so
   that `collectAll`, the open question of whether nested `Failures`

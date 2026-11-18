@@ -95,6 +95,33 @@ out its own Take.
 
 _Avoid_: unwrap, await, yield, assertSuccess.
 
+### Best Effort
+
+A value usable as it stands together with the **diagnostics** gathered
+while it was built: `BestEffort<T, D>`, a value and an ordered list.
+Boxed, like State. A Best Effort is not a Result type: it becomes a
+Result only through `toResult`, which is a Failure when the list holds
+anything and the value otherwise. To **recover** is to enter from a
+Result, taking a Failure as a fallback value with the error recorded as
+a diagnostic, or, with `recoverWith`, with what its `diagnose` makes of
+the error; to **note** is to append diagnostics
+without touching the value; to **gather** is to fan a list of Best
+Efforts in, every value kept and every diagnostic in part order. An
+optional part that may also carry a diagnostic is a Best Effort of a
+Maybe.
+
+_Avoid_: Writer, partial, lenient, Validated, Warning (for the type).
+
+### Diagnostic
+
+What a Best Effort records about how its value was built: any value a
+consumer chooses, an `Error` included, carried in the order it was
+gathered. A diagnostic is not a Failure: it does not stop the value.
+`toResult` has no predicate: any diagnostic makes it a Failure. Which
+diagnostics block is the consumer's decision, made on the list itself.
+
+_Avoid_: warning (as a type name), issue, problem, log.
+
 ### Mapper
 
 A function of exactly one argument: the unary special case of Function,

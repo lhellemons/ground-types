@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.json",
+  "include": ["../../src/**/*.ts", "./**/*.ts"],
+  "exclude": ["../../src/**/*.test.ts", "../../src/**/*.test-d.ts"],
+  "compilerOptions": {
+    "rootDir": "../..",
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["vitest/importMeta"]
+  }
+}
