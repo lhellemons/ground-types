@@ -439,6 +439,55 @@ describe('catchOnly entries with custom behaviour', () => {
     revocable.revoke()
     expectThrow(() => viaProxy(error), error)
   })
+  it('rethrows the original when a matching hook turns the error into a non-Error', () => {
+    class Hooked extends Error {
+      static [Symbol.hasInstance](value: object): boolean {
+        Object.setPrototypeOf(value, null)
+        return true
+      }
+    }
+    const error = new Error('hooked')
+    expectThrow(() => catchOnly(Hooked)(error), error)
+    expect(isFailure(error)).toBe(false)
+
+    const other = new Error('second')
+    expectThrow(() => tryCatch(() => throws(other), catchOnly(Hooked))(), other)
+
+    // A hook that leaves the error an Error still yields a Failure.
+    class Passive extends Error {
+      static [Symbol.hasInstance](): boolean {
+        return true
+      }
+    }
+    const kept = new Error('kept')
+    expect(catchOnly(Passive)(kept)).toBe(kept)
+  })
+  it('does not read Array.prototype.some while matching', () => {
+    const original = Array.prototype.some
+    const target = new Error('proxied')
+    const replaced = new Proxy(target, {
+      getPrototypeOf(t) {
+        Array.prototype.some = function () {
+          throw new RangeError('some replaced')
+        }
+        return Reflect.getPrototypeOf(t)
+      },
+    })
+    let matched: unknown
+    let rethrown: unknown
+    try {
+      matched = catchOnly(Error)(replaced)
+      try {
+        catchOnly(A, Other)(replaced)
+      } catch (error) {
+        rethrown = error
+      }
+    } finally {
+      Array.prototype.some = original
+    }
+    expect(matched).toBe(replaced)
+    expect(rethrown).toBe(replaced)
+  })
   it('checks an entry once: a prototype reassigned later is matched as it then stands', () => {
     function Legacy() {}
     Legacy.prototype = Object.create(Error.prototype) as object
@@ -583,6 +632,27 @@ describe('tryCatch handler dispatch', () => {
     const spaced = new Function(
       'return { class (e) { return e } }.class',
     )() as (e: unknown) => A
+    // The same method with a block or a line comment before its parameters.
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const blockCommented = new Function(
+      'return { class/*c*/(e) { return e } }.class',
+    )() as (e: unknown) => A
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const lineCommented = new Function(
+      'return { class//c\n(e) { return e } }.class',
+    )() as (e: unknown) => A
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const separators = new Function(
+      'return { class//c\u2028(e) { return e } }.class',
+    )() as (e: unknown) => A
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const carriageReturn = new Function(
+      'return { class//c\r\n(e) { return e } }.class',
+    )() as (e: unknown) => A
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const mixed = new Function(
+      'return { class /* a */ // b\n /* c */ (e) { return e } }.class',
+    )() as (e: unknown) => A
     const handlers = [
       (e: unknown) => e as A,
       function (e: unknown) {
@@ -598,9 +668,33 @@ describe('tryCatch handler dispatch', () => {
       methods.class$,
       methods.classé,
       spaced,
+      blockCommented,
+      lineCommented,
+      separators,
+      carriageReturn,
+      mixed,
     ]
     for (const handler of handlers) {
       expect(tryCatch(() => throws(error), handler)()).toBe(error)
+    }
+  })
+  it('still refuses a class with a comment before its name, heritage or body', () => {
+    const boom = () => throws('bad')
+    // A `(` inside a comment is not a parameter list. Built with `Function`
+    // so the comments survive the test transform.
+    const sources = [
+      'class /*(*/ Named {}',
+      'class /* ( */ extends Error {}',
+      'class // (\n extends Error {}',
+      'class /* a */ // (\n /* ( */ {}',
+      'class/*c*/{}',
+    ]
+    const classes = sources.map(
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+      (source) => new Function(`return (${source})`)() as unknown,
+    )
+    for (const cls of classes) {
+      expect(() => tryCatch(boom, cls as never)).toThrow(TypeError)
     }
   })
   /* `Array.isArray` throws for a revoked proxy before the handler check runs;

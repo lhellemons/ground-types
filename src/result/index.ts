@@ -1,5 +1,6 @@
 import type { Maybe } from '../maybe/index.js'
 import { curry } from '../fn/index.js'
+import { describeThrown } from '../internal/describe-thrown.js'
 import { isError, isErrorPrototype } from '../internal/is-error.js'
 import type { CurryableMapper, Mapper } from '../fn/index.js'
 /* The phantom-handle symbols and their readers live in ./internal.ts — a
@@ -189,7 +190,7 @@ export class ThrownError<T = unknown> extends Error {
   readonly thrown: T
 
   constructor(thrown: T, message?: string) {
-    super(message ?? `threw ${ThrownError.describe(thrown)}`)
+    super(message ?? `threw ${describeThrown(thrown)}`)
     this.thrown = thrown
   }
 
@@ -199,19 +200,7 @@ export class ThrownError<T = unknown> extends Error {
    * or one whose `toString` throws, and this never throws for any of them.
    */
   static describe(value: unknown): string {
-    // `String` first: it is special-cased for symbols, where template
-    // interpolation throws. `Object.prototype.toString` is the fallback; it
-    // still reads `Symbol.toStringTag`, so a hostile Proxy can throw there
-    // too, and the constant is the last resort.
-    try {
-      return String(value)
-    } catch {
-      try {
-        return Object.prototype.toString.call(value)
-      } catch {
-        return '[object Unknown]'
-      }
-    }
+    return describeThrown(value)
   }
 }
 
@@ -452,9 +441,16 @@ function isClassLike(candidate: Function): boolean {
   }
 }
 
-/* Whether the source text starts with `class`. */
+/* Whether the source text starts with `class`, not followed by a parameter
+   list: a method named `class` has a `(` next, after any whitespace and block
+   or line comments. */
 function isClassSource(source: string): boolean {
-  return regExpExec(/^class(?=[\s{/])(?!\s*\()/, source) !== null
+  return (
+    regExpExec(
+      /^class(?=[\s{/])(?=((?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n\r\u2028\u2029]*)*))\1(?!\()/,
+      source,
+    ) !== null
+  )
 }
 
 /* Whether the source text ends `{ [native code] }`. */
@@ -833,7 +829,9 @@ export function fromMaybe<T, E extends Error>(
  * `prototype` read changes) is matched by `instanceof` as it then stands, so
  * it can match errors it would have been refused for, and a programming bug
  * becomes a Failure. An entry that throws inside `instanceof` later, such as a
- * proxy revoked after the handler is created, counts as not matching.
+ * proxy revoked after the handler is created, counts as not matching. A match
+ * after which the value is no longer an `Error` (a `Symbol.hasInstance` hook
+ * that changes its prototype) is rethrown, not returned as a Failure.
  *
  * Use `tryCatch(construct, catchOnly(InvalidValue))` for domain code.
  */
@@ -860,7 +858,12 @@ export function catchOnly(
     }
   })
   return (error: unknown): Failure<never, Error> => {
-    if (isError(error) && isInstanceOfAny(error, classes)) {
+    if (
+      isError(error) &&
+      isInstanceOfAny(error, classes) &&
+      // a `Symbol.hasInstance` hook can change the value while it answers
+      isError(error)
+    ) {
       return failure<Error, never>(error)
     }
     throw error
@@ -906,13 +909,16 @@ function isUsableClass(candidate: unknown): boolean {
    not matching, so the caller rethrows the original error unless a later
    entry matches. Each entry is guarded on its own. */
 function isInstanceOfAny(error: Error, classes: readonly unknown[]): boolean {
-  return classes.some((ErrorClass) => {
+  for (let index = 0; index < classes.length; index++) {
     try {
-      return error instanceof (ErrorClass as abstract new () => unknown)
+      if (error instanceof (classes[index] as abstract new () => unknown)) {
+        return true
+      }
     } catch {
-      return false
+      // counts as not matching
     }
-  })
+  }
+  return false
 }
 
 /**

@@ -395,6 +395,29 @@ describe('tryCatch', () => {
     expect((boom() as ThrownError).thrown).toBe(symbol)
   })
 
+  it('renders its message without reading the public ThrownError.describe', () => {
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below, never called detached
+    const original = ThrownError.describe
+    let message: string
+    let outcome: unknown
+    try {
+      ThrownError.describe = () => {
+        throw new RangeError('describe replaced')
+      }
+      message = new ThrownError('plain').message
+      outcome = tryCatch(() => {
+        throw 'plain'
+      })()
+    } finally {
+      ThrownError.describe = original
+    }
+
+    expect(message).toBe('threw plain')
+    expect(outcome).toBeInstanceOf(ThrownError)
+    expect((outcome as ThrownError).message).toBe('threw plain')
+    expect(ThrownError.describe(Symbol('s'))).toBe('Symbol(s)')
+  })
+
   it('lets the errorHandler recover, since it returns a whole Result', () => {
     // The same handler shape promise/resultify takes, which is what makes
     // tryCatch and resultify the sync and async forms of one lift.
