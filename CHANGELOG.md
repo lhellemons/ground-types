@@ -154,49 +154,49 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   `AggregateError` parent. To use one, pass it as a constructor type that fixes
   its instance type, such as
   `DomainFailure as unknown as abstract new () => DomainFailure<unknown>`. The
-  check does not look inside a `Promise`, a `Set`, a function's parameters or
-  deeper than four levels, so a type parameter used only there still reads as
-  `any`. Arrow functions, methods (also when given an `Error` `prototype`),
-  plain objects and constructors of non-`Error` instances are rejected at
-  compile time. Calls that compiled before keep their inferred error type.
+  check does not look inside a `Promise`, a `Set`, a function's parameters or a
+  non-public member (`private`, `protected` or `#`), or deeper than four levels,
+  so a type parameter used only there still reads as `any`. Arrow functions,
+  methods (also when given an `Error` `prototype`), plain objects and
+  constructors of non-`Error` instances are rejected at compile time. Calls that
+  compiled before keep their inferred error type.
 - **Breaking:** `catchOnly` (and so the `tryCatch` shorthand) now throws a
   `TypeError` when the handler is created, if the class list is empty or holds
-  an entry that is not a function, or whose inspection throws (a revoked
-  proxy, a throwing `Symbol.hasInstance` getter), or whose
-  `Symbol.hasInstance` is any value other than a function, `null` or
-  `undefined` (read, never called; in 0.4.0 the handler threw a `TypeError`
-  from `instanceof` in place of each `Error` it was given), or that has no
-  custom `Symbol.hasInstance`, own or inherited, and either an object
-  `prototype`
+  an entry that is not a function, or whose inspection throws (a revoked proxy,
+  a throwing `Symbol.hasInstance` getter), or whose `Symbol.hasInstance` is any
+  value other than a function, `null` or `undefined` (read, never called; in
+  0.4.0 the handler threw a `TypeError` from `instanceof` in place of each
+  `Error` that no earlier entry matched), or that has no custom
+  `Symbol.hasInstance`, own or inherited, and either an object `prototype`
   without `Error.prototype` on its chain (`Object`, `Map`, `Symbol`, `Array`,
   `Promise`, `Date`, a class that does not extend `Error`, a function
   declaration, a bound subclass of `Map`), or no object `prototype` and source
   text that does not end `{ [native code] }` (`undefined`, an arrow function,
   a method). Before, an entry with no object `prototype` (`undefined`, an
-  arrow function, a method) threw on the error path and replaced the original
-  error, so a list holding one (an `undefined` from a circular CommonJS
-  import) loaded on 0.4.0 and now throws at creation. `Object` matched every
-  `Error`, so `catchOnly(Object)(new TypeError('bug'))` turned a programming
-  bug into a Failure; the other entries with a non-Error object `prototype`
-  matched nothing and rethrew every error. TypeScript already rejected all of
-  them. Still admitted: an `Error` class or an ES5-style error constructor
-  (`Legacy.prototype = Object.create(Error.prototype)`), a bound subclass of
-  `Error`, a class with a custom `Symbol.hasInstance`, a function from another
-  realm, and a function with no `prototype` of type object whose source ends
-  `{ [native code] }`, such as `Math.max`, `parseInt`, `Function`, or a bound
-  `Error`, `Object` or base class (one declared without `extends`): a bound
-  `Object` still matches every `Error`. A function from another realm is not
-  checked, and neither is an entry whose inherited `Symbol.hasInstance` comes
-  from another realm (a function of this realm whose `[[Prototype]]` is
+  arrow function, a method) threw a `TypeError` in place of each `Error` that no
+  earlier entry matched, so a list holding one (an `undefined` from a circular
+  CommonJS import) loaded on 0.4.0 and now throws at creation. `Object` matched
+  every `Error`, so `catchOnly(Object)(new TypeError('bug'))` turned a
+  programming bug into a Failure; the other entries with a non-Error object
+  `prototype` matched nothing and rethrew every error. TypeScript already
+  rejected all of them. Still admitted: an `Error` class or an ES5-style error
+  constructor (`Legacy.prototype = Object.create(Error.prototype)`), a bound
+  subclass of `Error`, a class with a custom `Symbol.hasInstance`, a function
+  from another realm, and a function with no `prototype` of type object whose
+  source ends `{ [native code] }`, such as `Math.max`, `parseInt`, `Function`,
+  or a bound `Error`, `Object` or base class (one declared without `extends`): a
+  bound `Object` still matches every `Error`. A function from another realm is
+  not checked, and neither is an entry whose inherited `Symbol.hasInstance`
+  comes from another realm (a function of this realm whose `[[Prototype]]` is
   another realm's `Function.prototype`): it counts as a custom one, so
   `catchOnly(N)` with `N.prototype = Object.prototype` is admitted and turns
-  every error into a Failure. An entry is checked once, at creation, not
-  again: one changed afterwards (a reassigned `prototype`, a Proxy whose
-  `prototype` read changes) is matched by `instanceof` as it then stands, so it
-  can match errors it would have been refused for, and a programming bug
-  becomes a Failure. An entry that fails inside `instanceof` later, such as a
-  proxy revoked after the handler is created, counts as not matching: the
-  original error is rethrown unless a later entry matches.
+  every error into a Failure. An entry is checked once, at creation, not again:
+  one changed afterwards (a reassigned `prototype`, a Proxy whose `prototype`
+  read changes) is matched by `instanceof` as it then stands, so it can match
+  errors it would have been refused for, and a programming bug becomes a
+  Failure. An entry that fails inside `instanceof` later, such as a proxy
+  revoked after the handler is created, counts as not matching: the original
+  error is rethrown unless a later entry matches.
 - **Breaking:** `tryCatch` (and so `definePrimitiveValueObject`'s
   `errorHandler`) now throws a `TypeError` when called with a handler that is
   neither an array nor a function, or is a function that is a class (its source

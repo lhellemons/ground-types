@@ -225,8 +225,9 @@ type InstanceOfClass<K> = K extends abstract new (...args: never[]) => infer I
 
 /**
  * Whether `T` is `any` or holds `any` in a property, an index signature, an
- * array element or a function's return, within four levels of nesting.
- * Resolves to `true`, `false` or `boolean`; test it with `true extends`.
+ * array element or a function's return, within four levels of nesting. It does
+ * not look inside a non-public member (`private`, `protected` or `#`). Resolves
+ * to `true`, `false` or `boolean`; test it with `true extends`.
  */
 type HasAny<T, Depth extends unknown[] = []> = 0 extends 1 & T
   ? true
@@ -803,24 +804,27 @@ export function fromMaybe<T, E extends Error>(
  * as Failures only when they are also instances of this realm's Error.
  * Rethrows every other value, including foreign-realm errors, unchanged.
  *
- * Each class must be an Error class (a private constructor is fine). At
- * compile time, a callable with no construct signature is refused even when
- * it has an `Error` `prototype`, and a class with no public constructor is
- * refused when its `prototype` holds `any`, which a generic class's does for
- * each type parameter. An empty list throws a `TypeError` when the handler is created, and so does an
- * entry that is not a function, or whose inspection throws (a revoked proxy,
- * a throwing `Symbol.hasInstance` getter), or whose `Symbol.hasInstance` is
- * neither nullish nor callable, or that has no custom
- * `Symbol.hasInstance`, own or inherited, and either an object `prototype`
- * without `Error.prototype` on its chain (`Object`, `Map`, `Symbol`, a class
- * that does not extend `Error`, a bound subclass of `Map`), or no object
- * `prototype` and source text that does not end `{ [native code] }`
- * (`undefined`, an arrow function, a method). A function with no object
- * `prototype` whose source ends `{ [native code] }` is admitted: `Math.max`,
- * `parseInt`, and a bound `Error`, `Object` or base class (one declared
- * without `extends`). A bound subclass of `Error` is admitted through its
- * inherited `prototype`, and a bound derived class that does not extend
- * `Error` is refused through it. A function from another realm is not
+ * Each class must be an Error class (a private or protected constructor is
+ * fine). At compile time, a callable with no construct signature is refused
+ * even when it has an `Error` `prototype`, and a class with no public
+ * constructor is refused when its `prototype` holds `any`, which a generic
+ * class's does for each type parameter. The check does not look inside a
+ * `Promise`, a `Set`, a function's parameters or a non-public member
+ * (`private`, `protected` or `#`), or deeper than four levels, so a type
+ * parameter used only there still reads as `any`. An empty list throws a
+ * `TypeError` when the handler is created, and so does an entry that is not a
+ * function, or whose inspection throws (a revoked proxy, a throwing
+ * `Symbol.hasInstance` getter), or whose `Symbol.hasInstance` is neither
+ * nullish nor callable, or that has no custom `Symbol.hasInstance`, own or
+ * inherited, and either an object `prototype` without `Error.prototype` on its
+ * chain (`Object`, `Map`, `Symbol`, a class that does not extend `Error`, a
+ * bound subclass of `Map`), or no object `prototype` and source text that does
+ * not end `{ [native code] }` (`undefined`, an arrow function, a method). A
+ * function with no object `prototype` whose source ends `{ [native code] }` is
+ * admitted: `Math.max`, `parseInt`, and a bound `Error`, `Object` or base class
+ * (one declared without `extends`). A bound subclass of `Error` is admitted
+ * through its inherited `prototype`, and a bound derived class that does not
+ * extend `Error` is refused through it. A function from another realm is not
  * checked, and neither is an entry whose inherited `Symbol.hasInstance` comes
  * from another realm: it counts as a custom one and is admitted.
  *
@@ -870,13 +874,13 @@ export function catchOnly(
   }
 }
 
-/* Checks the shape without calling the entry or its `Symbol.hasInstance`
-   (an accessor getter or a Proxy get trap does run at creation). An entry is
-   usable when it has a custom `hasInstance`, or an object `prototype` with
-   `Error.prototype` on its chain, or no object `prototype` and native
-   source. A `hasInstance` that is neither nullish nor callable refuses the
-   entry, whatever its `prototype`. `Object`, `Symbol`, a plain
-   `function () {}` and a class that does not extend `Error` are refused. A bound function has no own
+/* Checks the shape without calling the entry or its `Symbol.hasInstance` (an
+   accessor getter or a Proxy get trap does run at creation). An entry is usable
+   when it has a custom `hasInstance`, or an object `prototype` with
+   `Error.prototype` on its chain, or no object `prototype` and native source. A
+   `hasInstance` that is neither nullish nor callable refuses the entry,
+   whatever its `prototype`. `Object`, `Symbol`, a plain `function () {}` and a
+   class that does not extend `Error` are refused. A bound function has no own
    `prototype` and inherits its target's parent's: a bound Error subclass
    reaches `Error.prototype` and is admitted, a bound derived class that does
    not extend `Error` reaches another `prototype` and is refused, and a bound
