@@ -214,9 +214,9 @@ _Avoid_: Model, object, record, actor.
 
 ### DTO
 
-The plain, untrusted data shape a domain object is constructed from and
-serialised to. A DTO carries no invariants; validating a DTO into a
-domain object is the factory's job.
+The plain data shape a domain object is constructed from or serialised
+to; one coming in is untrusted. A DTO carries no invariants; validating a
+DTO into a domain object is the factory's job.
 
 _Avoid_: Payload, raw, JSON, props.
 
@@ -235,8 +235,9 @@ report failure as a value).
 ### DTO Source
 
 The other direction of a Factory's seam: a domain object that exposes a
-`dto`, recovering the DTO its current values would round-trip back
-through the Factory that built it. A DTO Source is not itself a DTO — it
+`dto`, the DTO of its current values. Where a Factory built the object,
+that DTO round-trips back through it; a Domain Error has no Factory, and
+its DTO goes one way. A DTO Source is not itself a DTO — it
 is the domain object's own capability to produce one — and it carries no
 invariants of its own.
 
@@ -245,15 +246,17 @@ the DTO entry above), toJSON, export.
 
 ### Domain Error
 
-A Failure that names the domain rule a value broke: a stable string
-`code`, distinct per kind of Domain Error, and `params`, the plain
-JSON-valued data that rule needs to explain itself. A Domain Error is a
-DTO Source whose DTO is its **Error DTO**, `{ code, params }`: the form
+A Failure that names the domain rule that was broken: a `code`, a string
+literal naming its kind, so that a caller can branch on it, and `params`,
+the JSON-valued data that rule needs to explain itself. A Domain Error is
+a DTO Source whose DTO is its **Error DTO**, `{ code, params }`: the form
 in which it crosses the wire or reaches the UI. The Error DTO is one-way:
-no Factory turns it back into a Domain Error.
+no Factory or registry of codes turns it back into a Domain Error. Where
+it arrives, an Error DTO is a DTO like any other: untrusted.
 
 _Avoid_: AppError, CodedError, BusinessError, Exception, ValidationError
-(as the general term), ErrorDto (as a separate type name).
+(as the general term), ErrorDto (in code the Error DTO is `ErrorDTO`, as
+DTO Source is `DTOSource`; it is not a term of its own).
 
 ### Intern
 
