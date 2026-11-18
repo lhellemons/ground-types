@@ -18,6 +18,7 @@ describe('root entry point', () => {
     expect(Object.keys(groundTypes).sort((a, b) => a.localeCompare(b))).toEqual(
       [
         'abort',
+        'bestEffort',
         'brand',
         'call',
         'domain',

@@ -10,6 +10,7 @@
  * namespace here would defeat that.
  */
 export * as abort from './abort/index.js'
+export * as bestEffort from './best-effort/index.js'
 export * as brand from './brand/index.js'
 export * as call from './call/index.js'
 export * as domain from './domain/index.js'

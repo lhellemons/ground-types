@@ -143,8 +143,8 @@ Generic code casts at the exit, as it does around `success`. `T` must
 pass both guards together, this one and `NotABestEffort` below: a `T` of
 `any` passes each alone and is refused by `toResult`, applied and
 curried, with a `never` message that names no fix, where `map`'s guard
-passes `any` (probe "toResult refuses a T of any"). Composing the guards
-so that `any` gets a named message is the implementation ticket's.
+passes `any` (probe "toResult refuses a T of any"). The refusal is kept
+as it stands and the amendment of 2026-11-18 (#127) pins it.
 
 A nested box would carry its diagnostics out as a Success: `toResult`
 checks the outer list only. So `map`'s callback may not return a
@@ -175,12 +175,17 @@ Success as that type, diagnostics and all (probe "a Best Effort inside a
 container is not refused", and at runtime "a box inside a container
 leaves toResult inside the Success"). The guard is structural, as the
 type has it: an arm assignable to `BestEffort<unknown, unknown>`, so one
-with a public required `value` and a required `diagnostics` that
+with a public required `value` and a public required `diagnostics` that
 `readonly unknown[]` accepts, a `diagnostics` typed `any` included, is
 refused by `map` and by `toResult` as a Best Effort, an object with one
 more member and a `{ value: number; diagnostics: any }` among the pinned
 instances; a class with a `private readonly value` and a public
-`diagnostics` array is not refused; and a generic `map(f, be)` with `f:
+`diagnostics` array is not refused, and neither is a class with a public
+`value` and a `private readonly diagnostics` (probe "a class with a private
+diagnostics and a public value is not refused by map or toResult"); `any`
+as `map`'s return passes `map`'s guard although `any` is assignable to
+`BestEffort<unknown, unknown>` (probe "any passes the guard of map
+although any is assignable to BestEffort<unknown, unknown>"); and a generic `map(f, be)` with `f:
 (n: number) => V` is refused, as `/result`'s `map` refuses `mapResult(f,
 r)` with the same `f` (probe "a look-alike is refused").
 
@@ -266,3 +271,41 @@ string>(undefined)`. The port probes (the runtime describe "the
   consumer on the kit", and the type probe "readOpenWhen is
   BestEffort<Maybe<string>, WorldFormatError>") and "toResultUnguarded
   admits all of them" stay in the prototype.
+
+## Amendment of 2026-11-18 (#127): the module as built
+
+`/best-effort` ships as `src/best-effort/index.ts`, built from the kit in
+`prototypes/117/best-effort.ts` without `toResultUnguarded`. The root entry
+point gains the namespace `bestEffort`. The kit probes, rewritten on local
+fixtures with their titles kept, are `src/best-effort/index.test.ts` (the
+runtime describe "the kit") and `src/best-effort/index.test-d.ts` (the type
+describes "the guards", "a Maybe part" and "inference"). The rare edges and
+missing pins the review rounds of #117 deferred are decided as follows, each
+pinned by the test named.
+
+- **`toResult` and a `T` of `any`:** the refusal stays; the two guards are
+  not composed, so the message names no fix (probe "toResult refuses a T of
+  any").
+- **`map` and a `Promise` of a box:** `map` does not refuse one, and
+  `toResult` leaves it inside the Success (probe "a Best Effort inside a
+  container is not refused", the `Promise` instance).
+- **`andThen` and a box-valued step:** `andThen` admits a step whose value
+  is a box, giving a `BestEffort<BestEffort<…>, …>`, and `toResult` refuses
+  that result (probe "andThen admits a step whose value is a box, and
+  toResult refuses the result").
+- **`gather` and `D`:** `gather` does not union `D` across parts; parts of
+  different `D` are written `gather<T, D>(…)`. Its parameter is a `readonly`
+  array (probe "gather does not union D across parts: parts of different D
+  need gather<T, D>(…), and a readonly array of parts is accepted").
+- **A box behind a declared type:** a `{ readonly value: number }`-typed box
+  leaves `toResult` inside the Success at runtime too (probe "a box behind
+  the declared type { readonly value: number } leaves toResult inside the
+  Success, as that box with its list").
+- **The guard boundary:** `{ value: number; diagnostics?: readonly string[]
+}`, `diagnostics: readonly string[] | undefined`, `Iterable` and
+  `unknown` diagnostics are not refused (probe "the guard does not refuse
+  { value: number; diagnostics?: readonly string[] }, diagnostics:
+  readonly string[] | undefined, Iterable diagnostics or unknown
+  diagnostics"); an object value with object diagnostics is refused (probe
+  "an object value and object diagnostics do not keep a box from being
+  refused as a BestEffort").

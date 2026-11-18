@@ -39,6 +39,10 @@
       "types": "./dist/abort/index.d.ts",
       "default": "./dist/abort/index.js"
     },
+    "./best-effort": {
+      "types": "./dist/best-effort/index.d.ts",
+      "default": "./dist/best-effort/index.js"
+    },
     "./brand": {
       "types": "./dist/brand/index.d.ts",
       "default": "./dist/brand/index.js"
