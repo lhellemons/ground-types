@@ -225,19 +225,19 @@ a `ReferenceError` that fires or not depending on which subpath the
 _consumer_ imports first — with nothing in CI to catch it. Convention over
 gamble.
 
-**Update, 2026-11-18:** the bridge `maybe/fromResult` no longer inlines
-its `Error` check; since #91 it calls the shared module-private
-`internal/is-error` guard (`Error.prototype` on the prototype chain, by
-`isPrototypeOf`, not `instanceof Error`), a module of its own that imports
-neither `/maybe` nor `/result`. `result/fromMaybe` still inlines
-`=== undefined`.
-
 Crossing therefore costs a second statement — unbox, re-enter through the
 other class's factory — and that is the one place the Box is not at parity
 with `pipe()`, where the crossing is just the next step. (Returning
 another module's Box from a helper would not compile anyway: the value
 side works, but declaration emit hits TS4094. Taking one as a parameter is
 free — and still forbidden by the transience rule.)
+
+**Update, 2026-11-18:** the bridge `maybe/fromResult` no longer inlines
+its `Error` check; since #91 it calls the shared module-private
+`internal/is-error` guard (`Error.prototype` on the prototype chain, by
+`isPrototypeOf`, not `instanceof Error`), a module of its own that imports
+neither `/maybe` nor `/result`. `result/fromMaybe` still inlines
+`=== undefined`.
 
 The no-runtime-cycle boundary remains **convention-only**, exactly as
 ADR-0001 records for the bridges; the Box modules extend that convention,

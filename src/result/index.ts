@@ -14,10 +14,9 @@ import type {
 } from './internal.js'
 
 /* Captured when the module loads: the function-inspection intrinsics that
-   `isClassLike` and `isUsableClass` call. `regExpExec` stands in for
-   `RegExp.prototype.test`, which reads `RegExp.prototype.exec` on each call,
-   and `functionHasInstance` for `Function.prototype[Symbol.hasInstance]`,
-   read through the global `Function`. */
+   `isClassLike` and `isUsableClass` call. `regExpExec` is
+   `RegExp.prototype.exec` bound to `call`, and `functionHasInstance` is
+   `Function.prototype[Symbol.hasInstance]`. */
 const sourceOf: (candidate: unknown) => string =
   // eslint-disable-next-line @typescript-eslint/unbound-method -- bound at once
   Function.prototype.call.bind(Function.prototype.toString)
@@ -778,13 +777,12 @@ export function fromMaybe<T, E extends Error>(
  * `prototype` and source text that does not end `{ [native code] }`
  * (`undefined`, an arrow function, a method). A function with no object
  * `prototype` whose source ends `{ [native code] }` is admitted: `Math.max`,
- * `parseInt`, and a bound
- * `Error`, `Object` or base class (one declared without `extends`). A bound
- * subclass of `Error` is admitted through its inherited `prototype`, and a
- * bound derived class that does not extend `Error` is refused through it. A
- * function from another realm is not checked, and neither is an entry whose
- * inherited `Symbol.hasInstance` comes from another realm: it counts as a
- * custom one and is admitted.
+ * `parseInt`, and a bound `Error`, `Object` or base class (one declared
+ * without `extends`). A bound subclass of `Error` is admitted through its
+ * inherited `prototype`, and a bound derived class that does not extend
+ * `Error` is refused through it. A function from another realm is not
+ * checked, and neither is an entry whose inherited `Symbol.hasInstance` comes
+ * from another realm: it counts as a custom one and is admitted.
  *
  * Each entry is checked once, when the handler is created, and not again: an
  * entry changed afterwards (a reassigned `prototype`, a Proxy whose
