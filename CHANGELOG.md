@@ -555,13 +555,15 @@ RejectionError(reason)` no longer read the public `ThrownError.describe`: in
   byte-identical or have the same contents, and fails otherwise, so a
   truncated or corrupt tarball, the published one or the new build, fails. Only
   drafts are replaced and then published. The draft state is read again just
-  before the upload, and a release found published then takes the same path; a
-  draft must not be published by hand while its job runs.
+  before the upload, and a release found published then takes the already-public
+  path; a draft must not be published by hand while its job runs. A new build
+  that does not decompress cleanly fails before anything is written.
 - Pre-release tags (`v1.0.0-rc.1`) are published as pre-releases, and only the
   highest version without a pre-release part is marked Latest, among the
-  newest 1000 releases; build metadata (`v1.0.0+build.1`) is ignored when
-  versions are compared. A failed comparison leaves the release a draft for a
-  rerun instead of publishing it as Latest. A tag that is not
+  newest 1000 releases that `gh release list` returns without drafts and
+  pre-releases; build metadata (`v1.0.0+build.1`) is ignored when versions are
+  compared. If the comparison fails, the release stays a draft for a rerun. A
+  tag that is not
   `vMAJOR.MINOR.PATCH`, optionally followed by a pre-release part and `+build`
   metadata, fails before any release is touched. Release runs for different tags
   now run one at a time, and the release job is stopped after 15 minutes.

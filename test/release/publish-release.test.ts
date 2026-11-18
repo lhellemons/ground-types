@@ -24,7 +24,7 @@ const script = fileURLToPath(
 
 /* Prints what `gh` would print after its own --jq filter, driven by env:
    STUB_VIEW     none | error | draft | published | empty | null; `none`
-                 reads as a draft once a `release create` has been logged
+                 reads as a draft once a `release create` has succeeded
    STUB_VIEW_LATER  what every `release view` after the first prints, in place
                  of STUB_VIEW
    STUB_ASSET    file served by `release download`; unset fails the download
@@ -41,7 +41,8 @@ case "$1 $2" in
   "release create" | "release upload" | "release edit")
     case " \${STUB_FAIL_WRITE:-} " in
       *" $2 "*) echo "HTTP 500: stub $2 failure" >&2; exit 1 ;;
-    esac ;;
+    esac
+    [ "$2" != create ] || touch "$STUB_LOG.created" ;;
   "release view")
     views=$(( $(cat "$STUB_LOG.views" 2>/dev/null || echo 0) + 1 ))
     echo "$views" > "$STUB_LOG.views"
@@ -49,7 +50,7 @@ case "$1 $2" in
     [ "$views" -eq 1 ] || view=\${STUB_VIEW_LATER:-$STUB_VIEW}
     case "$view" in
       none)
-        if [[ "$(<"$STUB_LOG")" == *"release create"* ]]; then echo true
+        if [ -e "$STUB_LOG.created" ]; then echo true
         else echo "release not found" >&2; exit 1; fi ;;
       error) echo "HTTP 401: Bad credentials" >&2; exit 1 ;;
       draft) echo true ;;
@@ -81,7 +82,7 @@ echo "gzip: stub failure" >&2
 exit 1
 `
 
-/* A shim for one of the coreutils the version comparison pipes through. Its
+/* A shim for one of the tools the version comparison pipes through. Its
    `call`th use exits `code` after reading its input and writing nothing; every
    other use, and every `grep` without -E, runs the real tool. */
 const failingTool = (
@@ -118,7 +119,7 @@ interface Options {
   listFails?: boolean
   /** Put a `gzip` that always fails first on PATH. */
   gzipFails?: boolean
-  /** What every `gh release view` after the first reports, as STUB_VIEW does. */
+  /** What each `gh release view` after the first reports, as STUB_VIEW does. */
   viewLater?: string
   /** `gh release` subcommands that fail. */
   writeFails?: Array<'create' | 'upload' | 'edit'>
@@ -293,6 +294,19 @@ describe('a release that does not exist yet', () => {
     )
   })
 
+  it('does not look beyond the newest 1000 releases', () => {
+    // Pins the documented bound: the 1001st entry is not read.
+    const list = [
+      ...Array.from({ length: 1000 }, (_, i) => `v0.1.${999 - i}`),
+      'v9.0.0',
+    ]
+    const result = run({ tag: 'v0.5.0', view: 'none', list })
+    expect(result.status).toBe(0)
+    expect(result.writes.at(-1)).toBe(
+      'release edit v0.5.0 --draft=false --prerelease=false --latest=true',
+    )
+  })
+
   it('finds a higher version beyond the first 100 releases', () => {
     // Newest first: 119 lower releases, then the highest stable one.
     const list = [
@@ -379,19 +393,25 @@ describe('a version comparison that fails', () => {
   })
 })
 
+const CREATE = 'release create v0.5.0 --verify-tag --generate-notes --draft'
+const UPLOAD = 'release upload v0.5.0 release-artifacts/a.tgz --clobber'
+const EDIT =
+  'release edit v0.5.0 --draft=false --prerelease=false --latest=true'
+
 describe('a write that fails', () => {
+  // The calls end at the failed command: nothing runs after it.
   it.each([
-    ['create', 'none', ['create']],
-    ['upload', 'none', ['create', 'upload']],
-    ['edit', 'none', ['create', 'upload', 'edit']],
-    ['upload', 'draft', ['upload']],
-    ['edit', 'draft', ['upload', 'edit']],
+    ['create', 'none', [VIEW_ARGS, CREATE]],
+    ['upload', 'none', [VIEW_ARGS, CREATE, VIEW_ARGS, UPLOAD]],
+    ['edit', 'none', [VIEW_ARGS, CREATE, VIEW_ARGS, UPLOAD, LIST_ARGS, EDIT]],
+    ['upload', 'draft', [VIEW_ARGS, VIEW_ARGS, UPLOAD]],
+    ['edit', 'draft', [VIEW_ARGS, VIEW_ARGS, UPLOAD, LIST_ARGS, EDIT]],
   ] as const)(
     'stops after a failed %s (release: %s)',
     (failing, view, expected) => {
       const result = run({ view, list: ['v0.4.0'], writeFails: [failing] })
       expect(result.status).toBe(1)
-      expect(result.writes.map((call) => call.split(' ')[1])).toEqual(expected)
+      expect(result.calls).toEqual(expected)
       expect(result.output).toContain(`stub ${failing} failure`)
     },
   )
@@ -405,6 +425,9 @@ describe('a write that fails', () => {
       writeFails: ['upload'],
     })
     expect(failed.status).toBe(1)
+    expect(failed.calls.at(-1)).toBe(
+      `release upload ${tag} release-artifacts/a.tgz --clobber`,
+    )
     expect(failed.writes).toEqual([
       `release create ${tag} --verify-tag --generate-notes --draft --prerelease`,
       `release upload ${tag} release-artifacts/a.tgz --clobber`,
@@ -551,25 +574,9 @@ describe('an already published release', () => {
       expect(result.output).toMatch(/gzip: /)
       expect(result.output).not.toContain('differs from this build')
     })
-
-    it('fails without changes when the built tarball is damaged', () => {
-      const result = run({
-        view: 'published',
-        tarballs: { 'a.tgz': intact.subarray(0, trailer) },
-        published: built,
-      })
-      expect(result.status).toBe(1)
-      expect(result.writes).toEqual([])
-      expect(result.output).toContain(
-        'gzip could not decompress the built a.tgz (see',
-      )
-      expect(result.output).toContain('Rebuild the tarball and rerun')
-      expect(result.output).not.toContain('the published a.tgz')
-      expect(result.output).not.toContain('onvert the release')
-    })
   })
 
-  it('fails without changes when gzip fails on both sides', () => {
+  it('fails without changes when gzip itself fails', () => {
     const result = run({
       view: 'published',
       tarballs: { 'a.tgz': gzipSync('built', { level: 1 }) },
@@ -577,29 +584,9 @@ describe('an already published release', () => {
       gzipFails: true,
     })
     expect(result.status).toBe(1)
-    expect(result.writes).toEqual([])
-    expect(result.output).toContain(
-      'gzip could not decompress the built a.tgz and the published a.tgz (see',
-    )
+    expect(result.calls).toEqual([])
+    expect(result.output).toContain('gzip could not decompress the built a.tgz')
     expect(result.output).toContain('gzip: stub failure')
-    expect(result.output).toContain(
-      'Rebuild the tarball, convert the release back to a draft and rerun.',
-    )
-  })
-
-  it('fails without changes when the built and published tarballs are the same damaged bytes', () => {
-    const damaged = gzipSync('built').subarray(0, 12)
-    const result = run({
-      view: 'published',
-      tarballs: { 'a.tgz': damaged },
-      published: damaged,
-    })
-    expect(result.status).toBe(1)
-    expect(result.writes).toEqual([])
-    expect(result.output).toContain(
-      'gzip could not decompress the built a.tgz and the published a.tgz (see',
-    )
-    expect(result.output).not.toContain('identical')
   })
 
   it('fails without changes when the asset is missing or cannot be downloaded', () => {
@@ -655,6 +642,33 @@ describe("the script's environment", () => {
   })
 })
 
+describe('a built tarball that does not decompress cleanly', () => {
+  const contents = 'the same contents '.repeat(500)
+  const intact = gzipSync(contents)
+  const truncated = intact.subarray(0, intact.length - 8)
+
+  it.each([
+    ['no release yet', 'none', undefined],
+    ['a draft', 'draft', undefined],
+    ['a published release with an intact asset', 'published', intact],
+    ['a published release with the same damaged asset', 'published', truncated],
+  ] as const)('fails before any gh call for %s', (_name, view, published) => {
+    const result = run({
+      view,
+      tarballs: { 'a.tgz': truncated },
+      ...(published && { published }),
+    })
+    expect(result.status).toBe(1)
+    expect(result.calls).toEqual([])
+    expect(result.output).toContain(
+      'gzip could not decompress the built a.tgz (see',
+    )
+    expect(result.output).toContain('Rebuild the tarball and rerun')
+    expect(result.output).toMatch(/gzip: /)
+    expect(result.output).not.toContain('identical')
+  })
+})
+
 describe('the work directory', () => {
   it('is created under TMPDIR', () => {
     const result = run({ view: 'published', published: gzipSync('built') })
@@ -686,6 +700,8 @@ describe('the release tag', () => {
     'v1.0.0+a.',
     'v1.0.0 x',
     'v1.0.0-rc.1+/../x',
+    'v1.0.0\nx',
+    'x\nv1.0.0',
   ])('is refused before any gh call when it is %j', (tag) => {
     const result = run({ tag })
     expect(result.status).toBe(1)

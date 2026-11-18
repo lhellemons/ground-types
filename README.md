@@ -63,7 +63,8 @@ attaches the tarball to the GitHub Release:
   version. A published release that lacks the tarball also fails: convert it
   back to a draft and rerun. So does a tarball that does not decompress
   cleanly, the published one (convert the release back to a draft and rerun) or
-  the new build (rebuild and rerun).
+  the new build (rebuild and rerun). The new build is checked before anything is
+  written, for a new release, a draft and a published release alike.
 - The job owns publication: it reads whether the release is still a draft just
   before it uploads, and a release found published then takes the
   already-public path above. A draft must not be published by hand while its
@@ -71,10 +72,11 @@ attaches the tarball to the GitHub Release:
 - A version with a pre-release part (a hyphen before any `+`, such as
   `v1.0.0-rc.1`) is published as a pre-release. Only the highest release without
   a pre-release part (`vX.Y.Z`, with or without `+build` metadata) is marked
-  Latest, so a pre-release or a back-port tag never takes that mark. Build
-  metadata (`v1.0.0+build.1`) is ignored when versions are compared. The check
-  looks at the newest 1000 releases, and a failed comparison leaves the release
-  a draft for a rerun.
+  Latest, so a pre-release never takes that mark, and a back-port tag does not
+  either while a higher stable release is among the newest 1000 releases that
+  `gh release list` returns without drafts and pre-releases. Build metadata
+  (`v1.0.0+build.1`) is ignored when versions are compared. A failed comparison
+  leaves the release a draft for a rerun.
 - A tag that is not `vMAJOR.MINOR.PATCH`, optionally followed by a pre-release
   part and `+build` metadata, fails before the release is looked up.
 - Release runs share one concurrency group, so tags pushed together run one at

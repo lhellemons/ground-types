@@ -11,8 +11,9 @@
 #
 # A tag with a hyphen before any `+` (v1.0.0-rc.1) is created and published as
 # a pre-release and is never Latest. A plain tag is Latest only when no higher
-# stable vX.Y.Z is published, among the newest 1000 releases; build metadata
-# (`+build.1`) is ignored when versions are compared.
+# stable vX.Y.Z is among the newest 1000 releases that `gh release list`
+# returns without drafts and pre-releases; build metadata (`+build.1`) is
+# ignored when versions are compared.
 #
 # A step that fails while the release is absent or a draft leaves it a draft
 # (or not created), so a rerun completes it. The already-published path writes
@@ -28,7 +29,7 @@ set -euo pipefail
 version_re='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 # The same without a pre-release part, as a listed stable release is read.
 stable_re='^v[0-9]+\.[0-9]+\.[0-9]+(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
-if ! printf '%s\n' "$RELEASE_TAG" | grep -Eq "$version_re"; then
+if [[ ! $RELEASE_TAG =~ $version_re ]]; then
   echo "::error::RELEASE_TAG '$RELEASE_TAG' is not a version tag (vMAJOR.MINOR.PATCH, optionally -prerelease and +build)"
   exit 1
 fi
@@ -51,6 +52,14 @@ esac
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/publish-release.XXXXXX")
 trap 'rm -rf "$work"' EXIT
+
+# The built tarball is decompressed once, before any gh call; the published
+# path compares its contents.
+if ! gzip -dc "$tarball" >"$work/built.tar" 2>"$work/built.err"; then
+  cat "$work/built.err" >&2
+  echo "::error::gzip could not decompress the built $asset (see the gzip output above). Nothing was written to the release. Rebuild the tarball and rerun."
+  exit 1
+fi
 
 # Sets is_draft to true, false or none (no such release). A failed lookup exits
 # 1 and is not read as none.
@@ -83,27 +92,13 @@ handle_published() {
     exit 1
   fi
   published=$work/published/$asset
-  # Each side is decompressed to a file, and its gzip exit status is checked
-  # before any comparison. A side that does not decompress cleanly is reported
-  # on its own, not as a difference. Otherwise the tarballs match when
+  # The published asset is decompressed to a file and its gzip exit status is
+  # checked before any comparison. One that does not decompress cleanly is
+  # reported on its own, not as a difference. Otherwise the tarballs match when
   # byte-identical or when the decompressed contents are.
-  built_bad=false
-  published_bad=false
-  gzip -dc "$tarball" >"$work/built.tar" 2>"$work/built.err" || built_bad=true
-  gzip -dc "$published" >"$work/published.tar" 2>"$work/published.err" || published_bad=true
-  if [ "$built_bad" = true ] || [ "$published_bad" = true ]; then
-    cat "$work/built.err" "$work/published.err" >&2
-    if [ "$published_bad" = false ]; then
-      subjects="the built $asset"
-      next="Rebuild the tarball and rerun."
-    elif [ "$built_bad" = false ]; then
-      subjects="the published $asset"
-      next="Convert the release back to a draft and rerun."
-    else
-      subjects="the built $asset and the published $asset"
-      next="Rebuild the tarball, convert the release back to a draft and rerun."
-    fi
-    echo "::error::Release $RELEASE_TAG is already published, and gzip could not decompress $subjects (see the gzip output above), so the two cannot be compared. Refusing to modify a published release. $next"
+  if ! gzip -dc "$published" >"$work/published.tar" 2>"$work/published.err"; then
+    cat "$work/published.err" >&2
+    echo "::error::Release $RELEASE_TAG is already published, and gzip could not decompress the published $asset (see the gzip output above), so the two cannot be compared. Refusing to modify a published release. Convert the release back to a draft and rerun."
     exit 1
   fi
   if cmp -s "$tarball" "$published"; then
