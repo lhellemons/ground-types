@@ -438,7 +438,7 @@ export class AbortablePromise<T> extends Promise<T> {
         try {
           then = thenOf(item)
         } catch (error) {
-          // What the combinator would have met: a thenable whose `then` throws.
+          // What `Promise` would have met: an object whose `then` getter throws.
           yield {
             get then(): never {
               throw error

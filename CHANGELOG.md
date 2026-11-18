@@ -10,9 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Upgrading from 0.4.0: `success`, `failure` and `result` no longer need type
 arguments in early-return code, and several calls that compiled now do not;
 some calls also behave differently at run time. The entries marked **Breaking**
-below list each break; some entries not marked also change outcomes, for
-example the one on the `resolve` an executor receives. TypeScript 5.4 or later
-is required.
+below list each break. TypeScript 5.4 or later is required.
 
 - `success(x)`, `failure(e)` and `result(x)` now infer at a site typed to a
   narrower `Result`: `(n: number): Result<number, Invalid> => success(n)`,
@@ -289,22 +287,22 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   (no traps, or a `Reflect.get(target, key, receiver)` forwarder), as the
   platform's `name` getter rejects the proxy. A `get` trap that reads `name`
   with the target as receiver still answers `true`.
-- `AbortablePromise.of` no longer throws for a Proxy whose `getPrototypeOf`
-  trap throws or for a revoked Proxy. For the first it resolves with the Proxy,
-  or adopts it if it is a thenable, as `Promise.resolve` does. For a revoked
-  Proxy it returns a promise rejected with a `TypeError`, as `Promise.resolve`
-  does. Both threw synchronously. `of` and `resolve` are unchanged for a
-  thenable whose `then` getter throws and for a promise whose `constructor`
-  getter throws (`resolve` still throws synchronously for the second, as
-  `Promise.resolve` does). This reaches `call/abortable`:
+- **Breaking:** `AbortablePromise.of` no longer throws for a Proxy whose
+  `getPrototypeOf` trap throws or for a revoked Proxy. For the first it resolves
+  with the Proxy, or adopts it if it is a thenable, as `Promise.resolve` does.
+  For a revoked Proxy it returns a promise rejected with a `TypeError`, as
+  `Promise.resolve` does. Both threw synchronously. `of` and `resolve` are
+  unchanged for a thenable whose `then` getter throws and for a promise whose
+  `constructor` getter throws (`resolve` still throws synchronously for the
+  second, as `Promise.resolve` does). This reaches `call/abortable`:
   `abortable(() => hostileProxy)()`, for a Proxy whose `getPrototypeOf` trap
   throws, fulfils with the Proxy, where it rejected with the trap's error.
-- The `resolve` an executor receives no longer throws when its argument cannot
-  be adopted: a revoked Proxy, a thenable whose `then` getter throws, a promise
-  whose `constructor` getter throws, a native promise whose own `then` throws.
-  It rejects the promise with the error, as a native resolve function does.
-  Before, the error was thrown to the caller of `resolve`: into the executor
-  when `resolve` was called inside it, so that `new AbortablePromise(r => { try
+- **Breaking:** the `resolve` an executor receives no longer throws when its
+  argument cannot be adopted: a revoked Proxy, a thenable whose `then` getter
+  throws, a promise whose `constructor` getter throws, a native promise whose
+  own `then` throws. It rejects the promise with the error, as a native resolve
+  function does. Before, the error was thrown to the caller of `resolve`: into
+  the executor when `resolve` was called inside it, so that `new AbortablePromise(r => { try
 { r(revoked) } catch { r('fallback') } })` fulfilled with `'fallback'`, and to
   whoever called `resolve` later, in which case the promise stayed pending
   forever. A thenable Proxy whose `getPrototypeOf` trap throws is now adopted;
@@ -322,25 +320,26 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   runs, for a plain thenable, a native promise or an instance of a Promise
   subclass; before, it was called on the promise `Promise.resolve` made of the
   delegate, as `resolve` ran. With a patched `then` that throws, a promise
-  resolved with a plain thenable was rejected with the error, and now it
-  fulfils.
+  resolved with a plain thenable, a promise from another realm, a subclass that
+  overrides `then` or a thenable that wraps a native promise was rejected with
+  the error, or, for a `resolve` called after the executor returned, the error
+  was thrown to its caller and the promise stayed pending; now it fulfils.
 - A delegate's `then` is called at once when it is the `Promise.prototype.then`
   captured when the module loads, and from a job otherwise. Before, it was
   called at once when `Promise.resolve` returned the delegate as it was: a
   native promise of this realm whose `constructor` is `Promise`. A delegate that
   passes only the new test (a native promise whose `constructor` was replaced,
   other than one whose `constructor` getter throws, which rejects the promise,
-  as the `resolve` entry above says; an instance of a Promise subclass that
-  does not override `then`) is followed sooner, without the job that was
-  queued for it, and the species constructor of a subclass, user code, runs
-  before `resolve` returns. One that passes only
-  the old test (such a native promise with its own `then` replaced or spied on,
-  or any native promise once `Promise.prototype.then` has been patched after
-  the module loaded) is followed later, through a job. Every other delegate is
-  followed as it was: a plain thenable (except while `Promise.prototype.then` is
-  patched, see the entry above), an `AbortablePromise`, a subclass that
-  overrides `then`, a promise from another realm, a thenable that wraps a
-  native promise.
+  as the `resolve` entry above says; an instance of a Promise subclass that does
+  not override `then`) is followed sooner, without the job that was queued for
+  it, and the species constructor of a subclass, user code, runs before
+  `resolve` returns. One that passes only the old test (such a native promise
+  with its own `then` replaced or spied on, or any native promise once
+  `Promise.prototype.then` has been patched after the module loaded) is followed
+  later, through a job. Every other delegate is followed as it was, except while
+  `Promise.prototype.then` is patched (see the entry above): a plain thenable,
+  an `AbortablePromise`, a subclass that overrides `then`, a promise from
+  another realm, a thenable that wraps a native promise.
 - A delegate is followed before the upstream link to it is registered. Before,
   the link was registered first: for a `resolve` that came after the abort, the
   link fired at once, and when the delegate's `abort()` threw, the error reached
@@ -364,11 +363,12 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   `AbortablePromise` makes as it takes the member. A throw from one member's
   `abort()` no longer stops the loop: `abort()` is called on every member, then
   the first error is thrown, except when the combined promise was aborted while
-  it was being made (a subclass constructor that aborts `this`): that error is
-  dropped, where `Sub.all()` threw it. The links of one promise (a promise
-  derived by `then` whose handler returns an `AbortablePromise` has a link to
-  its source and one to that delegate) are fired the same way: `abort()` fires
-  each link, then throws the first error. Before, the throw (a subclass's
+  it was being made (a subclass constructor that aborts `this`, or exposes it
+  to an iterator that aborts it): that error is dropped, where `Sub.all()`
+  threw it. The links of one promise (a promise derived by `then` whose handler
+  returns an `AbortablePromise` has a link to its source and one to that
+  delegate) are fired the same way: `abort()` fires each link, then throws the
+  first error. Before, the throw (a subclass's
   override, an `abort` assigned to the instance, a derived member whose upstream
   `abort()` throws) ended the loop and left the members after it running, and so
   did the trap of a Proxy whose `getPrototypeOf` throws, or a revoked Proxy,
@@ -486,7 +486,8 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   threw, and one aborted by another holder threw it inside the signal's
   listener, an uncaught exception.
 - `abortOn(signal)` on a promise that has already fulfilled or rejected adds no
-  listener to `signal`; before, it added one.
+  listener to `signal`, and neither does reading `context.signal` or calling
+  `peer()` on such a promise; before, each added one.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`
