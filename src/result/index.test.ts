@@ -19,6 +19,7 @@ import {
 import type { Failure, Result, Success } from './index.js'
 import { maybe, nothing } from '../maybe/index.js'
 import { fail } from '../promise/index.js'
+import { isAbortError } from '../abort/index.js'
 
 // Tuple-wrapped so the checks don't distribute over union types.
 type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
@@ -215,9 +216,9 @@ describe('the Error guard and the handler checks are not fooled by patched intri
         return false
       }
     }
-    const listsTypeError = (): boolean => {
+    const lists = (entry: unknown): boolean => {
       try {
-        catchOnly(TypeError)
+        catchOnly(entry as never)
         return true
       } catch {
         return false
@@ -229,10 +230,17 @@ describe('the Error guard and the handler checks are not fooled by patched intri
       toString: Function.prototype.toString,
       isPrototypeOf: Object.prototype.isPrototypeOf,
       getOwnPropertyDescriptor: Object.getOwnPropertyDescriptor,
+      exec: RegExp.prototype.exec,
       Error: globalThis.Error,
+      Function: globalThis.Function,
+      DOMException: globalThis.DOMException,
     }
     /* eslint-enable @typescript-eslint/unbound-method */
     const restore = () => {
+      // First: the lines below read `Function` through the global.
+      globalThis.Function = original.Function
+      globalThis.DOMException = original.DOMException
+      RegExp.prototype.exec = original.exec
       Function.prototype.call = original.call
       Function.prototype.toString = original.toString
       Object.prototype.isPrototypeOf = original.isPrototypeOf
@@ -258,6 +266,17 @@ describe('the Error guard and the handler checks are not fooled by patched intri
       () => {
         globalThis.Error = class Other {} as ErrorConstructor
       },
+      () => {
+        globalThis.DOMException = class Other {} as typeof DOMException
+      },
+      () => {
+        globalThis.Function = class Other {} as FunctionConstructor
+      },
+      () => {
+        // `RegExp.prototype.test` reads `exec`: no source looks native or
+        // like a class.
+        RegExp.prototype.exec = () => null
+      },
     ]
     const answers: unknown[][] = []
     try {
@@ -267,13 +286,17 @@ describe('the Error guard and the handler checks are not fooled by patched intri
           isFailure(error),
           isSuccess(error),
           isFailure(abort),
+          isAbortError(abort),
           tryCatch(boom)(),
           handler(error),
           fail(abort),
           creates(Map),
+          creates(class {}),
           creates(TypeError),
           creates(plain),
-          listsTypeError(),
+          lists(TypeError),
+          lists(Object),
+          lists((e: unknown) => e),
         ])
         restore()
       }
@@ -286,13 +309,17 @@ describe('the Error guard and the handler checks are not fooled by patched intri
         true,
         false,
         true,
+        true,
         error,
         error,
         abort,
         false,
         false,
+        false,
         true,
         true,
+        false,
+        false,
       ])
     }
   })

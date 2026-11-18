@@ -583,8 +583,10 @@ describe('tryCatch handler dispatch', () => {
       Intl.Collator,
       AsyncFunction,
       GeneratorFunction,
-      // Refused by its class source; the others, by native source and a
-      // native `constructor` on their own `prototype`.
+      // `URL` is refused by its class source; each Proxy has native source
+      // and is refused through its target: `Map`'s own `prototype` has a
+      // native `constructor`, the class's has one with class source, and the
+      // generator function's has none.
       URL,
       new Proxy(Map, {}),
       new Proxy(class {}, {}),
@@ -617,6 +619,49 @@ describe('tryCatch handler dispatch', () => {
     }
     expect(traced).toEqual(['apply'])
   })
+  it('refuses a Proxy over a plain function whose prototype has no ordinary own constructor', () => {
+    const boom = () => throws(new RangeError('boom'))
+    const make = () =>
+      function (e: unknown) {
+        return e as A
+      }
+    function Base() {}
+    function Sub() {}
+    Sub.prototype = Object.create(Base.prototype as object) as object
+    const withPrototype = (prototype: unknown) => {
+      const plain = make()
+      plain.prototype = prototype as never
+      return plain
+    }
+    const deleted = make()
+    delete (deleted.prototype as { constructor?: unknown }).constructor
+    const accessor = make()
+    Object.defineProperty(accessor.prototype, 'constructor', {
+      get: () => accessor,
+    })
+    const viaProxy = make()
+    viaProxy.prototype = {
+      constructor: new Proxy(() => {}, {}),
+    } as never
+    // An inherited `constructor` is not read: `Base` is an ordinary function.
+    expect(Sub.prototype.constructor).toBe(Base)
+    const cases = {
+      'prototype replaced by {}': withPrototype({}),
+      'prototype replaced by Object.create(null)': withPrototype(
+        Object.create(null),
+      ),
+      'ES5-style subclass (inherited constructor only)': Sub,
+      'constructor deleted': deleted,
+      'constructor an accessor': accessor,
+      'constructor a Proxy': viaProxy,
+    }
+    for (const [name, handler] of Object.entries(cases)) {
+      expect(
+        () => tryCatch(boom, new Proxy(handler, {}) as never),
+        name,
+      ).toThrow(/tryCatch requires an error handler function/)
+    }
+  })
   it('accepts a native-source function whose own prototype is null', () => {
     const error = new A()
     const nullPrototype = function (e: unknown) {
@@ -625,6 +670,25 @@ describe('tryCatch handler dispatch', () => {
     nullPrototype.prototype = null as never
     expect(tryCatch(() => throws(error), new Proxy(nullPrototype, {}))()).toBe(
       error,
+    )
+  })
+  it('does not detect a built-in whose prototype.constructor was patched', () => {
+    const boom = () => throws(new RangeError('boom'))
+    const original = Object.getOwnPropertyDescriptor(
+      Set.prototype,
+      'constructor',
+    )
+    expect(() => tryCatch(boom, Set as never)).toThrow(
+      /tryCatch requires an error handler function/,
+    )
+    try {
+      Set.prototype.constructor = function () {}
+      expect(() => tryCatch(boom, Set as never)).not.toThrow()
+    } finally {
+      Object.defineProperty(Set.prototype, 'constructor', original!)
+    }
+    expect(() => tryCatch(boom, Set as never)).toThrow(
+      /tryCatch requires an error handler function/,
     )
   })
   it('does not detect Proxy, which has no own prototype', () => {

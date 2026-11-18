@@ -216,7 +216,7 @@ statement.** See the next section.
 ### No cross-Box members
 
 `Maybe.fromResult` and `Result.fromMaybe` are statics with inlined
-`Error`-prototype-chain / `=== undefined` checks — the same convention
+`instanceof Error` / `=== undefined` checks — the same convention
 ADR-0001's bridges use — so the parity requirement never forces a runtime
 import between the Box modules. The instance bridges (`.toResult()`,
 `.toMaybe()`) that would have forced one are dropped. The naive cycle
@@ -224,6 +224,13 @@ actually runs clean under deferred use, but one eager static turns it into
 a `ReferenceError` that fires or not depending on which subpath the
 _consumer_ imports first — with nothing in CI to catch it. Convention over
 gamble.
+
+**Update, 2026-11-18:** the bridge `maybe/fromResult` no longer inlines
+its `Error` check; since #91 it calls the shared module-private
+`internal/is-error` guard (`Error.prototype` on the prototype chain, by
+`isPrototypeOf`, not `instanceof Error`), a module of its own that imports
+neither `/maybe` nor `/result`. `result/fromMaybe` still inlines
+`=== undefined`.
 
 Crossing therefore costs a second statement — unbox, re-enter through the
 other class's factory — and that is the one place the Box is not at parity
