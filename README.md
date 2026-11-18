@@ -83,6 +83,7 @@ Each module is a separate subpath export.
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `/maybe`           | `Maybe`, `Just`, `Nothing`, `maybe`, `just`, `nothing`, `fromNullable`, `isJust`, `isNothing`, `orElse`, `fallback`, `map`, `andThen`, `assertJust`, `fromResult`                                                                                                                                                                                                                                      |
 | `/result`          | `Result`, `Success`, `SuccessArm`, `SuccessMarkers`, `Failure`, `FailureMarkers`, `ThrownError`, `NotAResult`, `NotAPromise`, `NotPossiblyAnError`, `NotAGenerator`, `Parts`, `Collected`, `Failed`, `Take`, `result`, `success`, `failure`, `isSuccess`, `isFailure`, `catchOnly`, `tryCatch`, `assertSuccess`, `map`, `mapError`, `fallback`, `orElse`, `andThen`, `fromMaybe`, `collect`, `attempt` |
+| `/best-effort`     | `BestEffort`, `NotABestEffort`, `bestEffort`, `map`, `andThen`, `note`, `gather`, `recover`, `recoverWith`, `toResult`                                                                                                                                                                                                                                                                                 |
 | `/brand`           | `Brand`, `Branded`                                                                                                                                                                                                                                                                                                                                                                                     |
 | `/value-object`    | `Primitive`, `PrimitiveValueObject`, `definePrimitiveValueObject`                                                                                                                                                                                                                                                                                                                                      |
 | `/domain`          | `Entity`, `CompoundValueObject`, `DTOSource`, `DomainObjectFactory`                                                                                                                                                                                                                                                                                                                                    |
@@ -110,11 +111,12 @@ that test doubles cannot reach a production bundle by accident.
 There is also a root entry point, for a bare
 `import from '@lhellemons/ground-types'` and for tooling that predates or
 ignores the `exports` map. It re-exports each module as a namespace, named
-after its subpath (`intern-registry` becomes `internRegistry`,
-`value-object` becomes `valueObject`, the rest unchanged), so `maybe.map`
-and `result.map` stay distinct here too — nothing is flattened. Per-module
-import remains the recommended style, for the same reason as above;
-`/promise/fake` is not part of the root, for the same reason as above.
+after its subpath (`best-effort` becomes `bestEffort`, `intern-registry`
+becomes `internRegistry`, `value-object` becomes `valueObject`, the rest
+unchanged), so `maybe.map` and `result.map` stay distinct here too — nothing
+is flattened. Per-module import remains the recommended style, for the same
+reason as above; `/promise/fake` is not part of the root, for the same
+reason as above.
 
 ```ts
 import { maybe, result } from '@lhellemons/ground-types'
@@ -262,6 +264,59 @@ shoutLabel(21) // same as shout(stringify(double(21)))
 
 See [docs/adr/0004-pipe-value-first.md](./docs/adr/0004-pipe-value-first.md)
 for why `pipe` is shaped this way.
+
+## Best effort values
+
+`BestEffort<T, D>`, from `/best-effort`, is a value usable as it stands
+together with the diagnostics gathered while it was built, in the order they
+were gathered: `{ value, diagnostics }`. `D` is any value. `bestEffort(value,
+diagnostics)` builds one, and `D` defaults to `never`. The box and its list
+are frozen in what this module's functions return; the value and each
+diagnostic are not.
+
+```ts
+import { pipe } from '@lhellemons/ground-types/fn'
+import {
+  andThen,
+  bestEffort,
+  map,
+  note,
+  recover,
+  toResult,
+} from '@lhellemons/ground-types/best-effort'
+import { failure } from '@lhellemons/ground-types/result'
+import type { Result } from '@lhellemons/ground-types/result'
+
+const read: Result<number, RangeError> = failure(new RangeError('bad'))
+
+const outcome = pipe(
+  recover(0, read), // { value: 0, diagnostics: [RangeError] }
+  map((x: number) => x + 1),
+  note(['defaulted']),
+  andThen((x: number) => bestEffort(String(x), ['stringified'])),
+  toResult((d) => new Error(`${d.length} diagnostics`)),
+)
+// a Failure: any diagnostic makes `toResult` a Failure
+```
+
+- `map(fn, box)` transforms the value, and the diagnostics ride along.
+  `andThen(fn, box)` chains a step that returns a `BestEffort`: the first
+  box's diagnostics come before the step's. `note(diagnostics, box)` appends
+  after the ones held. `gather(parts)` fans a list of `BestEffort`s in: the
+  values in part order, the diagnostics in part order. All parts share one
+  `T` and one `D`; parts of different types are written `gather<T, D>(…)`.
+  `map`, `andThen`, `note`, `recover`, `recoverWith` and `toResult` are
+  value-last and curryable by arity, as `/result`'s combinators are.
+- `recover(fallback, result)` and `recoverWith(fallback, diagnose, result)`
+  take a `Result` in. A Success is itself, with no diagnostic. A Failure is
+  `fallback`, with the error as the one diagnostic (`recover`) or with
+  `diagnose(error)` (`recoverWith`).
+- `toResult(toError, box)` takes a `BestEffort` out: a Success of the value
+  when the list is empty, else a Failure of `toError(list)`, handed the whole
+  list. It has no predicate.
+- `map`'s callback may not return a `BestEffort`; use `andThen`. `toResult`
+  refuses a `BestEffort`-valued `T`, and a `T` that may be an `Error`, as
+  `success` does.
 
 ## The asynchrony layer composes with the primitives
 

@@ -506,6 +506,17 @@ success(undefined)` and `success(null)` no longer compile. Checked on
 - The write-scoped release job no longer restores the pnpm cache.
 - The README documents the draft release flow, and its Renovate example now
   uses the `github-releases` datasource.
+- Add the `/best-effort` subpath: `BestEffort<T, D>`, a value usable as it
+  stands with the diagnostics gathered while it was built, in order, and the
+  functions `bestEffort`, `map`, `andThen`, `note`, `gather`, `recover`,
+  `recoverWith` and `toResult`, with the type `NotABestEffort`. `map`,
+  `andThen`, `note`, `recover`, `recoverWith` and `toResult` are value-last
+  and curryable by arity, as `/result`'s combinators are. `toResult` is all or
+  nothing: a Success of the value when the list is empty, else a Failure of
+  what `toError` makes of the list. `map` refuses a callback that returns a
+  `BestEffort`, and `toResult` refuses a `BestEffort`-valued `T`. The root
+  entry point gains the namespace `bestEffort`. See
+  `docs/adr/0006-best-effort.md`.
 
 ## [0.4.0] - 2026-11-14
 
