@@ -1,12 +1,9 @@
 /* Module-private, shared by `/result` and `/promise`. Absent from the
    package's exports map: it ships in `dist` but a consumer cannot import it. */
 
-/* Both captured when the module loads, so a thrown value whose own code
-   replaces `globalThis.String` or `Object.prototype.toString` while it is
-   being rendered cannot change what `describeThrown` calls: the originals
-   return a string on every path, which the callers' template interpolation
-   needs. `objectToString` is `Object.prototype.toString` bound to
-   `Function.prototype.call`, as `regExpExec` is in `/result`. */
+/* `String`, and `Object.prototype.toString` bound to
+   `Function.prototype.call`, both captured when the module loads, as
+   `regExpExec` is in `/result`. */
 const toText: (value: unknown) => string = String
 const objectToString: (value: unknown) => string =
   // eslint-disable-next-line @typescript-eslint/unbound-method -- bound at once

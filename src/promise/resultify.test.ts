@@ -95,9 +95,10 @@ describe('resultify', () => {
     const originalString = globalThis.String
     // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below, never called detached
     const originalToString = Object.prototype.toString
-    const throwingGet = {
-      get(): never {
-        throw new RangeError('get')
+    const throwingToPrimitive: ProxyHandler<object> = {
+      get(_target, key) {
+        if (key === Symbol.toPrimitive) throw new RangeError('get')
+        return undefined
       },
     }
     const cases: {
@@ -127,8 +128,8 @@ describe('resultify', () => {
         install: () => {
           Object.prototype.toString = () => Symbol('x') as never
         },
-        traps: throwingGet,
-        message: 'promise rejected with [object Unknown]',
+        traps: throwingToPrimitive,
+        message: 'promise rejected with [object Object]',
       },
     ]
     const hostile = (install: () => void, traps: ProxyHandler<object>) =>

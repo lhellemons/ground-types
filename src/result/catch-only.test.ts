@@ -712,16 +712,17 @@ describe('tryCatch handler dispatch', () => {
     }
   })
   it('refuses a method named class with an HTML-like comment before its parameters', () => {
-    // A known limit, not a goal: `<!--` and a line-start `-->` are comments
-    // in a sloppy script, but `isClassSource` skips only whitespace, block
-    // comments and line comments, so it takes the method for a class. A
-    // `<!--` straight after `class` is not whitespace, `{` or `/`, so that
-    // one is accepted.
+    // `<!--` and a line-start `-->`, or one after a block comment that spans
+    // lines, are comments in a sloppy script, but `isClassSource` skips only
+    // whitespace, block comments and line comments, so it takes the method
+    // for a class. A `<!--` straight after `class` is not whitespace, `{` or
+    // `/`, so that one is accepted.
     const boom = () => throws('bad')
     const sources = [
       'return { class <!-- c\n(e) { return e } }.class',
       'return { class\n--> c\n(e) { return e } }.class',
       'return { class/*c*/\n--> c\n(e) { return e } }.class',
+      'return { class /*\n*/ --> c\n(e) { return e } }.class',
     ]
     for (const source of sources) {
       // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test

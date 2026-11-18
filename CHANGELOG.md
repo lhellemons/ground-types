@@ -19,10 +19,11 @@ later is required.
 
 - `success(x)`, `failure(e)` and `result(x)` now infer at a site typed to a
   narrower `Result`: `(n: number): Result<number, Invalid> => success(n)`,
-  `(): Result<number, A | B> => failure(new A())` and `(x: number | Invalid):
-Result<number, Invalid> => result(x)` compile with no type arguments. A
-  `Success` carries `E = never` and a `Failure` carries `T = never`, and both
-  flow into any `Result<T, E>`. A plain `Error` is still rejected, through
+  `(): Result<number, A | B> => failure(new A())` and
+  `(x: number | Invalid): Result<number, Invalid> => result(x)` compile with no
+  type arguments. A `Success` carries `E = never` and a `Failure` carries
+  `T = never`, and both flow into any `Result<T, E>`. A plain `Error` is still
+  rejected, through
   `failure`, `result` and `success`, where a narrower class is expected, and
   `Result<Result<T>>` is still not assignable to `Result<T>`. A raw `Error`
   returned without `failure()` still compiles where `T` is `object`, a union
@@ -58,8 +59,9 @@ Result<number, Invalid> => result(x)` compile with no type arguments. A
   no error phantom, so `map(f, success(undefined))` is `Result<number, Error>`
   where a value-carrying `success(x)` seeds `E = never`: a chain over
   `success(undefined)` does not reach a narrower `Result`, and neither
-  `success<undefined, E>(undefined)` nor a declared seed nor `andThen(f,
-success(undefined))` narrows `E`. Pass type arguments to the combinator
+  `success<undefined, E>(undefined)` nor a declared seed nor
+  `andThen(f, success(undefined))` narrows `E`. Pass type arguments to the
+  combinator
   (`map<undefined, number, undefined, Invalid>(f, success(undefined))`), use
   `result<undefined, Invalid>(undefined)`, or cast.
   A `Success` narrowed out of a `Result<number | undefined, E>`
@@ -75,9 +77,9 @@ success(undefined))` narrows `E`. Pass type arguments to the combinator
   `never`), `unwrap` after ruling the `undefined` out of the whole `Result`,
   and `unwrap` on a narrowed `string | null`. On TypeScript 7.0 the
   narrowed-arm `unwrap` and `mapError` were errors on 0.4.0 as well.
-  `unknown` gets no nullish arm, so `(): Result<unknown, E> =>
-success(undefined)` and `success(null)` no longer compile. Checked on
-  TypeScript 5.4, 5.9 and 7.0.
+  `unknown` gets no nullish arm, so
+  `(): Result<unknown, E> => success(undefined)` and `success(null)` no longer
+  compile. Checked on TypeScript 5.4, 5.9 and 7.0.
 - Add `SuccessArm`, the marked part of a `Success`, exported from `/result`:
   consumers whose declarations mention a `Success` need a name to emit.
 - Add `SuccessMarkers` and `FailureMarkers`, exported from `/result`: the
@@ -253,10 +255,11 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   Success. TypeScript rejects the bound `Error`, `Map` and class and `Proxy`,
   and accepts `Number.bind(null)` and the bound ES5-style constructor. A foreign
   `class ... extends Error` is refused. Detected wrongly: a method named `class`
-  with an HTML-like comment (`<!--`, or `-->` at the start of a line; sloppy
-  scripts only) before its `(` is refused as a class, since only whitespace,
-  block comments and line comments are skipped there, where 0.4.0 accepted it.
-  A `<!--` directly after `class` is accepted.
+  with an HTML-like comment (`<!--`, or `-->` at the start of a line or after a
+  block comment that spans lines; sloppy scripts only) before its `(` is
+  refused as a class, since only whitespace, block comments and line comments
+  are skipped there; v0.4.0 accepted it. A `<!--` directly after `class` is
+  accepted.
 - `catchOnly` rethrows the original value when an entry's `Symbol.hasInstance`
   hook matches it but leaves it no longer an `Error` (a hook that calls
   `Object.setPrototypeOf(value, null)` and returns `true`). In v0.4.0 the
@@ -273,7 +276,7 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   `ThrownError.describe` itself returns. They also no longer look up `String` or
   `Object.prototype.toString` when they render the message: in v0.4.0 a thrown
   value whose `getPrototypeOf` trap replaced `globalThis.String` with a function
-  that returns a symbol, or an object whose `toString` throws, made the default
+  that returns a symbol or an object whose `toString` throws made the default
   `tryCatch` handler and `fail` throw and `resultify(fail, …)` reject, as did a
   replaced `Object.prototype.toString` that returns a symbol, for a value whose
   `String` conversion throws; now the default `tryCatch` handler returns a
