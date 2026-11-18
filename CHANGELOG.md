@@ -149,6 +149,31 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   Arrow functions, methods, plain objects and constructors of non-`Error`
   instances are rejected at compile time. Calls that compiled before keep
   their inferred error type.
+- **Breaking:** `catchOnly` and the `tryCatch` class-list shorthand no longer
+  compile for a generic error class with a private or protected constructor
+  (a `DomainFailure<T>` with a private constructor taking `detail: T`,
+  probed with a private one, a protected one and one whose type parameter is
+  nested in `readonly { value: T }[]`). TypeScript reads the
+  type parameters of such a class as `any`, so the payload typed as `any`
+  (`catchOnly(DomainFailure)(error).detail.toUpperCase()` compiled and threw
+  at run time). A generic class with a public constructor is unchanged, with
+  its payload as `unknown`, and so is a private-constructor class with no
+  generic payload. To use a private-constructor generic class, pass it as a
+  constructor type that fixes its payload, such as
+  `DomainFailure as unknown as abstract new () => DomainFailure<unknown>`.
+- `catchOnly` and the `tryCatch` class-list shorthand no longer compile for an
+  arrow function or a method decorated with an Error `prototype`
+  (`Object.assign(() => new Selected(), { prototype: Selected.prototype })`),
+  which has no construct signature. `Error`, `TypeError`, `RangeError` and a
+  callable that also has a construct signature still compile.
+- `catchOnly` (and so the `tryCatch` shorthand) now throws a `TypeError` when
+  the handler is created for an Error class whose `Symbol.hasInstance` is a
+  number, a string, a boolean, an object, an array or a symbol, whether own,
+  from a getter or inherited from a parent class. Before, it was admitted, and
+  every error then threw in `instanceof` on the error path and counted as no
+  match, so even an instance of the class was rethrown. A `null` or
+  `undefined` hook is still admitted and matches as without a hook, and the
+  hook is read, never called.
 - **Breaking:** `catchOnly` (and so the `tryCatch` shorthand) now throws a
   `TypeError` when the handler is created, if the class list is empty or holds
   an entry that is not a function, or whose inspection throws (a revoked

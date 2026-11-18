@@ -235,16 +235,58 @@ type InstanceOfClass<K> = K extends abstract new (...args: never[]) => infer I
     : never
 
 /**
+ * Whether `T` is `any` or holds `any` in a property, an array element or a
+ * function return, within four levels of nesting. TypeScript types a generic
+ * class's `prototype` with `any` for each type parameter, so this finds the
+ * payload an `InstanceOfClass` read from `prototype` would leave unchecked.
+ * Resolves to `true`, `false` or `boolean`; test it with `true extends`.
+ */
+type HasAny<T, Depth extends unknown[] = []> = 0 extends 1 & T
+  ? true
+  : Depth['length'] extends 4
+    ? false
+    : T extends readonly (infer Item)[]
+      ? HasAny<Item, [...Depth, 0]>
+      : T extends (...args: never[]) => infer Return
+        ? HasAny<Return, [...Depth, 0]>
+        : T extends object
+          ? true extends {
+              [P in keyof T]-?: HasAny<T[P], [...Depth, 0]>
+            }[keyof T]
+            ? true
+            : false
+          : false
+
+/**
+ * What a class `K` with no public construct signature is read as: refused
+ * when it is callable (a function decorated with a `prototype` is not
+ * constructable) or when its `prototype`, where the instance type is read
+ * from, holds `any`, as a generic class's does; otherwise `K`. A refused
+ * class maps to a type that says why.
+ */
+type CheckedPrototypeClass<K> = K extends (...args: never[]) => unknown
+  ? never
+  : true extends HasAny<InstanceOfClass<K>>
+    ? {
+        readonly 'catchOnly cannot read this class: its prototype holds any, which a generic class with a private or protected constructor has for each type parameter. Pass a class with a public constructor, or a constructor type such as `abstract new () => YourError<unknown>`': K
+      }
+    : K
+
+/**
  * Maps each class in `C` to itself, or to `never` when its instance type is
  * `any` or not an `Error`. Applied to the parameter of `catchOnly` and the
  * `tryCatch` list, it rejects arrow functions, methods, `Function`-typed
- * values and constructors of non-Error instances.
+ * values and constructors of non-Error instances. A class with a public
+ * construct signature is read from it; any other is read through
+ * {@link CheckedPrototypeClass}.
  */
 type CheckedClasses<C extends readonly unknown[]> = {
   [K in keyof C]: 0 extends 1 & InstanceOfClass<C[K]>
     ? never
     : InstanceOfClass<C[K]> extends Error
-      ? C[K]
+      ? C[K] extends abstract new (...args: never[]) => unknown
+        ? C[K]
+        : CheckedPrototypeClass<C[K]>
       : never
 }
 
@@ -767,10 +809,15 @@ export function fromMaybe<T, E extends Error>(
  * as Failures only when they are also instances of this realm's Error.
  * Rethrows every other value, including foreign-realm errors, unchanged.
  *
- * Each class must be an Error class (a private constructor is fine). An
+ * Each class must be an Error class (a private constructor is fine). At
+ * compile time, a callable with no construct signature is refused even when
+ * it has an `Error` `prototype`, and so is a generic class with a private or
+ * protected constructor, whose type parameters TypeScript reads as `any`; a
+ * public constructor reads them as `unknown`. An
  * empty list throws a `TypeError` when the handler is created, and so does an
  * entry that is not a function, or whose inspection throws (a revoked proxy,
- * a throwing `Symbol.hasInstance` getter), or that has no custom
+ * a throwing `Symbol.hasInstance` getter), or whose `Symbol.hasInstance` is
+ * neither nullish nor callable, or that has no custom
  * `Symbol.hasInstance`, own or inherited, and either an object `prototype`
  * without `Error.prototype` on its chain (`Object`, `Map`, `Symbol`, a class
  * that does not extend `Error`, a bound subclass of `Map`), or no object
@@ -827,7 +874,8 @@ export function catchOnly(
    (an accessor getter or a Proxy get trap does run at creation). An entry is
    usable when it has a custom `hasInstance`, or an object `prototype` with
    `Error.prototype` on its chain, or no object `prototype` and native
-   source. `Object`, `Symbol`, a plain `function () {}` and a class that
+   source. A `hasInstance` that is neither nullish nor callable refuses the
+   entry, whatever its `prototype`: `instanceof` would throw on it. `Object`, `Symbol`, a plain `function () {}` and a class that
    does not extend `Error` are refused. A bound function has no own
    `prototype` and inherits its target's parent's: a bound Error subclass
    reaches `Error.prototype` and is admitted, a bound derived class that does
@@ -842,11 +890,11 @@ function isUsableClass(candidate: unknown): boolean {
     const hasInstance = (candidate as { [Symbol.hasInstance]?: unknown })[
       Symbol.hasInstance
     ]
-    if (
-      typeof hasInstance === 'function' &&
-      hasInstance !== functionHasInstance
-    ) {
-      return true
+    if (hasInstance !== undefined && hasInstance !== null) {
+      // `instanceof` throws on a hook that is neither nullish nor callable,
+      // which the error path would count as no match.
+      if (typeof hasInstance !== 'function') return false
+      if (hasInstance !== functionHasInstance) return true
     }
     const prototype = (candidate as { prototype?: unknown }).prototype
     if (typeof prototype === 'object' && prototype !== null) {
