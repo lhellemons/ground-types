@@ -217,19 +217,20 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   (`parseInt`, `Math.max`), a function whose own text merely mentions
   `[native code]`, and a handler bound with `handler.bind(ctx)` are accepted. A
   Proxy over a plain function whose `prototype` is replaced by `{}` or by
-  `Object.create(null)`, is an ES5-style subclass's, or has a `constructor` that
-  was deleted, made an accessor or set to a Proxy is refused, as a Proxy over a
-  generator function is. Not detected: a bound `Error`, which returns a fresh
-  `Error` as the Failure; a bound built-in constructor (`Map.bind(null)`, which
-  throws "requires 'new'" on the error path, and `Number.bind(null)`, which
-  returns a Success); a bound class that is not an `Error` subclass, which
-  throws "cannot be invoked without 'new'" there; a bound ES5-style error
-  constructor, which returns `undefined` as a Success because a bound function
-  inherits `Function.prototype` and reaches no `prototype`; `Proxy` itself,
-  which throws "requires 'new'"; and an ES5-style error constructor from another
-  realm, which returns `undefined` as a Success. TypeScript rejects the bound
-  `Error`, `Map` and class and `Proxy`, and accepts `Number.bind(null)` and the
-  bound ES5-style constructor. A foreign `class ... extends Error` is refused.
+  `Object.create(null)`, is an ES5-style subclass's without an own
+  `constructor`, or has a `constructor` that was deleted, made an accessor or
+  set to a Proxy is refused, as a Proxy over a generator function is. Not
+  detected: a bound `Error`, which returns a fresh `Error` as the Failure; a
+  bound built-in constructor (`Map.bind(null)`, which throws "requires 'new'" on
+  the error path, and `Number.bind(null)`, which returns a Success); a bound
+  class that is not an `Error` subclass, which throws "cannot be invoked without
+  'new'" there; a bound ES5-style error constructor, which returns `undefined`
+  as a Success because a bound function inherits `Function.prototype` and
+  reaches no `prototype`; `Proxy` itself, which throws "requires 'new'"; and an
+  ES5-style error constructor from another realm, which returns `undefined` as a
+  Success. TypeScript rejects the bound `Error`, `Map` and class and `Proxy`,
+  and accepts `Number.bind(null)` and the bound ES5-style constructor. A foreign
+  `class ... extends Error` is refused.
 - When a value's prototype chain cannot be read (a Proxy whose
   `getPrototypeOf` trap throws, a revoked Proxy), `catchOnly` rethrows the
   original value and the default `tryCatch` handler wraps it in a
@@ -259,25 +260,26 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   `isSuccess`, `isFailure`, `assertSuccess`, `maybe/fromResult` and
   `promise/fail` now asks whether `Error.prototype` is on the value's prototype
   chain (`isPrototypeOf`) instead of using `instanceof`, so a defined
-  `Error[Symbol.hasInstance]` is no longer consulted. Before, a hook that threw
-  made every real `Error` count as not an `Error`, and a hook that returned
-  `true` made a non-`Error` count as one, so the default `tryCatch` handler and
-  `promise/fail` passed a thrown or rejected non-`Error` through unwrapped. The
-  answer is the same for every value without such a hook, including an `Error`
-  from another realm (not an `Error`, as before). The check reads
-  `Error.prototype`, `Function.prototype.call` and
-  `Object.prototype.isPrototypeOf` once, when the module loads, and so do the
-  `tryCatch` and `catchOnly` handler checks for `Function.prototype.toString`,
-  `Function.prototype.call`, `Object.getOwnPropertyDescriptor` and
-  `RegExp.prototype.exec`, and `catchOnly` for
-  `Function.prototype[Symbol.hasInstance]`. Patching `Function.prototype.call`,
-  `Function.prototype.toString`, `Object.prototype.isPrototypeOf`,
-  `Object.getOwnPropertyDescriptor` or `RegExp.prototype.exec` afterwards, or
-  replacing the global `Error` or `Function`, no longer changes an answer. That
-  covers these intrinsics only: patching a built-in's `prototype.constructor`
-  still bypasses the built-in check. `catchOnly` still matches a class by
-  `instanceof`, so an entry inherits `Error`'s `Symbol.hasInstance` hook, if one
-  is defined, like any other `instanceof` use.
+  `Error[Symbol.hasInstance]` is no longer consulted. Before, the exception of a
+  hook that threw escaped from `isFailure`, `isSuccess` and the default
+  `tryCatch` handler, and a hook that returned `true` made a non-`Error` count
+  as one, so the default `tryCatch` handler and `promise/fail` passed a thrown
+  or rejected non-`Error` through unwrapped. The answer is the same for every
+  value without such a hook, including an `Error` from another realm (not an
+  `Error`, as before). The check reads `Error.prototype`,
+  `Function.prototype.call` and `Object.prototype.isPrototypeOf` once, when the
+  module loads, and so do the `tryCatch` and `catchOnly` handler checks for
+  `Function.prototype.toString`, `Function.prototype.call`,
+  `Object.getOwnPropertyDescriptor` and `RegExp.prototype.exec`, and `catchOnly`
+  for `Function.prototype[Symbol.hasInstance]`. Patching
+  `Function.prototype.call`, `Function.prototype.toString`,
+  `Object.prototype.isPrototypeOf`, `Object.getOwnPropertyDescriptor` or
+  `RegExp.prototype.exec` afterwards, or replacing the global `Error` or
+  `Function`, no longer changes an answer. That covers these intrinsics only:
+  patching a built-in's `prototype.constructor` still bypasses the built-in
+  check. `catchOnly` still matches a class by `instanceof`, so an entry inherits
+  `Error`'s `Symbol.hasInstance` hook, if one is defined, like any other
+  `instanceof` use.
 - `abort/isAbortError` asks whether `DOMException.prototype`, read once when
   the module loads, is on the value's prototype chain (`isPrototypeOf`) instead
   of using `instanceof`, so a defined `DOMException[Symbol.hasInstance]` is no
