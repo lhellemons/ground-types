@@ -255,6 +255,65 @@ describe('the kit', () => {
     expect(Object.isFrozen(bestEffort(1, [{ m: 1 }]).diagnostics[0])).toBe(
       false,
     )
+    const bad: Result<{ id: string }, RangeError> = failure(
+      new RangeError('bad'),
+    )
+    expect(
+      Object.isFrozen(map(() => ({ id: 'new' }), bestEffort(1)).value),
+    ).toBe(false)
+    expect(
+      Object.isFrozen(map(() => ({ id: 'new' }))(bestEffort(1)).value),
+    ).toBe(false)
+    expect(
+      Object.isFrozen(
+        andThen(() => bestEffort({ id: 'n' }), bestEffort(1)).value,
+      ),
+    ).toBe(false)
+    expect(
+      Object.isFrozen(
+        andThen(() => bestEffort({ id: 'n' }))(bestEffort(1)).value,
+      ),
+    ).toBe(false)
+    expect(Object.isFrozen(recover({ id: 'fb' }, bad).value)).toBe(false)
+    expect(Object.isFrozen(recover({ id: 'fb' })(bad).value)).toBe(false)
+    expect(
+      Object.isFrozen(recoverWith({ id: 'fb' }, () => 'd', bad).value),
+    ).toBe(false)
+    expect(
+      Object.isFrozen(recoverWith({ id: 'fb' }, () => 'd')(bad).value),
+    ).toBe(false)
+  })
+  it('map, gather and note on a box without diagnostics throw a TypeError', () => {
+    const malformed = JSON.parse('{"value":1}') as BestEffort<number, string>
+    expect(caught(() => map((x: number) => x, malformed))).toBeInstanceOf(
+      TypeError,
+    )
+    expect(caught(() => map((x: number) => x)(malformed))).toBeInstanceOf(
+      TypeError,
+    )
+    expect(caught(() => gather([malformed]))).toBeInstanceOf(TypeError)
+    expect(caught(() => note(['n'], malformed))).toBeInstanceOf(TypeError)
+    expect(caught(() => note(['n'])(malformed))).toBeInstanceOf(TypeError)
+  })
+  it('gather flattens the diagnostics one level only, does not freeze the caller parts array, and takes the same part twice as two values and its diagnostics twice', () => {
+    expect(gather([bestEffort(1, [['a', 'b']])]).diagnostics).toEqual([
+      ['a', 'b'],
+    ])
+    const parts = [bestEffort(1, ['a']), bestEffort(2)]
+    gather(parts)
+    expect(Object.isFrozen(parts)).toBe(false)
+    const x = bestEffort(1, ['a', 'b'])
+    expect(gather([x, x])).toEqual({
+      value: [1, 1],
+      diagnostics: ['a', 'b', 'a', 'b'],
+    })
+  })
+  it('andThen leaves the diagnostics of the literal box its callback returns unfrozen, applied and curried', () => {
+    const literal: BestEffort<number, string> = { value: 2, diagnostics: ['x'] }
+    andThen(() => literal, bestEffort(1, ['a']))
+    andThen(() => literal)(bestEffort(1, ['a']))
+    expect(Object.isFrozen(literal)).toBe(false)
+    expect(Object.isFrozen(literal.diagnostics)).toBe(false)
   })
   it('a plain object literal is a BestEffort structurally: toResult reads it, and map returns a frozen box from it', () => {
     const literal: BestEffort<number, string> = { value: 1, diagnostics: ['d'] }
@@ -324,8 +383,9 @@ describe('the kit', () => {
     expect(map(spy, bestEffort(value)).value).toBe(value)
     expect(map(spy)(bestEffort(value)).value).toBe(value)
     expect(
-      andThen((x: { id: string }) => bestEffort(spy(x)), bestEffort(value)),
-    ).toHaveProperty('value', value)
+      andThen((x: { id: string }) => bestEffort(spy(x)), bestEffort(value))
+        .value,
+    ).toBe(value)
     expect(
       andThen((x: { id: string }) => bestEffort(spy(x)))(bestEffort(value))
         .value,

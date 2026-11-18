@@ -52,7 +52,7 @@ export function note<D, T, D2>(
 ): BestEffort<T, D | D2>
 export function note<D>(
   diagnostics: readonly D[],
-): <T, D2 = never>(value: BestEffort<T, D2>) => BestEffort<T, D | D2>
+): <T, D2>(value: BestEffort<T, D2>) => BestEffort<T, D | D2>
 export function note<D, T, D2>(
   diagnostics: readonly D[],
   ...value: [] | [BestEffort<T, D2>]
@@ -85,7 +85,8 @@ export function map<A, U extends NotABestEffort<U>, T extends A, D>(
   ...value: [] | [BestEffort<T, D>]
 ): CurryableMapper<BestEffort<T, D>, BestEffort<U, D>> {
   return curry(
-    (value: BestEffort<T, D>) => bestEffort(fn(value.value), value.diagnostics),
+    (value: BestEffort<T, D>) =>
+      bestEffort(fn(value.value), [...value.diagnostics]),
     ...value,
   )
 }
@@ -128,7 +129,7 @@ export function gather<T, D>(
 ): BestEffort<readonly T[], D> {
   return bestEffort(
     parts.map((part) => part.value),
-    parts.flatMap((part) => part.diagnostics),
+    parts.flatMap((part) => [...part.diagnostics]),
   )
 }
 
@@ -136,6 +137,7 @@ export function gather<T, D>(
  * The bridge in: a Success is itself with no diagnostics; a Failure is
  * `fallback` with the error itself as its one diagnostic. Curryable by
  * arity; the unapplied form binds `T` at the call and `E` at application.
+ * The curried form puts the same `fallback` in every box it makes.
  * {@link recoverWith} records something made from the error instead.
  */
 export function recover<T, E extends Error>(
@@ -161,7 +163,8 @@ export function recover<T, E extends Error>(
  * itself with no diagnostics; a Failure is `fallback` with
  * `diagnose(error)` as its one diagnostic. A throw from `diagnose`
  * propagates. Curryable by arity; the unapplied form binds `T`, `E` and
- * `D` at the call.
+ * `D` at the call. The curried form puts the same `fallback` in every box it
+ * makes.
  */
 export function recoverWith<T, E extends Error, D>(
   fallback: T,

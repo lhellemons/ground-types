@@ -187,6 +187,11 @@ describe('the guards', () => {
       ),
     ).toEqualTypeOf<Result<HiddenList, Error>>()
   })
+  it('map admits a callback that returns a Promise: the box then holds that Promise', () => {
+    expectTypeOf(map(async (x: number) => x, bestEffort(1))).toEqualTypeOf<
+      BestEffort<Promise<number>, never>
+    >()
+  })
   it('any passes the guard of map although any is assignable to BestEffort<unknown, unknown>', () => {
     const anyValue: any = JSON.parse('1')
     const asBox: BestEffort<unknown, unknown> = anyValue
@@ -302,8 +307,11 @@ describe('a Maybe part', () => {
   })
   it('toResult of a Maybe part is a Result of a Maybe', () => {
     expectTypeOf(
-      toResult(toList, bestEffort<Maybe<string>, Diagnostic>(undefined)),
-    ).toEqualTypeOf<Result<Maybe<string>, ListError>>()
+      toResult(
+        (d: readonly string[]) => new Error(d.join()),
+        bestEffort<Maybe<string>, string>(undefined),
+      ),
+    ).toEqualTypeOf<Result<Maybe<string>, Error>>()
   })
   it('a generic reader over `value: T | undefined` cannot return bestEffort(value) as BestEffort<Maybe<T>, D>; maybe(value), just(value) and a Maybe<T> parameter need no cast', () => {
     function plain<T>(value: T | undefined): BestEffort<Maybe<T>, never> {

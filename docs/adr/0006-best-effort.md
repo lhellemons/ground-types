@@ -185,9 +185,10 @@ instances; a class with a `private readonly value` and a public
 diagnostics and a public value is not refused by map or toResult"); `any`
 as `map`'s return passes `map`'s guard although `any` is assignable to
 `BestEffort<unknown, unknown>` (probe "any passes the guard of map
-although any is assignable to BestEffort<unknown, unknown>"); and a generic `map(f, be)` with `f:
-(n: number) => V` is refused, as `/result`'s `map` refuses `mapResult(f,
-r)` with the same `f` (probe "a look-alike is refused").
+although any is assignable to BestEffort<unknown, unknown>"); and a generic
+`map(f, be)` with `f: (n: number) => V` is refused, as `/result`'s `map`
+refuses `mapResult(f, r)` with the same `f` (probe "a look-alike is
+refused").
 
 The constructor, `map`'s return and the fallback of `recover` and
 `recoverWith` admit an `Error`: the box keeps the value and the list
@@ -272,7 +273,9 @@ string>(undefined)`. The port probes (the runtime describe "the
   BestEffort<Maybe<string>, WorldFormatError>") and "toResultUnguarded
   admits all of them" stay in the prototype.
 
-## Amendment of 2026-11-18 (#127): the module as built
+## Amendments
+
+### 2026-11-18 — The module as built (#127)
 
 `/best-effort` ships as `src/best-effort/index.ts`, built from the kit in
 `prototypes/117/best-effort.ts` without `toResultUnguarded`. The root entry
@@ -288,7 +291,10 @@ pinned by the test named.
   any").
 - **`map` and a `Promise` of a box:** `map` does not refuse one, and
   `toResult` leaves it inside the Success (probe "a Best Effort inside a
-  container is not refused", the `Promise` instance).
+  container is not refused", the `Promise` instance). `map` also admits a
+  callback that returns a Promise: the box then holds that Promise (probe
+  "map admits a callback that returns a Promise: the box then holds that
+  Promise").
 - **`andThen` and a box-valued step:** `andThen` admits a step whose value
   is a box, giving a `BestEffort<BestEffort<…>, …>`, and `toResult` refuses
   that result (probe "andThen admits a step whose value is a box, and

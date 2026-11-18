@@ -111,12 +111,12 @@ that test doubles cannot reach a production bundle by accident.
 There is also a root entry point, for a bare
 `import from '@lhellemons/ground-types'` and for tooling that predates or
 ignores the `exports` map. It re-exports each module as a namespace, named
-after its subpath (`best-effort` becomes `bestEffort`,
-`intern-registry` becomes `internRegistry`, `value-object` becomes
-`valueObject`, the rest unchanged), so `maybe.map`
-and `result.map` stay distinct here too — nothing is flattened. Per-module
-import remains the recommended style, for the same reason as above;
-`/promise/fake` is not part of the root, for the same reason as above.
+after its subpath (`best-effort` becomes `bestEffort`, `intern-registry`
+becomes `internRegistry`, `value-object` becomes `valueObject`, the rest
+unchanged), so `maybe.map` and `result.map` stay distinct here too — nothing
+is flattened. Per-module import remains the recommended style, for the same
+reason as above; `/promise/fake` is not part of the root, for the same
+reason as above.
 
 ```ts
 import { maybe, result } from '@lhellemons/ground-types'
@@ -303,9 +303,10 @@ const outcome = pipe(
   `andThen(fn, box)` chains a step that returns a `BestEffort`: the first
   box's diagnostics come before the step's. `note(diagnostics, box)` appends
   after the ones held. `gather(parts)` fans a list of `BestEffort`s in: the
-  values in part order, the diagnostics in part order. `map`, `andThen`,
-  `note`, `recover`, `recoverWith` and `toResult` are value-last and
-  curryable by arity, as `/result`'s combinators are.
+  values in part order, the diagnostics in part order. All parts share one
+  `T` and one `D`; parts of different types are written `gather<T, D>(…)`.
+  `map`, `andThen`, `note`, `recover`, `recoverWith` and `toResult` are
+  value-last and curryable by arity, as `/result`'s combinators are.
 - `recover(fallback, result)` and `recoverWith(fallback, diagnose, result)`
   take a `Result` in. A Success is itself, with no diagnostic. A Failure is
   `fallback`, with the error as the one diagnostic (`recover`) or with
