@@ -138,8 +138,7 @@ export function gather<T, D>(
  * `fallback` with the error itself as its one diagnostic. Curryable by
  * arity; the unapplied form binds `T` at the call and `E` at application.
  * The unapplied form puts the same `fallback` in every box it makes from a
- * Failure.
- * {@link recoverWith} records something made from the error instead.
+ * Failure. {@link recoverWith} records something made from the error instead.
  */
 export function recover<T, E extends Error>(
   fallback: T,
@@ -163,9 +162,9 @@ export function recover<T, E extends Error>(
  * The bridge in with a diagnostic of the caller's own shape: a Success is
  * itself with no diagnostics; a Failure is `fallback` with
  * `diagnose(error)` as its one diagnostic. A throw from `diagnose`
- * propagates. Curryable by arity; the unapplied form binds `T`, `E` and
- * `D` at the call. The unapplied form puts the same `fallback` in every box it
- * makes from a Failure.
+ * propagates. Curryable by arity; the unapplied form binds `T`, `E` and `D`
+ * at the call, and puts the same `fallback` in every box it makes from a
+ * Failure.
  */
 export function recoverWith<T, E extends Error, D>(
   fallback: T,
