@@ -290,6 +290,178 @@ describe('selective handler inference', () => {
   })
 })
 
+/* A generic error class: TypeScript types the `prototype` of a generic class
+   with `any` for each type parameter, which the public and the private
+   constructor read differently. */
+class PublicGeneric<T> extends Error {
+  constructor(readonly detail: T) {
+    super()
+  }
+}
+class PrivateGeneric<T> extends Error {
+  private constructor(readonly detail: T) {
+    super()
+  }
+  static of<T>(detail: T): PrivateGeneric<T> {
+    return new PrivateGeneric(detail)
+  }
+}
+class ProtectedGeneric<T> extends Error {
+  protected constructor(readonly detail: T) {
+    super()
+  }
+  static of<T>(detail: T): ProtectedGeneric<T> {
+    return new ProtectedGeneric(detail)
+  }
+}
+class PrivateNestedGeneric<T> extends Error {
+  private constructor(readonly details: readonly { readonly value: T }[]) {
+    super()
+  }
+}
+class PrivateAnyField extends Error {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the point of the pin
+  private constructor(readonly raw: any) {
+    super()
+  }
+}
+class PrivateSignalField extends Error {
+  private constructor(readonly signal: AbortSignal) {
+    super()
+  }
+}
+class PrivatePending<T> extends Error {
+  private constructor(readonly pending: Promise<T>) {
+    super()
+  }
+}
+class PrivateConcrete extends Error {
+  private constructor(readonly detail: string) {
+    super()
+  }
+  static of(detail: string): PrivateConcrete {
+    return new PrivateConcrete(detail)
+  }
+}
+declare const decoratedConstructable: {
+  (): Selected
+  new (): Selected
+  prototype: Selected
+}
+
+describe('a generic error class', () => {
+  it('types a public constructor payload as unknown', () => {
+    expectTypeOf(catchOnly(PublicGeneric)).returns.toEqualTypeOf<
+      Failure<never, PublicGeneric<unknown>>
+    >()
+    expectTypeOf(tryCatch(() => 1, [PublicGeneric])()).toEqualTypeOf<
+      Result<number, PublicGeneric<unknown>>
+    >()
+  })
+  it('keeps a public constructor payload from being read as a string', () => {
+    const caught = catchOnly(PublicGeneric)(new PublicGeneric(42))
+    // @ts-expect-error The payload is `unknown`, not `any`
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- the point of the pin
+    caught.detail.toUpperCase()
+    expectTypeOf(caught.detail).toBeUnknown()
+  })
+  it('accepts a private constructor class passed as its unknown instance type', () => {
+    const asUnknown =
+      PrivateGeneric as unknown as abstract new () => PrivateGeneric<unknown>
+    const caught = catchOnly(asUnknown)(PrivateGeneric.of(42))
+    expectTypeOf(caught.detail).toBeUnknown()
+    expectTypeOf(tryCatch(() => 1, [asUnknown])()).toEqualTypeOf<
+      Result<number, PrivateGeneric<unknown>>
+    >()
+  })
+  it('refuses a private or protected constructor, whose payload would be any', () => {
+    // @ts-expect-error A private constructor leaves the payload `any`
+    catchOnly(PrivateGeneric)
+    // @ts-expect-error A private constructor leaves the payload `any`
+    tryCatch(() => 1, [PrivateGeneric])
+    // @ts-expect-error A protected constructor leaves the payload `any`
+    catchOnly(ProtectedGeneric)
+    // @ts-expect-error A protected constructor leaves the payload `any`
+    tryCatch(() => 1, [ProtectedGeneric])
+    // @ts-expect-error The `any` is found in a nested payload too
+    catchOnly(PrivateNestedGeneric)
+    // @ts-expect-error One refused class refuses the list
+    catchOnly(Selected, PrivateGeneric)
+  })
+  it('refuses a private constructor with no type parameter whose prototype holds any', () => {
+    // @ts-expect-error The `any` field is read through the prototype
+    catchOnly(PrivateAnyField)
+    // @ts-expect-error An `AbortSignal` field holds `any`
+    tryCatch(() => 1, [PrivateSignalField])
+  })
+  it('accepts such a class passed as a constructor type fixing its instance type', () => {
+    const asInstance =
+      PrivateSignalField as unknown as abstract new () => PrivateSignalField
+    expectTypeOf(catchOnly(asInstance)).returns.toEqualTypeOf<
+      Failure<never, PrivateSignalField>
+    >()
+  })
+  it('does not look inside a Promise, so a type parameter used only there still reads as any', () => {
+    // The documented limit of the check
+    expectTypeOf(catchOnly(PrivatePending)).returns.toEqualTypeOf<
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the documented limit
+      Failure<never, PrivatePending<any>>
+    >()
+  })
+  it('reads a public and a private constructor class in one list', () => {
+    expectTypeOf(catchOnly(Error, PrivateConcrete)).returns.toEqualTypeOf<
+      Failure<never, Error | PrivateConcrete>
+    >()
+    expectTypeOf(
+      tryCatch(() => 1, [TypeError, PrivateConcrete])(),
+    ).toEqualTypeOf<Result<number, TypeError | PrivateConcrete>>()
+  })
+  it('still accepts a private constructor with no generic payload', () => {
+    expectTypeOf(catchOnly(PrivateConcrete)).returns.toEqualTypeOf<
+      Failure<never, PrivateConcrete>
+    >()
+    expectTypeOf(tryCatch(() => 1, [PrivateConcrete])()).toEqualTypeOf<
+      Result<number, PrivateConcrete>
+    >()
+  })
+})
+
+const decoratedArrow = Object.assign(() => new Selected(), {
+  prototype: Selected.prototype,
+})
+const decoratedMethod = Object.assign(
+  {
+    run(this: void) {
+      return new Selected()
+    },
+  }.run,
+  { prototype: Selected.prototype },
+)
+
+describe('a callable decorated with an Error prototype', () => {
+  it('is refused, being no constructor', () => {
+    // @ts-expect-error A callable with no construct signature is not a class
+    catchOnly(decoratedArrow)
+    // @ts-expect-error A callable with no construct signature is not a class
+    tryCatch(() => 1, [decoratedArrow])
+    // @ts-expect-error A method decorated the same way is no class either
+    catchOnly(decoratedMethod)
+    // @ts-expect-error A method decorated the same way is no class either
+    tryCatch(() => 1, [decoratedMethod])
+  })
+  it('is accepted when it also has a construct signature', () => {
+    expectTypeOf(catchOnly(decoratedConstructable)).returns.toEqualTypeOf<
+      Failure<never, Selected>
+    >()
+    expectTypeOf(catchOnly(Error, TypeError)).returns.toEqualTypeOf<
+      Failure<never, Error>
+    >()
+    expectTypeOf(tryCatch(() => 1, [Error, RangeError])()).toEqualTypeOf<
+      Result<number, Error>
+    >()
+  })
+})
+
 type ErrorConstructorLike = abstract new (...args: never[]) => Error
 
 describe('generic call sites', () => {

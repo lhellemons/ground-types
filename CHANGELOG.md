@@ -145,15 +145,29 @@ success(undefined)` and `success(null)` no longer compile. Checked on
 - `definePrimitiveValueObject` infers `E` from a handler written with
   `failure()` or `result()`, when it is given no type arguments.
 - `catchOnly` and the `tryCatch` class-list shorthand now accept error classes
-  with a private constructor, such as a domain error with a static factory.
-  Arrow functions, methods, plain objects and constructors of non-`Error`
-  instances are rejected at compile time. Calls that compiled before keep
-  their inferred error type.
+  with a private or protected constructor, such as a domain error with a static
+  factory. Such a class is read from its `prototype`, and is refused at compile
+  time when its instance type holds `any` in a property, an index signature, an
+  array element or a function's return, within four levels of nesting: a
+  generic class does for each type parameter (`detail: T` reads as `any`), and
+  so does a class with an `any` field, an `AbortSignal` field or an
+  `AggregateError` parent. To use one, pass it as a constructor type that fixes
+  its instance type, such as
+  `DomainFailure as unknown as abstract new () => DomainFailure<unknown>`. The
+  check does not look inside a `Promise`, a `Set`, a function's parameters or
+  deeper than four levels, so a type parameter used only there still reads as
+  `any`. Arrow functions, methods (also when given an `Error` `prototype`),
+  plain objects and constructors of non-`Error` instances are rejected at
+  compile time. Calls that compiled before keep their inferred error type.
 - **Breaking:** `catchOnly` (and so the `tryCatch` shorthand) now throws a
   `TypeError` when the handler is created, if the class list is empty or holds
   an entry that is not a function, or whose inspection throws (a revoked
-  proxy, a throwing `Symbol.hasInstance` getter), or that has no custom
-  `Symbol.hasInstance`, own or inherited, and either an object `prototype`
+  proxy, a throwing `Symbol.hasInstance` getter), or whose
+  `Symbol.hasInstance` is any value other than a function, `null` or
+  `undefined` (read, never called; in 0.4.0 the handler threw a `TypeError`
+  from `instanceof` in place of each `Error` it was given), or that has no
+  custom `Symbol.hasInstance`, own or inherited, and either an object
+  `prototype`
   without `Error.prototype` on its chain (`Object`, `Map`, `Symbol`, `Array`,
   `Promise`, `Date`, a class that does not extend `Error`, a function
   declaration, a bound subclass of `Map`), or no object `prototype` and source

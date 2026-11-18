@@ -264,6 +264,101 @@ describe('catchOnly entries with custom behaviour', () => {
     expect(create).toThrow(TypeError)
     expect(create).toThrow(/catchOnly entry 0 is not an error class/)
   })
+  it('rejects an Error class whose Symbol.hasInstance is neither nullish nor callable', () => {
+    const create = (entry: unknown) => () =>
+      (catchOnly as (...classes: unknown[]) => unknown)(entry)
+    const hooks: unknown[] = [1, 'hook', true, {}, [], Symbol('hook')]
+    for (const hook of hooks) {
+      const Broken = Object.defineProperty(
+        class extends Error {},
+        Symbol.hasInstance,
+        { value: hook },
+      )
+      expect(create(Broken)).toThrow(/catchOnly entry 0 is not an error class/)
+      expect(() => tryCatch(() => 1, [Broken])).toThrow(TypeError)
+      // The same refusal through a getter, and through an inherited hook
+      class Getter extends Error {
+        static get [Symbol.hasInstance](): unknown {
+          return hook
+        }
+      }
+      expect(create(Getter)).toThrow(TypeError)
+      const Parent = Object.defineProperty(
+        class extends Error {},
+        Symbol.hasInstance,
+        { value: hook },
+      )
+      class Child extends Parent {}
+      expect(create(Child)).toThrow(TypeError)
+    }
+    // The refusal is not caused by `instanceof` being unreliable at creation
+    // only: the hook is what `instanceof` would reject on the error path.
+    const Broken = Object.defineProperty(
+      class extends Error {},
+      Symbol.hasInstance,
+      { value: 1 },
+    )
+    expect(() => new Error('x') instanceof Broken).toThrow(TypeError)
+  })
+  it('refuses a non-callable hook in any position of the list, without calling it', () => {
+    let reads = 0
+    let calls = 0
+    const Broken = Object.defineProperty(
+      class extends Error {},
+      Symbol.hasInstance,
+      {
+        value: 1,
+      },
+    )
+    const Counted = Object.defineProperty(
+      class extends Error {},
+      Symbol.hasInstance,
+      {
+        get: () => {
+          reads++
+          return () => {
+            calls++
+            return true
+          }
+        },
+      },
+    )
+    expect(() =>
+      (catchOnly as (...classes: unknown[]) => unknown)(Counted, Broken),
+    ).toThrow(/catchOnly entry 1 is not an error class/)
+    expect(() => tryCatch(() => 1, [A, Broken])).toThrow(
+      /catchOnly entry 1 is not an error class/,
+    )
+    // The check reads the hook once and never calls it
+    expect(reads).toBe(1)
+    expect(calls).toBe(0)
+  })
+  it('accepts an Error class whose Symbol.hasInstance is null or undefined, matching as without a hook', () => {
+    for (const hook of [undefined, null]) {
+      const Hookless = Object.defineProperty(
+        class extends Error {},
+        Symbol.hasInstance,
+        { value: hook },
+      )
+      const handler = catchOnly(Hookless)
+      const error = new Hookless()
+      expect(handler(error)).toBe(error)
+      const other = new Error('other')
+      expectThrow(() => handler(other), other)
+      expect(tryCatch(() => throws(error), [Hookless])()).toBe(error)
+    }
+  })
+  it('tests the prototype of an entry whose Symbol.hasInstance is null or undefined', () => {
+    for (const hook of [undefined, null]) {
+      class Plain {}
+      for (const entry of [Plain, () => new A()]) {
+        Object.defineProperty(entry, Symbol.hasInstance, { value: hook })
+        expect(() =>
+          (catchOnly as (...classes: unknown[]) => unknown)(entry),
+        ).toThrow(/catchOnly entry 0 is not an error class/)
+      }
+    }
+  })
   it('accepts a function without an object prototype that has an own or inherited hasInstance', () => {
     const bare = (): void => {}
     Object.defineProperty(bare, Symbol.hasInstance, {
