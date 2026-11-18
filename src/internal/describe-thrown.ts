@@ -1,6 +1,17 @@
 /* Module-private, shared by `/result` and `/promise`. Absent from the
    package's exports map: it ships in `dist` but a consumer cannot import it. */
 
+/* Both captured when the module loads, so a thrown value whose own code
+   replaces `globalThis.String` or `Object.prototype.toString` while it is
+   being rendered cannot change what `describeThrown` calls: the originals
+   return a string on every path, which the callers' template interpolation
+   needs. `objectToString` is `Object.prototype.toString` bound to
+   `Function.prototype.call`, as `regExpExec` is in `/result`. */
+const toText: (value: unknown) => string = String
+const objectToString: (value: unknown) => string =
+  // eslint-disable-next-line @typescript-eslint/unbound-method -- bound at once
+  Function.prototype.call.bind(Object.prototype.toString)
+
 /* The renderer behind `ThrownError.describe` and the default messages of
    `ThrownError` and `RejectionError`. */
 export function describeThrown(value: unknown): string {
@@ -9,10 +20,10 @@ export function describeThrown(value: unknown): string {
   // still reads `Symbol.toStringTag`, so a hostile Proxy can throw there
   // too, and the constant is the last resort.
   try {
-    return String(value)
+    return toText(value)
   } catch {
     try {
-      return Object.prototype.toString.call(value)
+      return objectToString(value)
     } catch {
       return '[object Unknown]'
     }

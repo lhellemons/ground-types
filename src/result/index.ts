@@ -444,7 +444,10 @@ function isClassLike(candidate: Function): boolean {
 
 /* Whether the source text starts with `class`, not followed by a parameter
    list: a method named `class` has a `(` next, after any whitespace and block
-   or line comments. */
+   or line comments. An HTML-like comment (`<!--`, or `-->` at the start of a
+   line; sloppy scripts only) is not skipped, so a method named `class` with
+   one before its `(` counts as a class, unless the `<!--` follows `class`
+   directly. */
 function isClassSource(source: string): boolean {
   return (
     regExpExec(

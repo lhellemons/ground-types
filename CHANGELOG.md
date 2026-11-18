@@ -202,12 +202,13 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   neither an array nor a function, or is a function that is a class (its source
   starts with `class` not followed, after whitespace and block or line comments,
   by `(`, an error class or not, so `class {}`, `class Foo extends Map {}` and
-  `class /*(*/ Named {}` too; a method named `class` is not one), or whose
-  `prototype` is `Error.prototype` or inherits from it (`Error`, `TypeError` and
-  the other built-ins, an ES5-style error constructor, a bound subclass of
-  `Error`), or that is a built-in constructor: its source ends `{ [native code]
-}` and its own `prototype` is an object whose own `constructor` is not an
-  ordinary function (missing, not a function, or with native or class source).
+  `class /*(*/ Named {}` too; a method named `class` is not one, except one with
+  an HTML-like comment before its `(`: see below), or whose `prototype` is
+  `Error.prototype` or inherits from it (`Error`, `TypeError` and the other
+  built-ins, an ES5-style error constructor, a bound subclass of `Error`), or
+  that is a built-in constructor: its source ends `{ [native code] }` and its
+  own `prototype` is an object whose own `constructor` is not an ordinary
+  function (missing, not a function, or with native or class source).
   That covers `Map`, `Set`, `WeakMap`, `WeakSet`, `Promise`, `WeakRef`,
   `BigInt`, `Number`, `String`, `Boolean`, `Array`, `Date`, `RegExp`, `Symbol`,
   `Function`, `Object`, `ArrayBuffer`, the typed arrays, the `Intl`
@@ -220,11 +221,12 @@ success(undefined)` and `success(null)` no longer compile. Checked on
   error. `BigInt` threw a `SyntaxError` for a thrown `Error` and returned a
   bigint for a thrown integer. `Function`, `AsyncFunction`, `GeneratorFunction`
   and `RegExp` threw a `SyntaxError` or returned a Success, depending on the
-  message (`new Error('boom')` gave a function or a regular expression, and `new
-Error('(')` threw from all four). For a thrown `Error`, `Number`, `String`,
-  `Boolean`, `Array`, `Date` and `Symbol` returned a Success such as `NaN`, a
-  string or an array, and so did `Intl.Collator`, `Intl.NumberFormat` and
-  `Intl.DateTimeFormat` (the other `Intl` constructors threw "requires 'new'").
+  message (`new Error('boom')` gave a function or a regular expression, and
+  `new Error('(')` threw from all four). For a thrown `Error`, `Number`,
+  `String`, `Boolean`, `Array`, `Date` and `Symbol` returned a Success such as
+  `NaN`, a string or an array, and so did `Intl.Collator`, `Intl.NumberFormat`
+  and `Intl.DateTimeFormat` (the other `Intl` constructors threw "requires
+  'new'").
   `Object` returned a thrown `Error` as a Failure, a working pass-through, and
   any other thrown value as a Success: a primitive boxed, `null` or `undefined`
   as `{}`, an object as itself. TypeScript already rejected `Map`, `Set`,
@@ -250,7 +252,11 @@ Error('(')` threw from all four). For a thrown `Error`, `Number`, `String`,
   ES5-style error constructor from another realm, which returns `undefined` as a
   Success. TypeScript rejects the bound `Error`, `Map` and class and `Proxy`,
   and accepts `Number.bind(null)` and the bound ES5-style constructor. A foreign
-  `class ... extends Error` is refused.
+  `class ... extends Error` is refused. Detected wrongly: a method named `class`
+  with an HTML-like comment (`<!--`, or `-->` at the start of a line; sloppy
+  scripts only) before its `(` is refused as a class, since only whitespace,
+  block comments and line comments are skipped there, where 0.4.0 accepted it.
+  A `<!--` directly after `class` is accepted.
 - `catchOnly` rethrows the original value when an entry's `Symbol.hasInstance`
   hook matches it but leaves it no longer an `Error` (a hook that calls
   `Object.setPrototypeOf(value, null)` and returns `true`). In v0.4.0 the
@@ -258,12 +264,20 @@ Error('(')` threw from all four). For a thrown `Error`, `Number`, `String`,
   `false`. `catchOnly` also no longer reads `Array.prototype.some` while it
   matches: in v0.4.0 a thrown Proxy whose `getPrototypeOf` trap replaced it made
   the handler throw that function's exception instead of returning a Failure or
-  rethrowing the original. `new ThrownError(value)` and `new
-RejectionError(reason)` no longer read the public `ThrownError.describe`: in
-  v0.4.0 a replacement that throws made the default `tryCatch` handler throw,
-  and `fail` too for a reason that is not an `Error`, and a replacement that
+  rethrowing the original. `new ThrownError(value)` and
+  `new RejectionError(reason)` no longer read the public
+  `ThrownError.describe`: in v0.4.0 a replacement that throws made the default
+  `tryCatch` handler and `fail` throw for a value that is not an `Error`, and
+  `resultify(fail, …)` rejected with that exception, and a replacement that
   returns changed their default messages; now it changes only what
-  `ThrownError.describe` itself returns.
+  `ThrownError.describe` itself returns. They also no longer look up `String` or
+  `Object.prototype.toString` when they render the message: in v0.4.0 a thrown
+  value whose `getPrototypeOf` trap replaced `globalThis.String` with a function
+  that returns a symbol, or an object whose `toString` throws, made the default
+  `tryCatch` handler and `fail` throw and `resultify(fail, …)` reject, as did a
+  replaced `Object.prototype.toString` that returns a symbol, for a value whose
+  `String` conversion throws; now the default `tryCatch` handler returns a
+  `ThrownError` and `fail` a `RejectionError`, as for any other value.
 - When a value's prototype chain cannot be read (a Proxy whose
   `getPrototypeOf` trap throws, a revoked Proxy), `catchOnly` rethrows the
   original value and the default `tryCatch` handler wraps it in a

@@ -395,6 +395,79 @@ describe('tryCatch', () => {
     expect((boom() as ThrownError).thrown).toBe(symbol)
   })
 
+  it('renders a thrown value that replaces String or Object.prototype.toString while it is classified', () => {
+    // The `getPrototypeOf` trap runs inside the default handler's Error
+    // check, before the message is rendered: a replacement that returns a
+    // symbol, or an object whose `toString` throws, would make the message
+    // template throw out of the handler if `describeThrown` looked it up
+    // then. `Object.prototype.toString` is only reached when `String`
+    // throws, which the `get` trap arranges.
+    const originalString = globalThis.String
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below, never called detached
+    const originalToString = Object.prototype.toString
+    const throwingGet = {
+      get(): never {
+        throw new RangeError('get')
+      },
+    }
+    const cases: {
+      install: () => void
+      traps: ProxyHandler<object>
+      message: string
+    }[] = [
+      {
+        install: () => {
+          globalThis.String = (() => Symbol('x')) as never
+        },
+        traps: {},
+        message: 'threw [object Object]',
+      },
+      {
+        install: () => {
+          globalThis.String = (() => ({
+            toString(): never {
+              throw new RangeError('toString')
+            },
+          })) as never
+        },
+        traps: {},
+        message: 'threw [object Object]',
+      },
+      {
+        install: () => {
+          Object.prototype.toString = () => Symbol('x') as never
+        },
+        traps: throwingGet,
+        message: 'threw [object Unknown]',
+      },
+    ]
+    for (const { install, traps, message } of cases) {
+      const thrown = new Proxy(
+        {},
+        {
+          ...traps,
+          getPrototypeOf(): object {
+            install()
+            return Object.prototype
+          },
+        },
+      )
+      let outcome: unknown
+      try {
+        outcome = tryCatch(() => {
+          throw thrown
+        })()
+      } finally {
+        globalThis.String = originalString
+        Object.prototype.toString = originalToString
+      }
+
+      expect(outcome).toBeInstanceOf(ThrownError)
+      expect((outcome as ThrownError).thrown).toBe(thrown)
+      expect((outcome as ThrownError).message).toBe(message)
+    }
+  })
+
   it('renders its message without reading the public ThrownError.describe', () => {
     // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below, never called detached
     const original = ThrownError.describe
