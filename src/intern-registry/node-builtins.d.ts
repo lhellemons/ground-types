@@ -1,9 +1,16 @@
-/* The library deliberately avoids @types/node (see tsconfig.json), so the two
-   Node built-ins the real-GC test in index.test.ts needs are declared here,
-   scoped to what that test uses. */
+/* The library deliberately avoids @types/node (see tsconfig.json), so the Node
+   built-ins the tests need (the real-GC test in index.test.ts, and the promise
+   tests that run code in another realm and count listeners) are declared here,
+   scoped to what they use. */
 declare module 'node:v8' {
   export function setFlagsFromString(flags: string): void
 }
 declare module 'node:vm' {
   export function runInNewContext(code: string): unknown
+}
+declare module 'node:events' {
+  export function getEventListeners(
+    emitter: EventTarget,
+    type: string,
+  ): unknown[]
 }

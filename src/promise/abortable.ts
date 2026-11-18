@@ -1,13 +1,14 @@
 import { AbortError } from '../abort/index.js'
 import { hasPrototype } from '../internal/is-error.js'
 
-/* `Promise`, `Promise.prototype`, `Promise.prototype.then` and `Reflect.apply`,
-   captured when the module loads. */
+/* `Promise`, `Promise.prototype`, `Promise.prototype.then`, `Reflect.apply` and
+   `Object.create`, captured when the module loads. */
 const NativePromise = Promise
 const promisePrototype = Promise.prototype
 // eslint-disable-next-line @typescript-eslint/unbound-method -- only applied
 const promiseThen = Promise.prototype.then
 const apply = Reflect.apply
+const createObject = Object.create
 const cycleMessage = 'Chaining cycle detected for promise #<AbortablePromise>'
 
 /* Whether `value` is a native Promise or a subclass instance: `instanceof
@@ -161,6 +162,10 @@ class AbortState {
   watchSignal(signal: AbortSignal): void {
     if (signal.aborted) {
       this.abort()
+      return
+    }
+    // A settled promise listens to no signal.
+    if (this.#settled) {
       return
     }
 
@@ -401,8 +406,8 @@ export class AbortablePromise<T> extends Promise<T> {
   /**
    * Makes the promise `combine` returns for the items of `values`, and links
    * its abort to the members: aborting it calls `abort()` on each member that
-   * is an AbortablePromise (`#isAbortablePromise`) whose `then`, read when the
-   * combinator takes the member, is a function, and that is still an
+   * is an AbortablePromise (`#isAbortablePromise`) whose `then`, read when
+   * `AbortablePromise` takes the member, is a function, and that is still an
    * AbortablePromise when it is aborted. `abort()` is called on every such
    * member even when one throws; the first error is thrown after the last. A
    * member that settles first aborts no other (see
@@ -413,10 +418,10 @@ export class AbortablePromise<T> extends Promise<T> {
    * subscribed to, and the iterator is closed when the combinator stops early.
    * A member that is an AbortablePromise is handed to the combinator as a
    * thenable that calls the `then` that was read, and a subclass's `resolve`
-   * receives that thenable; one whose `then` getter throws is handed over as a
-   * thenable whose `then` throws that error; one whose `then` is not a
-   * function is handed over as it is, read again by the combinator, and not
-   * aborted.
+   * receives that thenable; one whose `then` getter throws is handed over as an
+   * object whose `then` getter throws that error; one whose `then` is not a
+   * function on that read is handed over as it is, which `Promise` reads
+   * again, and is not aborted.
    */
   static #fanIn(
     values: Iterable<unknown>,
@@ -433,7 +438,7 @@ export class AbortablePromise<T> extends Promise<T> {
         try {
           then = thenOf(item)
         } catch (error) {
-          // What the combinator would have met: a thenable whose `then` throws.
+          // What `Promise` would have met: an object whose `then` getter throws.
           yield {
             get then(): never {
               throw error
@@ -464,9 +469,10 @@ export class AbortablePromise<T> extends Promise<T> {
         })
       })
     } catch {
-      // The combined promise was aborted while `values` was iterated, so the
-      // link fired at once and a member's `abort()` threw. It is aborted
-      // already, and has no caller to throw to.
+      // The combined promise was aborted while it was being made (while
+      // `values` was iterated, or by a subclass constructor), so the link fired
+      // at once and a member's `abort()` threw. It is aborted already, and has
+      // no caller to throw to.
     }
     return combined
   }
@@ -555,7 +561,7 @@ export class AbortablePromise<T> extends Promise<T> {
     const state = new AbortState(controller)
     // The promise itself, once `super()` has returned, for the check a native
     // resolve function makes that it is not resolved with its own promise.
-    const owner = Object.create(null) as { promise?: object }
+    const owner = createObject(null) as { promise?: object }
     const isOwner = (value: unknown): boolean =>
       owner.promise !== undefined && value === owner.promise
 
@@ -686,14 +692,14 @@ export class AbortablePromise<T> extends Promise<T> {
    * already settled. Recognise the rejection with `abort/isAbortError` rather
    * than by identity — every abort constructs its own Error.
    *
-   * Throws only when the abort reaches a promise whose own `abort()` throws or
-   * is missing — a subclass's override, say, on the promise this one was
-   * derived from, a delegate or a fan-in member — or when the controller passed
-   * to the constructor throws from its `abort()`. In each case this promise is
-   * rejected and its signals are released, and `abort()` is called on every
-   * promise the abort reaches; the first error is thrown after the last, the
-   * controller's before the others. A controller whose signal has aborted
-   * already is not asked to abort again.
+   * Throws only when the abort reaches a promise whose own `abort()` throws
+   * or is missing — a subclass's override, say, on the promise this one was
+   * derived from, a delegate or a fan-in member — or when the controller
+   * passed to the constructor throws from its `abort()`. In each case this
+   * promise is rejected and its signals are released, and `abort()` is called
+   * on every promise the abort reaches; the first error is thrown after the
+   * last, the controller's before the others. A controller whose signal has
+   * aborted already is not asked to abort again.
    *
    * Called through a signal that aborts later ({@link AbortablePromise.abortOn},
    * a controller passed to the constructor, {@link AbortablePromise.peer}), the
