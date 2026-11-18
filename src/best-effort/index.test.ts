@@ -429,6 +429,27 @@ describe('the kit', () => {
     expect(received).toBe(be.diagnostics)
     expect(r).toBe(made)
   })
+  it('a curried recover and recoverWith are pinned per application: each box carries its own Failure, and every box holds the same fallback', () => {
+    const fb = { id: 'fb' }
+    const first = new RangeError('first')
+    const second = new RangeError('second')
+    const rec = recover(fb)
+    const a = rec(failure(first))
+    const b = rec(failure(second))
+    expect(a.diagnostics[0]).toBe(first)
+    expect(b.diagnostics[0]).toBe(second)
+    expect(a.value).toBe(fb)
+    expect(b.value).toBe(fb)
+    const d1 = { d: 1 }
+    const d2 = { d: 2 }
+    const recW = recoverWith(fb, (e: RangeError) => (e === first ? d1 : d2))
+    const c = recW(failure(first))
+    const d = recW(failure(second))
+    expect(c.diagnostics[0]).toBe(d1)
+    expect(d.diagnostics[0]).toBe(d2)
+    expect(c.value).toBe(fb)
+    expect(d.value).toBe(fb)
+  })
   it('the curried recoverWith stores what diagnose returns, by identity, and hands diagnose the error itself', () => {
     const err = new RangeError('bad')
     const made = { m: 1 }
