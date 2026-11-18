@@ -85,6 +85,90 @@ describe('resultify', () => {
     expect(direct.reason).toBe(hostile)
   })
 
+  it('wraps a rejection reason that replaces String or Object.prototype.toString while it is classified', async () => {
+    // The `getPrototypeOf` trap runs inside `fail`'s Error check, before the
+    // message is rendered: a replacement that returns a symbol, or an object
+    // whose `toString` throws, would make the message template throw out of
+    // `fail`, and `resultify(fail, …)` would reject, if `describeThrown`
+    // looked it up then. `Object.prototype.toString` is only reached when
+    // `String` throws, which the `get` trap arranges.
+    const originalString = globalThis.String
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- restored below, never called detached
+    const originalToString = Object.prototype.toString
+    const throwingToPrimitive: ProxyHandler<object> = {
+      get(_target, key) {
+        if (key === Symbol.toPrimitive) throw new RangeError('get')
+        return undefined
+      },
+    }
+    const cases: {
+      install: () => void
+      traps: ProxyHandler<object>
+      message: string
+    }[] = [
+      {
+        install: () => {
+          globalThis.String = (() => Symbol('x')) as never
+        },
+        traps: {},
+        message: 'promise rejected with [object Object]',
+      },
+      {
+        install: () => {
+          globalThis.String = (() => ({
+            toString(): never {
+              throw new RangeError('toString')
+            },
+          })) as never
+        },
+        traps: {},
+        message: 'promise rejected with [object Object]',
+      },
+      {
+        install: () => {
+          Object.prototype.toString = () => Symbol('x') as never
+        },
+        traps: throwingToPrimitive,
+        message: 'promise rejected with [object Object]',
+      },
+    ]
+    const hostile = (install: () => void, traps: ProxyHandler<object>) =>
+      new Proxy(
+        {},
+        {
+          ...traps,
+          getPrototypeOf(): object {
+            install()
+            return Object.prototype
+          },
+        },
+      )
+    const restore = () => {
+      globalThis.String = originalString
+      Object.prototype.toString = originalToString
+    }
+    for (const { install, traps, message } of cases) {
+      const direct = hostile(install, traps)
+      const lifted = hostile(install, traps)
+      let directResult: unknown
+      let liftedResult: unknown
+      try {
+        directResult = fail(direct)
+        restore()
+        liftedResult = await resultify(fail, Promise.reject(lifted))
+      } finally {
+        restore()
+      }
+
+      expect(directResult).toBeInstanceOf(RejectionError)
+      expect((directResult as RejectionError).reason).toBe(direct)
+      expect((directResult as RejectionError).message).toBe(message)
+      expect(liftedResult).toBeInstanceOf(RejectionError)
+      expect((liftedResult as RejectionError).reason).toBe(lifted)
+      expect((liftedResult as RejectionError).message).toBe(message)
+    }
+  })
+
   it('works in curried mode', async () => {
     const resultifyFail = resultify<string, Error>(fail) // as Mapper<Promise<string>, Promise<Result<string>>;
     const resultifyRecover = resultify(recoverWith('recovered'))

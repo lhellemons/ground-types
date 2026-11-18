@@ -646,8 +646,17 @@ describe('tryCatch handler dispatch', () => {
       'return { class//c\u2028(e) { return e } }.class',
     )() as (e: unknown) => A
     // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const paragraphSeparator = new Function(
+      'return { class//c\u2029(e) { return e } }.class',
+    )() as (e: unknown) => A
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
     const carriageReturn = new Function(
       'return { class//c\r\n(e) { return e } }.class',
+    )() as (e: unknown) => A
+    // A lone `\r` ends a line comment too, with no `\n` after it.
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const loneCarriageReturn = new Function(
+      'return { class//c\r(e) { return e } }.class',
     )() as (e: unknown) => A
     // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
     const mixed = new Function(
@@ -671,7 +680,9 @@ describe('tryCatch handler dispatch', () => {
       blockCommented,
       lineCommented,
       separators,
+      paragraphSeparator,
       carriageReturn,
+      loneCarriageReturn,
       mixed,
     ]
     for (const handler of handlers) {
@@ -688,6 +699,9 @@ describe('tryCatch handler dispatch', () => {
       'class // (\n extends Error {}',
       'class /* a */ // (\n /* ( */ {}',
       'class/*c*/{}',
+      // A block comment ends at the first `*/`: a later comment and its
+      // `(` are the class body's, not a parameter list.
+      'class /*a*/ A { x = /*b*/ (1) }',
     ]
     const classes = sources.map(
       // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
@@ -696,6 +710,30 @@ describe('tryCatch handler dispatch', () => {
     for (const cls of classes) {
       expect(() => tryCatch(boom, cls as never)).toThrow(TypeError)
     }
+  })
+  it('refuses a method named class with an HTML-like comment before its parameters', () => {
+    // `<!--` and a line-start `-->`, or one after a block comment that spans
+    // lines, are comments in a sloppy script, but `isClassSource` skips only
+    // whitespace, block comments and line comments, so it takes the method
+    // for a class. A `<!--` straight after `class` is not whitespace, `{` or
+    // `/`, so that one is accepted.
+    const boom = () => throws('bad')
+    const sources = [
+      'return { class <!-- c\n(e) { return e } }.class',
+      'return { class\n--> c\n(e) { return e } }.class',
+      'return { class/*c*/\n--> c\n(e) { return e } }.class',
+      'return { class /*\n*/ --> c\n(e) { return e } }.class',
+    ]
+    for (const source of sources) {
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+      const method = new Function(source)() as (e: unknown) => unknown
+      expect(() => tryCatch(boom, method as never)).toThrow(TypeError)
+    }
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const adjacent = new Function(
+      'return { class<!-- c\n(e) { return e } }.class',
+    )() as (e: unknown) => unknown
+    expect(() => tryCatch(boom, adjacent as never)).not.toThrow()
   })
   /* `Array.isArray` throws for a revoked proxy before the handler check runs;
      this pins that native behaviour, not `checkedHandler`. */
