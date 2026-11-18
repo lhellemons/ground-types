@@ -243,6 +243,18 @@ invariants of its own.
 _Avoid_: Serializable, DTO (a DTO Source is not the untrusted data; see
 the DTO entry above), toJSON, export.
 
+### Domain Error
+
+A Failure that names the domain rule a value broke: a stable string
+`code`, distinct per kind of Domain Error, and `params`, the plain
+JSON-valued data that rule needs to explain itself. A Domain Error is a
+DTO Source whose DTO is its **Error DTO**, `{ code, params }`: the form
+in which it crosses the wire or reaches the UI. The Error DTO is one-way:
+no Factory turns it back into a Domain Error.
+
+_Avoid_: AppError, CodedError, BusinessError, Exception, ValidationError
+(as the general term), ErrorDto (as a separate type name).
+
 ### Intern
 
 To canonicalise a Value Object so that equal values are represented by
