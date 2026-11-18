@@ -216,7 +216,7 @@ statement.** See the next section.
 ### No cross-Box members
 
 `Maybe.fromResult` and `Result.fromMaybe` are statics with inlined
-`Error`-prototype-chain / `=== undefined` checks — the same convention
+`instanceof Error` / `=== undefined` checks — the same convention
 ADR-0001's bridges use — so the parity requirement never forces a runtime
 import between the Box modules. The instance bridges (`.toResult()`,
 `.toMaybe()`) that would have forced one are dropped. The naive cycle
@@ -231,6 +231,13 @@ with `pipe()`, where the crossing is just the next step. (Returning
 another module's Box from a helper would not compile anyway: the value
 side works, but declaration emit hits TS4094. Taking one as a parameter is
 free — and still forbidden by the transience rule.)
+
+**Update, 2026-11-18:** the bridge `maybe/fromResult` no longer inlines
+its `Error` check; since #91 it calls the shared module-private
+`internal/is-error` guard (`Error.prototype` on the prototype chain, by
+`isPrototypeOf`, not `instanceof Error`), a module of its own that imports
+neither `/maybe` nor `/result`. `result/fromMaybe` still inlines
+`=== undefined`.
 
 The no-runtime-cycle boundary remains **convention-only**, exactly as
 ADR-0001 records for the bridges; the Box modules extend that convention,

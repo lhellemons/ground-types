@@ -14,10 +14,16 @@ import type {
 } from './internal.js'
 
 /* Captured when the module loads: the function-inspection intrinsics that
-   `isClassLike` and `isUsableClass` call. */
+   `isClassLike` and `isUsableClass` call. `regExpExec` is
+   `RegExp.prototype.exec` bound to `call`, and `functionHasInstance` is
+   `Function.prototype[Symbol.hasInstance]`. */
 const sourceOf: (candidate: unknown) => string =
   // eslint-disable-next-line @typescript-eslint/unbound-method -- bound at once
   Function.prototype.call.bind(Function.prototype.toString)
+const regExpExec: (pattern: RegExp, source: string) => unknown =
+  // eslint-disable-next-line @typescript-eslint/unbound-method -- bound at once
+  Function.prototype.call.bind(RegExp.prototype.exec)
+const functionHasInstance: unknown = Function.prototype[Symbol.hasInstance]
 const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor
 
 declare const _phantom: unique symbol
@@ -273,8 +279,9 @@ type CheckedClasses<C extends readonly unknown[]> = {
  * native or class source). That covers `Map`, `Set`, `Promise`, `Number`,
  * `String`, `Date`, `Function`, `Object`, `Symbol` and the other built-ins,
  * those of another realm too, and a Proxy over one of them, over a class or
- * over a generator function. A Proxy over a plain function and a native
- * function with no own `prototype` (`parseInt`, `Math.max`) are accepted. A
+ * over a generator function. A Proxy over a plain function whose `prototype`
+ * still has an ordinary function as its own `constructor`, and a native
+ * function with no own `prototype` (`parseInt`, `Math.max`), are accepted. A
  * function whose inspection throws is refused as well. Not detected: a bound
  * `Error`, a bound built-in constructor, a bound ES5-style error constructor,
  * a bound class that is not an `Error` subclass, `Proxy`, and an ES5-style
@@ -407,12 +414,12 @@ function isClassLike(candidate: Function): boolean {
 
 /* Whether the source text starts with `class`. */
 function isClassSource(source: string): boolean {
-  return /^class(?=[\s{/])(?!\s*\()/.test(source)
+  return regExpExec(/^class(?=[\s{/])(?!\s*\()/, source) !== null
 }
 
 /* Whether the source text ends `{ [native code] }`. */
 function isNativeSource(source: string): boolean {
-  return /\{\s*\[native code\]\s*\}\s*$/.test(source)
+  return regExpExec(/\{\s*\[native code\]\s*\}\s*$/, source) !== null
 }
 
 /* Whether `candidate` has native source and an own `prototype` data property
@@ -422,8 +429,10 @@ function isNativeSource(source: string): boolean {
    class source. `Map`, `Number`, `Function`, `Symbol`, the typed-array and
    `Intl` constructors, `AsyncFunction`, `GeneratorFunction` and a foreign
    realm's built-ins qualify, and so does a Proxy over one of them or over a
-   class or generator function. A Proxy over a plain function does not: the
-   `constructor` of its `prototype` is that function. */
+   class or generator function. A Proxy over a plain function whose
+   `prototype` still has an ordinary function as its own `constructor` does
+   not qualify; one whose `prototype` is replaced by `{}`, or is an ES5-style
+   subclass's (it has no own `constructor`), does. */
 // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- narrowed by typeof at the call site
 function isBuiltInConstructor(candidate: Function): boolean {
   if (!isNativeSource(sourceOf(candidate))) return false
@@ -765,15 +774,15 @@ export function fromMaybe<T, E extends Error>(
  * `Symbol.hasInstance`, own or inherited, and either an object `prototype`
  * without `Error.prototype` on its chain (`Object`, `Map`, `Symbol`, a class
  * that does not extend `Error`, a bound subclass of `Map`), or no object
- * `prototype` and source text that does not say `[native code]` (`undefined`,
- * an arrow function, a method). A function with no object `prototype` whose
- * source says `[native code]` is admitted: `Math.max`, `parseInt`, and a bound
- * `Error`, `Object` or base class (one declared without `extends`). A bound
- * subclass of `Error` is admitted through its inherited `prototype`, and a
- * bound derived class that does not extend `Error` is refused through it. A
- * function from another realm is not checked, and neither is an entry whose
- * inherited `Symbol.hasInstance` comes from another realm: it counts as a
- * custom one and is admitted.
+ * `prototype` and source text that does not end `{ [native code] }`
+ * (`undefined`, an arrow function, a method). A function with no object
+ * `prototype` whose source ends `{ [native code] }` is admitted: `Math.max`,
+ * `parseInt`, and a bound `Error`, `Object` or base class (one declared
+ * without `extends`). A bound subclass of `Error` is admitted through its
+ * inherited `prototype`, and a bound derived class that does not extend
+ * `Error` is refused through it. A function from another realm is not
+ * checked, and neither is an entry whose inherited `Symbol.hasInstance` comes
+ * from another realm: it counts as a custom one and is admitted.
  *
  * Each entry is checked once, when the handler is created, and not again: an
  * entry changed afterwards (a reassigned `prototype`, a Proxy whose
@@ -835,7 +844,7 @@ function isUsableClass(candidate: unknown): boolean {
     ]
     if (
       typeof hasInstance === 'function' &&
-      hasInstance !== Function.prototype[Symbol.hasInstance]
+      hasInstance !== functionHasInstance
     ) {
       return true
     }
