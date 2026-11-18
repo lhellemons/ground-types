@@ -329,18 +329,22 @@ A `Success` is statically prevented from being an `Error`, so the
 prototype-chain discrimination cannot be fooled by a success value that
 merely happens to be Error-shaped.
 
-### Declaration emit and an object spread of a `Success` or a `Failure`
+### Declaration emit and an object spread or rest of a `Success` or a `Failure`
 
 A consumer with `declaration: true` can emit its own `.d.ts` for a function
 that returns a `Success` narrowed with `typeof` or `in`, or a `Failure`
 narrowed with `instanceof` or `in`; `test/declaration-emit/result.test.ts`
 pins these. An object spread of a `Success` or a `Failure`, and an object
-rest destructuring of a `Success` or a `Failure`, are still open. For
-`declare const record: Result<{ id: string }, Invalid>`, each of these fails
-with TS4023 or TS4058 ("has or is using name '_phantom' … but cannot be
-named"):
+rest destructuring of a `Success` or a `Failure`, are still open. Each of
+these fails with TS4023 or TS4058 ("has or is using name '_phantom' … but
+cannot be named"):
 
 ```ts
+class Invalid extends Error {
+  readonly code = 'invalid' as const
+}
+declare const record: Result<{ id: string }, Invalid>
+
 export const copy = { ...success({ id: 'x' }) }
 export function withExtra() {
   if (isSuccess(record)) return { ...record, extra: 1 }
@@ -366,10 +370,10 @@ Give the exported value or function an explicit type, and each emits:
 `{ ...new Invalid('bad') }` is `{ code: 'invalid' }`, because a spread copies
 only own enumerable properties and an Error's `message`, `stack` and `cause`
 are not enumerable. Annotate it with the subclass's own fields
-(`{ readonly code: 'invalid' }`), not with `Error` or `message`. The same file pins each
-case in a test named "still fails with TS4023 or TS4058, naming a marker
-symbol" and each workaround in "emits with an explicit type on the exported
-value"; a later fix flips the first.
+(`{ readonly code: 'invalid' }`), not with `Error` or `message`. The same
+file pins each case in a test named "still fails with TS4023 or TS4058,
+naming a marker symbol" and each workaround in "emits with an explicit type
+on the exported value"; a later fix flips the first.
 
 ## Status
 
