@@ -319,6 +319,22 @@ class PrivateNestedGeneric<T> extends Error {
     super()
   }
 }
+class PrivateAnyField extends Error {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the point of the pin
+  private constructor(readonly raw: any) {
+    super()
+  }
+}
+class PrivateSignalField extends Error {
+  private constructor(readonly signal: AbortSignal) {
+    super()
+  }
+}
+class PrivatePending<T> extends Error {
+  private constructor(readonly pending: Promise<T>) {
+    super()
+  }
+}
 class PrivateConcrete extends Error {
   private constructor(readonly detail: string) {
     super()
@@ -371,6 +387,34 @@ describe('a generic error class', () => {
     catchOnly(PrivateNestedGeneric)
     // @ts-expect-error One refused class refuses the list
     catchOnly(Selected, PrivateGeneric)
+  })
+  it('refuses a private constructor with no type parameter whose prototype holds any', () => {
+    // @ts-expect-error The `any` field is read through the prototype
+    catchOnly(PrivateAnyField)
+    // @ts-expect-error An `AbortSignal` field holds `any`
+    tryCatch(() => 1, [PrivateSignalField])
+  })
+  it('accepts such a class passed as a constructor type fixing its instance type', () => {
+    const asInstance =
+      PrivateSignalField as unknown as abstract new () => PrivateSignalField
+    expectTypeOf(catchOnly(asInstance)).returns.toEqualTypeOf<
+      Failure<never, PrivateSignalField>
+    >()
+  })
+  it('does not look inside a Promise, so a type parameter used only there still reads as any', () => {
+    // The documented limit of the check
+    expectTypeOf(catchOnly(PrivatePending)).returns.toEqualTypeOf<
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the documented limit
+      Failure<never, PrivatePending<any>>
+    >()
+  })
+  it('reads a public and a private constructor class in one list', () => {
+    expectTypeOf(catchOnly(Error, PrivateConcrete)).returns.toEqualTypeOf<
+      Failure<never, Error | PrivateConcrete>
+    >()
+    expectTypeOf(
+      tryCatch(() => 1, [TypeError, PrivateConcrete])(),
+    ).toEqualTypeOf<Result<number, TypeError | PrivateConcrete>>()
   })
   it('still accepts a private constructor with no generic payload', () => {
     expectTypeOf(catchOnly(PrivateConcrete)).returns.toEqualTypeOf<

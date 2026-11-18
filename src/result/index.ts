@@ -235,10 +235,8 @@ type InstanceOfClass<K> = K extends abstract new (...args: never[]) => infer I
     : never
 
 /**
- * Whether `T` is `any` or holds `any` in a property, an array element or a
- * function return, within four levels of nesting. TypeScript types a generic
- * class's `prototype` with `any` for each type parameter, so this finds the
- * payload an `InstanceOfClass` read from `prototype` would leave unchecked.
+ * Whether `T` is `any` or holds `any` in a property, an index signature, an
+ * array element or a function's return, within four levels of nesting.
  * Resolves to `true`, `false` or `boolean`; test it with `true extends`.
  */
 type HasAny<T, Depth extends unknown[] = []> = 0 extends 1 & T
@@ -259,16 +257,16 @@ type HasAny<T, Depth extends unknown[] = []> = 0 extends 1 & T
 
 /**
  * What a class `K` with no public construct signature is read as: refused
- * when it is callable (a function decorated with a `prototype` is not
- * constructable) or when its `prototype`, where the instance type is read
- * from, holds `any`, as a generic class's does; otherwise `K`. A refused
- * class maps to a type that says why.
+ * when it is callable, or when its `prototype`, where the instance type is
+ * read from, holds `any` (see {@link HasAny}), as a generic class's does for
+ * each type parameter; otherwise `K`. A refused class maps to a type that
+ * says why.
  */
 type CheckedPrototypeClass<K> = K extends (...args: never[]) => unknown
   ? never
   : true extends HasAny<InstanceOfClass<K>>
     ? {
-        readonly 'catchOnly cannot read this class: its prototype holds any, which a generic class with a private or protected constructor has for each type parameter. Pass a class with a public constructor, or a constructor type such as `abstract new () => YourError<unknown>`': K
+        readonly 'This class has no public constructor and its prototype holds any, so its instance type cannot be read. Pass it as a constructor type that fixes its instance type: X as unknown as abstract new () => X, with the type arguments of X where it has them': K
       }
     : K
 
@@ -811,10 +809,9 @@ export function fromMaybe<T, E extends Error>(
  *
  * Each class must be an Error class (a private constructor is fine). At
  * compile time, a callable with no construct signature is refused even when
- * it has an `Error` `prototype`, and so is a generic class with a private or
- * protected constructor, whose type parameters TypeScript reads as `any`; a
- * public constructor reads them as `unknown`. An
- * empty list throws a `TypeError` when the handler is created, and so does an
+ * it has an `Error` `prototype`, and a class with no public constructor is
+ * refused when its `prototype` holds `any`, which a generic class's does for
+ * each type parameter. An empty list throws a `TypeError` when the handler is created, and so does an
  * entry that is not a function, or whose inspection throws (a revoked proxy,
  * a throwing `Symbol.hasInstance` getter), or whose `Symbol.hasInstance` is
  * neither nullish nor callable, or that has no custom
@@ -875,8 +872,8 @@ export function catchOnly(
    usable when it has a custom `hasInstance`, or an object `prototype` with
    `Error.prototype` on its chain, or no object `prototype` and native
    source. A `hasInstance` that is neither nullish nor callable refuses the
-   entry, whatever its `prototype`: `instanceof` would throw on it. `Object`, `Symbol`, a plain `function () {}` and a class that
-   does not extend `Error` are refused. A bound function has no own
+   entry, whatever its `prototype`. `Object`, `Symbol`, a plain
+   `function () {}` and a class that does not extend `Error` are refused. A bound function has no own
    `prototype` and inherits its target's parent's: a bound Error subclass
    reaches `Error.prototype` and is admitted, a bound derived class that does
    not extend `Error` reaches another `prototype` and is refused, and a bound
@@ -891,8 +888,6 @@ function isUsableClass(candidate: unknown): boolean {
       Symbol.hasInstance
     ]
     if (hasInstance !== undefined && hasInstance !== null) {
-      // `instanceof` throws on a hook that is neither nullish nor callable,
-      // which the error path would count as no match.
       if (typeof hasInstance !== 'function') return false
       if (hasInstance !== functionHasInstance) return true
     }

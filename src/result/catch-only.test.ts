@@ -302,6 +302,7 @@ describe('catchOnly entries with custom behaviour', () => {
   })
   it('refuses a non-callable hook in any position of the list, without calling it', () => {
     let reads = 0
+    let calls = 0
     const Broken = Object.defineProperty(
       class extends Error {},
       Symbol.hasInstance,
@@ -315,7 +316,10 @@ describe('catchOnly entries with custom behaviour', () => {
       {
         get: () => {
           reads++
-          return () => true
+          return () => {
+            calls++
+            return true
+          }
         },
       },
     )
@@ -325,8 +329,9 @@ describe('catchOnly entries with custom behaviour', () => {
     expect(() => tryCatch(() => 1, [A, Broken])).toThrow(
       /catchOnly entry 1 is not an error class/,
     )
-    // The check reads the hook and never calls it
+    // The check reads the hook once and never calls it
     expect(reads).toBe(1)
+    expect(calls).toBe(0)
   })
   it('accepts an Error class whose Symbol.hasInstance is null or undefined, matching as without a hook', () => {
     for (const hook of [undefined, null]) {
@@ -341,6 +346,17 @@ describe('catchOnly entries with custom behaviour', () => {
       const other = new Error('other')
       expectThrow(() => handler(other), other)
       expect(tryCatch(() => throws(error), [Hookless])()).toBe(error)
+    }
+  })
+  it('tests the prototype of an entry whose Symbol.hasInstance is null or undefined', () => {
+    for (const hook of [undefined, null]) {
+      class Plain {}
+      for (const entry of [Plain, () => new A()]) {
+        Object.defineProperty(entry, Symbol.hasInstance, { value: hook })
+        expect(() =>
+          (catchOnly as (...classes: unknown[]) => unknown)(entry),
+        ).toThrow(/catchOnly entry 0 is not an error class/)
+      }
     }
   })
   it('accepts a function without an object prototype that has an own or inherited hasInstance', () => {

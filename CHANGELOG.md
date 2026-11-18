@@ -145,40 +145,29 @@ success(undefined)` and `success(null)` no longer compile. Checked on
 - `definePrimitiveValueObject` infers `E` from a handler written with
   `failure()` or `result()`, when it is given no type arguments.
 - `catchOnly` and the `tryCatch` class-list shorthand now accept error classes
-  with a private constructor, such as a domain error with a static factory.
-  Arrow functions, methods, plain objects and constructors of non-`Error`
-  instances are rejected at compile time. Calls that compiled before keep
-  their inferred error type.
-- **Breaking:** `catchOnly` and the `tryCatch` class-list shorthand no longer
-  compile for a generic error class with a private or protected constructor
-  (a `DomainFailure<T>` with a private constructor taking `detail: T`,
-  probed with a private one, a protected one and one whose type parameter is
-  nested in `readonly { value: T }[]`). TypeScript reads the
-  type parameters of such a class as `any`, so the payload typed as `any`
-  (`catchOnly(DomainFailure)(error).detail.toUpperCase()` compiled and threw
-  at run time). A generic class with a public constructor is unchanged, with
-  its payload as `unknown`, and so is a private-constructor class with no
-  generic payload. To use a private-constructor generic class, pass it as a
-  constructor type that fixes its payload, such as
-  `DomainFailure as unknown as abstract new () => DomainFailure<unknown>`.
-- `catchOnly` and the `tryCatch` class-list shorthand no longer compile for an
-  arrow function or a method decorated with an Error `prototype`
-  (`Object.assign(() => new Selected(), { prototype: Selected.prototype })`),
-  which has no construct signature. `Error`, `TypeError`, `RangeError` and a
-  callable that also has a construct signature still compile.
-- `catchOnly` (and so the `tryCatch` shorthand) now throws a `TypeError` when
-  the handler is created for an Error class whose `Symbol.hasInstance` is a
-  number, a string, a boolean, an object, an array or a symbol, whether own,
-  from a getter or inherited from a parent class. Before, it was admitted, and
-  every error then threw in `instanceof` on the error path and counted as no
-  match, so even an instance of the class was rethrown. A `null` or
-  `undefined` hook is still admitted and matches as without a hook, and the
-  hook is read, never called.
+  with a private or protected constructor, such as a domain error with a static
+  factory. Such a class is read from its `prototype`, and is refused at compile
+  time when its instance type holds `any` in a property, an index signature, an
+  array element or a function's return, within four levels of nesting: a
+  generic class does for each type parameter (`detail: T` reads as `any`), and
+  so does a class with an `any` field, an `AbortSignal` field or an
+  `AggregateError` parent. To use one, pass it as a constructor type that fixes
+  its instance type, such as
+  `DomainFailure as unknown as abstract new () => DomainFailure<unknown>`. The
+  check does not look inside a `Promise`, a `Set`, a function's parameters or
+  deeper than four levels, so a type parameter used only there still reads as
+  `any`. Arrow functions, methods (also when given an `Error` `prototype`),
+  plain objects and constructors of non-`Error` instances are rejected at
+  compile time. Calls that compiled before keep their inferred error type.
 - **Breaking:** `catchOnly` (and so the `tryCatch` shorthand) now throws a
   `TypeError` when the handler is created, if the class list is empty or holds
   an entry that is not a function, or whose inspection throws (a revoked
-  proxy, a throwing `Symbol.hasInstance` getter), or that has no custom
-  `Symbol.hasInstance`, own or inherited, and either an object `prototype`
+  proxy, a throwing `Symbol.hasInstance` getter), or whose
+  `Symbol.hasInstance` is any value other than a function, `null` or
+  `undefined` (read, never called; in 0.4.0 the handler threw a `TypeError`
+  from `instanceof` in place of each `Error` it was given), or that has no
+  custom `Symbol.hasInstance`, own or inherited, and either an object
+  `prototype`
   without `Error.prototype` on its chain (`Object`, `Map`, `Symbol`, `Array`,
   `Promise`, `Date`, a class that does not extend `Error`, a function
   declaration, a bound subclass of `Map`), or no object `prototype` and source
