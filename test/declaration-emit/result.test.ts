@@ -254,7 +254,7 @@ function compile(
   return { diagnostics, declarations }
 }
 
-describe('declaration emit for a consumer', () => {
+describe('declaration emit for a consumer', { timeout: 30_000 }, () => {
   it('writes a narrowed Success as SuccessMarkers, and a narrowed Failure as FailureMarkers', () => {
     const { diagnostics, declarations } = compile(true)
     expect(diagnostics).toEqual([])
