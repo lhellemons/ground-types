@@ -210,7 +210,8 @@ class Private extends Error {
 }
 declare const Ctor: new (message: string) => Selected
 declare const AbsCtor: abstract new () => Other
-// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- the point of the pin
+// `Function` is the type under test.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
 declare const anyFunction: Function
 declare const StringCtor: new () => string
 declare const ObjectCtor: new () => { x: number }
@@ -320,7 +321,8 @@ class PrivateNestedGeneric<T> extends Error {
   }
 }
 class PrivateAnyField extends Error {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the point of the pin
+  // `any` is the type under test.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private constructor(readonly raw: any) {
     super()
   }
@@ -335,6 +337,57 @@ class PrivatePending<T> extends Error {
     super()
   }
 }
+class PrivateReturn<T> extends Error {
+  private constructor() {
+    super()
+  }
+  value(): T {
+    throw this
+  }
+}
+// `detail` is `T` four levels down (`detail`, `a`, `b`, `c`), then five.
+class PrivateFourDeep<T> extends Error {
+  private constructor(
+    readonly detail: { readonly a: { readonly b: { readonly c: T } } },
+  ) {
+    super()
+  }
+}
+class PrivateFiveDeep<T> extends Error {
+  private constructor(
+    readonly detail: {
+      readonly a: { readonly b: { readonly c: { readonly d: T } } }
+    },
+  ) {
+    super()
+  }
+}
+class PrivateMember<T> extends Error {
+  private constructor(private readonly detail: T) {
+    super()
+  }
+  describeDetail(): string {
+    return typeof this.detail
+  }
+}
+class ProtectedMember<T> extends Error {
+  protected constructor(protected readonly detail: T) {
+    super()
+  }
+  describeDetail(): string {
+    return typeof this.detail
+  }
+}
+class HashMember<T> extends Error {
+  readonly #detail: T
+  private constructor(detail: T) {
+    super()
+    this.#detail = detail
+  }
+  describeDetail(): string {
+    return typeof this.#detail
+  }
+}
 class PrivateConcrete extends Error {
   private constructor(readonly detail: string) {
     super()
@@ -343,6 +396,9 @@ class PrivateConcrete extends Error {
     return new PrivateConcrete(detail)
   }
 }
+// The documented limit reads a type parameter as `any`.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Unread = any
 declare const decoratedConstructable: {
   (): Selected
   new (): Selected
@@ -361,7 +417,7 @@ describe('a generic error class', () => {
   it('keeps a public constructor payload from being read as a string', () => {
     const caught = catchOnly(PublicGeneric)(new PublicGeneric(42))
     // @ts-expect-error The payload is `unknown`, not `any`
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- the point of the pin
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
     caught.detail.toUpperCase()
     expectTypeOf(caught.detail).toBeUnknown()
   })
@@ -404,8 +460,34 @@ describe('a generic error class', () => {
   it('does not look inside a Promise, so a type parameter used only there still reads as any', () => {
     // The documented limit of the check
     expectTypeOf(catchOnly(PrivatePending)).returns.toEqualTypeOf<
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the documented limit
-      Failure<never, PrivatePending<any>>
+      Failure<never, PrivatePending<Unread>>
+    >()
+  })
+  it('does not look inside a non-public member, so a type parameter used only there still reads as any', () => {
+    // The documented limit of the check: `keyof` skips `private`,
+    // `protected` and `#` members
+    expectTypeOf(catchOnly(PrivateMember)).returns.toEqualTypeOf<
+      Failure<never, PrivateMember<Unread>>
+    >()
+    expectTypeOf(catchOnly(ProtectedMember)).returns.toEqualTypeOf<
+      Failure<never, ProtectedMember<Unread>>
+    >()
+    expectTypeOf(catchOnly(HashMember)).returns.toEqualTypeOf<
+      Failure<never, HashMember<Unread>>
+    >()
+  })
+  it('refuses a type parameter used only in a method return', () => {
+    // @ts-expect-error A function's return is read, so the `any` is found
+    catchOnly(PrivateReturn)
+    // @ts-expect-error The same through the `tryCatch` list
+    tryCatch(() => 1, [PrivateReturn])
+  })
+  it('reads four levels of nesting and not a fifth', () => {
+    // @ts-expect-error The deepest level the check reaches
+    catchOnly(PrivateFourDeep)
+    // The documented limit of the check
+    expectTypeOf(catchOnly(PrivateFiveDeep)).returns.toEqualTypeOf<
+      Failure<never, PrivateFiveDeep<Unread>>
     >()
   })
   it('reads a public and a private constructor class in one list', () => {
