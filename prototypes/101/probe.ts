@@ -137,3 +137,12 @@ export const g2 = <T extends { id: string }>(t: T): Result<T, Invalid> =>
   success(t) // CASE: breaks: generic T through success() (fails on main too: the guard)
 export const g3 = <T extends { id: string }>(r: Result<T, Invalid>) =>
   isSuccess(r) ? r.id : '' // CASE: breaks: generic T, read after isSuccess
+
+// Index signatures with a non-string value type: the branded-string marker (b2)
+// fits only string-valued ones.
+export const i1: Record<string, number> = success({ n: 1 }) // CASE: breaks: success({ n: 1 }) into Record<string, number>
+export const i2: Record<string, boolean> = success({ ok: true }) // CASE: breaks: success({ ok: true }) into Record<string, boolean>
+export const i3: { [k: string]: string | undefined } = success({ a: '1' }) // CASE: breaks: success({ a }) into { [k]: string | undefined }
+// The marker adds a member: `.stack` on a Success with no `stack` is TS2339 on main.
+declare const sq: Success<{ q: string }, Invalid>
+export const i4 = sq.stack // CASE: loosens: `.stack` readable on a Success of { q } (TS2339 on main)
