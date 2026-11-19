@@ -404,7 +404,7 @@ describe('catchOnly entries with custom behaviour', () => {
     // Built with `Function` so the comment survives the transform.
     // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
     const arrow = new Function(
-      'return (e) => { return e // { [native code]\n}',
+      'return (e) => { return e // function () { [native code]\n}',
     )() as unknown
     expect(() =>
       (catchOnly as (...classes: unknown[]) => unknown)(arrow),
@@ -931,13 +931,14 @@ describe('tryCatch handler dispatch', () => {
     const error = new A()
     // Built with `Function` so the comment survives the transform.
     // eslint-disable-next-line @typescript-eslint/no-implied-eval -- source text under test
-    const handler = new Function('e', 'return e // { [native code]\n') as ((
-      e: unknown,
-    ) => A) & { prototype: object }
+    const handler = new Function(
+      'e',
+      'return e // function () { [native code]\n',
+    ) as ((e: unknown) => A) & { prototype: object }
     // Its `prototype` has no `constructor`, which only native source excuses.
     delete (handler.prototype as { constructor?: unknown }).constructor
     expect(Function.prototype.toString.call(handler)).toContain(
-      '{ [native code]\n',
+      'function () { [native code]\n',
     )
     expect(tryCatch(() => throws(error), handler)()).toBe(error)
   })

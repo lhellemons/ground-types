@@ -186,32 +186,34 @@ later is required.
   without `Error.prototype` on its chain (`Object`, `Map`, `Symbol`, `Array`,
   `Promise`, `Date`, a class that does not extend `Error`, a function
   declaration, a bound subclass of `Map`), or no object `prototype` and source
-  text that does not end `{ [native code] }` (`undefined`, an arrow function,
-  a method). Before, an entry with no object `prototype` (`undefined`, an
-  arrow function, a method) threw a `TypeError` in place of each `Error` that no
-  earlier entry matched, so a list holding one (an `undefined` from a circular
-  CommonJS import) loaded on 0.4.0 and now throws at creation. `Object` matched
-  every `Error`, so `catchOnly(Object)(new TypeError('bug'))` turned a
-  programming bug into a Failure; the other entries with a non-Error object
-  `prototype` matched nothing and rethrew every error. TypeScript already
-  rejected all of them. Still admitted: an `Error` class or an ES5-style error
-  constructor (`Legacy.prototype = Object.create(Error.prototype)`), a bound
-  subclass of `Error`, a class with a custom `Symbol.hasInstance`, a function
-  from another realm, and a function with no `prototype` of type object whose
-  source ends `{ [native code] }`, such as `Math.max`, `parseInt`, `Function`,
-  or a bound `Error`, `Object` or base class (one declared without `extends`): a
-  bound `Object` still matches every `Error`. A function from another realm is
-  not checked, and neither is an entry whose inherited `Symbol.hasInstance`
-  comes from another realm (a function of this realm whose `[[Prototype]]` is
-  another realm's `Function.prototype`): it counts as a custom one, so
-  `catchOnly(N)` with `N.prototype = Object.prototype` is admitted and turns
-  every error into a Failure. An entry is checked once, at creation, not again:
-  one changed afterwards (a reassigned `prototype`, a Proxy whose `prototype`
-  read changes) is matched by `instanceof` as it then stands, so it can match
-  errors it would have been refused for, and a programming bug becomes a
-  Failure. An entry that fails inside `instanceof` later, such as a proxy
-  revoked after the handler is created, counts as not matching: the original
-  error is rethrown unless a later entry matches.
+  text other than a native function's, `function <name>() { [native code] }`
+  (`undefined`, an arrow function, a method). Before, an entry with no object
+  `prototype` (`undefined`, an arrow function, a method) threw a `TypeError` in
+  place of each `Error` that no earlier entry matched, so a list holding one (an
+  `undefined` from a circular CommonJS import) loaded on 0.4.0 and now throws at
+  creation. `Object` matched every `Error`, so
+  `catchOnly(Object)(new TypeError('bug'))` turned a programming bug into a
+  Failure; the other entries with a non-Error object `prototype` matched nothing
+  and rethrew every error. TypeScript already rejected all of them. Still
+  admitted: an `Error` class or an ES5-style error constructor
+  (`Legacy.prototype = Object.create(Error.prototype)`), a bound subclass of
+  `Error`, a class with a custom `Symbol.hasInstance`, a function from another
+  realm, and a function with no `prototype` of type object whose source is a
+  native function's, `function <name>() { [native code] }`, such as `Math.max`,
+  `parseInt`, `Function`, or a bound `Error`, `Object` or base class (one
+  declared without `extends`): a bound `Object` still matches every `Error`. A
+  function from another realm is not checked, and neither is an entry whose
+  inherited `Symbol.hasInstance` comes from another realm (a function of this
+  realm whose `[[Prototype]]` is another realm's `Function.prototype`): it
+  counts as a custom one, so `catchOnly(N)` with
+  `N.prototype = Object.prototype` is admitted and turns every error into a
+  Failure. An entry is checked once, at creation, not again: one changed
+  afterwards (a reassigned `prototype`, a Proxy whose `prototype` read changes)
+  is matched by `instanceof` as it then stands, so it can match errors it would
+  have been refused for, and a programming bug becomes a Failure. An entry that
+  fails inside `instanceof` later, such as a proxy revoked after the handler is
+  created, counts as not matching: the original error is rethrown unless a later
+  entry matches.
 - **Breaking:** `tryCatch` (and so `definePrimitiveValueObject`'s
   `errorHandler`) now throws a `TypeError` when called with a handler that is
   neither an array nor a function, or is a function that is a class (its source
@@ -221,40 +223,40 @@ later is required.
   an HTML-like comment before its `(`: see below), or whose `prototype` is
   `Error.prototype` or inherits from it (`Error`, `TypeError` and the other
   built-ins, an ES5-style error constructor, a bound subclass of `Error`), or
-  that is a built-in constructor: its source ends `{ [native code] }` and its
-  own `prototype` is an object whose own `constructor` is not an ordinary
-  function (missing, not a function, or with native or class source).
-  That covers `Map`, `Set`, `WeakMap`, `WeakSet`, `Promise`, `WeakRef`,
-  `BigInt`, `Number`, `String`, `Boolean`, `Array`, `Date`, `RegExp`, `Symbol`,
-  `Function`, `Object`, `ArrayBuffer`, the typed arrays, the `Intl`
-  constructors, `AsyncFunction` and `GeneratorFunction`, those of another realm
-  too, and a Proxy over one of them, over a class or over a generator function.
-  A function whose inspection throws is refused as well. Before, any such
-  function was accepted and called with the thrown value. `Map`, `Set`,
-  `WeakMap`, `WeakSet`, `Promise`, `WeakRef`, `ArrayBuffer` and the typed arrays
-  threw a TypeError ("Constructor Map requires 'new'") instead of the original
-  error. `BigInt` threw a `SyntaxError` for a thrown `Error` and returned a
-  bigint for a thrown integer. `Function`, `AsyncFunction`, `GeneratorFunction`
-  and `RegExp` threw a `SyntaxError` or returned a Success, depending on the
-  message (`new Error('boom')` gave a function or a regular expression, and
-  `new Error('(')` threw from all four). For a thrown `Error`, `Number`,
-  `String`, `Boolean`, `Array`, `Date` and `Symbol` returned a Success such as
-  `NaN`, a string or an array, and so did `Intl.Collator`, `Intl.NumberFormat`
-  and `Intl.DateTimeFormat` (the other `Intl` constructors threw "requires
-  'new'").
-  `Object` returned a thrown `Error` as a Failure, a working pass-through, and
-  any other thrown value as a Success: a primitive boxed, `null` or `undefined`
-  as `{}`, an object as itself. TypeScript already rejected `Map`, `Set`,
-  `WeakMap`, `WeakSet`, `Promise`, `WeakRef`, `BigInt`, `RegExp`, `Symbol`,
-  `Function`, `ArrayBuffer`, the typed arrays and the `Intl` constructors. It
-  accepted `Object` for any `T`, and `Number`, `String`, `Boolean`, `Array` and
-  `Date` for a `T` that their call returns, such as `any`. A Proxy over a plain
-  function whose `prototype` still has an ordinary function as its own
-  `constructor`, with or without an `apply` trap, a native function with no own
-  `prototype` (`parseInt`, `Math.max`), a function whose own text merely
-  mentions `[native code]`, and a handler bound with `handler.bind(ctx)` are
-  accepted. A Proxy over a plain function whose `prototype` is replaced by `{}`
-  or by `Object.create(null)`, is an ES5-style subclass's without an own
+  that is a built-in constructor: its source is a native function's,
+  `function <name>() { [native code] }`, and its own `prototype` is an object
+  whose own `constructor` is not an ordinary function (missing, not a function,
+  or with native or class source). That covers `Map`, `Set`, `WeakMap`,
+  `WeakSet`, `Promise`, `WeakRef`, `BigInt`, `Number`, `String`, `Boolean`,
+  `Array`, `Date`, `RegExp`, `Symbol`, `Function`, `Object`, `ArrayBuffer`, the
+  typed arrays, the `Intl` constructors, `AsyncFunction` and
+  `GeneratorFunction`, those of another realm too, and a Proxy over one of them,
+  over a class or over a generator function. A function whose inspection throws
+  is refused as well. Before, any such function was accepted and called with the
+  thrown value. `Map`, `Set`, `WeakMap`, `WeakSet`, `Promise`, `WeakRef`,
+  `ArrayBuffer` and the typed arrays threw a TypeError ("Constructor Map
+  requires 'new'") instead of the original error. `BigInt` threw a `SyntaxError`
+  for a thrown `Error` and returned a bigint for a thrown integer. `Function`,
+  `AsyncFunction`, `GeneratorFunction` and `RegExp` threw a `SyntaxError` or
+  returned a Success, depending on the message (`new Error('boom')` gave a
+  function or a regular expression, and `new Error('(')` threw from all four).
+  For a thrown `Error`, `Number`, `String`, `Boolean`, `Array`, `Date` and
+  `Symbol` returned a Success such as `NaN`, a string or an array, and so did
+  `Intl.Collator`, `Intl.NumberFormat` and `Intl.DateTimeFormat` (the other
+  `Intl` constructors threw "requires 'new'"). `Object` returned a thrown
+  `Error` as a Failure, a working pass-through, and any other thrown value as a
+  Success: a primitive boxed, `null` or `undefined` as `{}`, an object as
+  itself. TypeScript already rejected `Map`, `Set`, `WeakMap`, `WeakSet`,
+  `Promise`, `WeakRef`, `BigInt`, `RegExp`, `Symbol`, `Function`, `ArrayBuffer`,
+  the typed arrays and the `Intl` constructors. It accepted `Object` for any
+  `T`, and `Number`, `String`, `Boolean`, `Array` and `Date` for a `T` that
+  their call returns, such as `any`. A Proxy over a plain function whose
+  `prototype` still has an ordinary function as its own `constructor`, with or
+  without an `apply` trap, a native function with no own `prototype`
+  (`parseInt`, `Math.max`), a function whose own text merely mentions
+  `[native code]`, and a handler bound with `handler.bind(ctx)` are accepted. A
+  Proxy over a plain function whose `prototype` is replaced by `{}` or by
+  `Object.create(null)`, is an ES5-style subclass's without an own
   `constructor`, or has a `constructor` that was deleted, made an accessor or
   set to a Proxy is refused, as a Proxy over a generator function is. Not
   detected: a bound `Error`, which returns a fresh `Error` as the Failure; a
@@ -269,9 +271,9 @@ later is required.
   and accepts `Number.bind(null)` and the bound ES5-style constructor. A foreign
   `class ... extends Error` is refused. Detected wrongly: a method named `class`
   with an HTML-like comment (`<!--`, or `-->` at the start of a line or after a
-  block comment that spans lines; sloppy scripts only) before its `(` is
-  refused as a class, since only whitespace, block comments and line comments
-  are skipped there; v0.4.0 accepted it. A `<!--` directly after `class` is
+  block comment that spans lines; sloppy scripts only) before its `(` is refused
+  as a class, since only whitespace, block comments and line comments are
+  skipped there; v0.4.0 accepted it. A `<!--` directly after `class` is
   accepted.
 - `catchOnly` rethrows the original value when an entry's `Symbol.hasInstance`
   hook matches it but leaves it no longer an `Error` (a hook that calls
