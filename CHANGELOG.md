@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `/domain` exports `DomainError`, `ErrorDTO` and `JSONValue` for domain
+  rule Failures with literal codes, typed params and a one-way DTO.
+
 Upgrading from 0.4.0: `success`, `failure` and `result` no longer need type
 arguments in early-return code, and several calls that compiled now do not; some
 calls also behave differently at run time. The entries marked **Breaking** below

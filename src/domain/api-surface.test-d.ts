@@ -4,6 +4,8 @@ import type {
   DomainObjectFactory,
   DTOSource,
   Entity,
+  ErrorDTO,
+  JSONValue,
 } from './index.js'
 import type { Result } from '../result/index.js'
 
@@ -14,6 +16,14 @@ import type { Result } from '../result/index.js'
  * public surface. See that file's docblock for the full rationale.
  */
 describe('/domain type exports', () => {
+  it('exports JSONValue and ErrorDTO', () => {
+    expectTypeOf<null>().toExtend<JSONValue>()
+    expectTypeOf<ErrorDTO<'rule', null>>().toEqualTypeOf<{
+      readonly code: 'rule'
+      readonly params: null
+    }>()
+  })
+
   it('Entity<TId> carries a readonly id', () => {
     expectTypeOf<Entity<string>>().toEqualTypeOf<{ readonly id: string }>()
   })

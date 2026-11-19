@@ -14,12 +14,64 @@ export type Entity<TId> = { readonly id: TId }
 export type CompoundValueObject<TKey> = { readonly key: TKey }
 
 /**
- * The seam that recovers a domain object's DTO: a readonly `dto` built
- * from the object's own current values, the mirror of what a {@link
- * DomainObjectFactory}'s `from` validated it out of in the first place.
- * Not the DTO itself — see CONTEXT.md's DTO Source entry.
+ * A domain object's capability to produce a DTO of its current values.
+ * Where a Factory built the object, the DTO round-trips through that
+ * Factory; a Domain Error has no Factory and its DTO goes one way.
  */
 export type DTOSource<TDTO> = { readonly dto: TDTO }
+
+/**
+ * A JSON value: a primitive, readonly array or string-keyed object of
+ * nested JSON values. Used to bound Domain Error params at compile time.
+ * Structural typing accepts an empty class with an explicit JSON-valued
+ * string index signature, but rejects an ordinary empty class.
+ */
+export type JSONValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly JSONValue[]
+  | { readonly [key: string]: JSONValue }
+
+/**
+ * The one-way DTO of a Domain Error, carrying its rule code and params.
+ * Serialise `error.dto` to send it to a UI or across the wire.
+ */
+export type ErrorDTO<TCode extends string, TParams extends JSONValue> = {
+  readonly code: TCode
+  readonly params: TParams
+}
+
+/**
+ * A Failure naming a broken domain rule with a literal code and JSON-valued
+ * params. Extend it with a code and params type for each kind of rule.
+ * Recognise it with `instanceof` or `catchOnly(DomainError)` from `/result`.
+ * Serialise `error.dto` explicitly: without `toJSON`, serialising the error
+ * itself includes its enumerable own fields, including subclass fields.
+ * The DTO keeps params by reference and has no Factory back to an error.
+ */
+export abstract class DomainError<
+  TCode extends string,
+  TParams extends JSONValue,
+>
+  extends Error
+  implements DTOSource<ErrorDTO<TCode, TParams>>
+{
+  constructor(
+    readonly code: TCode,
+    readonly params: TParams,
+    message?: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options)
+    this.name = new.target.name
+  }
+
+  get dto(): ErrorDTO<TCode, TParams> {
+    return { code: this.code, params: this.params }
+  }
+}
 
 /**
  * The construction seam of a domain object: takes a DTO (plus any `extra`
