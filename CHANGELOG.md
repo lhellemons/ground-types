@@ -571,10 +571,15 @@ later is required.
   abort again: a promise made with one rejected with the error its `abort()`
   threw, and one aborted by another holder threw it inside the signal's
   listener, an uncaught exception.
-- When a signal's overridden `removeEventListener` throws, `AbortablePromise`
-  still settles with its value or reason and attempts every listener release.
-  The first release error is rethrown after settlement; an earlier abort error
-  takes precedence. Previously a release could leave the promise pending.
+- When a signal's `removeEventListener` throws, `AbortablePromise` still
+  settles with its value or reason and attempts every other listener
+  removal. The first removal error is then thrown to the caller of
+  `resolve`, `reject` or `abort()`, after an error from the controller's
+  `abort()` or a linked promise's. When the promise settles by following a
+  thenable it is an unhandled rejection, and an executor that does not catch
+  it loses it. In v0.4.0 `resolve` and `reject` threw it and left the promise
+  pending and unabortable, an executor's synchronous `resolve` rejected the
+  promise with it instead, and the first throwing removal skipped the rest.
 - `abortOn(signal)` on a promise that has already fulfilled or rejected adds no
   listener to `signal`, and neither does reading `context.signal` on such a
   promise; before, each added one. `peer()` on such a promise adds none for the

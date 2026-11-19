@@ -181,8 +181,9 @@ class AbortState {
     signal.addEventListener('abort', onAbort, listenerOptions)
   }
 
-  /** Stops listening to every signal this promise was bound to. */
-  release(): void {
+  /** Stops listening to every signal this promise was bound to: empties the
+   * list, attempts every removal, and throws the first error once all have run. */
+  #release(): void {
     const releases = this.#releases
     this.#releases = []
     runAll(releases, (release) => release())
@@ -192,19 +193,24 @@ class AbortState {
     this.#rejectSelf = reject
   }
 
-  /** True when this call is the one that settles the promise. */
-  claimSettlement(): boolean {
+  /**
+   * Settles the promise through `settle` with `value` unless it has settled
+   * already, then stops listening to every signal it was bound to; throws
+   * the first removal error once every removal has run.
+   */
+  settle<A>(settle: (value: A) => void, value: A): void {
     if (this.#settled) {
-      return false
+      return
     }
     this.#settled = true
     // A settled promise can never fire its upstream links, since `abort`
     // returns early once `#settled`. Dropping them here releases the chain a
     // retained tail would otherwise keep reachable all the way to its head.
     this.#linked.length = 0
-    // Same reasoning one step out: a settled promise can no longer be aborted,
-    // so every signal it is bound to is now listening for nothing.
-    return true
+    settle(value)
+    // A settled promise can no longer be aborted, so every signal it is
+    // bound to is now listening for nothing.
+    this.#release()
   }
 
   /**
@@ -266,7 +272,7 @@ class AbortState {
     // Last, so that a signal firing into this call has already been handled
     // by the listener that is about to be removed.
     try {
-      this.release()
+      this.#release()
     } catch (error) {
       if (!failed) {
         failed = true
@@ -550,6 +556,8 @@ export class AbortablePromise<T> extends Promise<T> {
    * that throws rejects the promise unless `resolve` or `reject` was called
    * already. Resolving with the promise itself rejects it with a `TypeError`,
    * as does a thenable it was resolved with that fulfils with the promise.
+   * The resolve and reject callbacks can throw a listener removal error after
+   * settling the promise.
    * @param controller If given, this AbortablePromise is governed by that
    * controller rather than one of its own. Aborting the promise then aborts
    * the passed controller too, and so everything else it governs — which cuts
@@ -590,10 +598,7 @@ export class AbortablePromise<T> extends Promise<T> {
 
         // A promise resolved with itself rejects, as a native one does.
         if (isOwner(value)) {
-          if (state.claimSettlement()) {
-            reject(new TypeError(cycleMessage))
-            state.release()
-          }
+          state.settle(reject, new TypeError(cycleMessage))
           return
         }
 
@@ -605,18 +610,12 @@ export class AbortablePromise<T> extends Promise<T> {
         try {
           then = thenOf(value)
         } catch (error) {
-          if (state.claimSettlement()) {
-            reject(error)
-            state.release()
-          }
+          state.settle(reject, error)
           return
         }
 
         if (then === undefined) {
-          if (state.claimSettlement()) {
-            resolve(value)
-            state.release()
-          }
+          state.settle(resolve, value)
           return
         }
 
@@ -632,16 +631,10 @@ export class AbortablePromise<T> extends Promise<T> {
             adopted,
             then,
             (settledValue: T) => {
-              if (state.claimSettlement()) {
-                resolve(settledValue)
-                state.release()
-              }
+              state.settle(resolve, settledValue)
             },
             (reason: unknown) => {
-              if (state.claimSettlement()) {
-                reject(reason)
-                state.release()
-              }
+              state.settle(reject, reason)
             },
             isOwner,
           )
@@ -665,10 +658,7 @@ export class AbortablePromise<T> extends Promise<T> {
           // As a native resolve function rejects when following the thenable
           // throws (its `then` throws). Once the promise is settled, so also
           // when a late link throws, the error is dropped.
-          if (state.claimSettlement()) {
-            reject(error)
-            state.release()
-          }
+          state.settle(reject, error)
         }
       }
 
@@ -677,10 +667,7 @@ export class AbortablePromise<T> extends Promise<T> {
           return
         }
         alreadyResolved = true
-        if (state.claimSettlement()) {
-          reject(reason)
-          state.release()
-        }
+        state.settle(reject, reason)
       }
 
       // Setup and an executor that throws reject through the same function,
@@ -710,10 +697,11 @@ export class AbortablePromise<T> extends Promise<T> {
    * Throws only when the abort reaches a promise whose own `abort()` throws
    * or is missing — a subclass's override, say, on the promise this one was
    * derived from, a delegate or a fan-in member — or when the controller
-   * passed to the constructor throws from its `abort()`. In each case this
-   * promise is rejected and its signals are released, and `abort()` is called
-   * on every promise the abort reaches; the first error is thrown after the
-   * last, the controller's before the others. A controller whose signal has
+   * passed to the constructor throws from its `abort()`, or when removing this
+   * promise's listener from a signal throws. In each case this promise is
+   * rejected, removing each of its listeners is attempted, and `abort()` is
+   * called on every promise the abort reaches; the first error is thrown after
+   * the last, the controller's before the others and a removal's after them. A controller whose signal has
    * aborted already is not asked to abort again.
    *
    * Called through a signal that aborts later ({@link AbortablePromise.abortOn},
