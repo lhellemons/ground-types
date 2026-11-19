@@ -446,6 +446,13 @@ change from `Success<number, Error>` to `Success<number, never>` and from
 above and leave `any` and `void`, at the cost of every `T` with a `stack`
 member; ticket #101 holds that decision, and no type changed for it (ticket
 #94).
+**Update, 2026-11-19:** passed bare as a callback rather than called,
+`result` and `Result.from` lose the value type 0.4.0 inferred
+(`Promise.resolve(1).then(result)` is `Promise<Result<unknown, Error>>`)
+and are accepted where a callback declares a different return type
+(`result`) or Box type (`Result.from`), which 0.4.0 refused; wrapping the
+factory restores both. No signature found closes this and keeps the
+direct-call inference above (#151).
 
 **Decision: reverse the 2026-08-04 amendment.** The phantom is kept, and
 the annotation is no longer accepted as a sharp edge: the constructors
@@ -455,6 +462,7 @@ this amendment. Explicit type arguments remain allowed and, at a concrete
 named above (`success` of any value the guard judges may hold an
 `Error`, at any site; `success` of an unresolved type parameter;
 `failure<E>(e)`'s phantom; the one-type-argument `result<X>(v)`;
+a bare `result` or `Result.from` passed as a callback;
 `success(x)`'s inferred `E`, now `never`; a variable seeded by an
 unannotated `failure(e)`, `success(x)` or `result(primitive)`), and the
 CHANGELOG marks each **Breaking:**, as 0.4.0's does.

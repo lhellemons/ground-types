@@ -548,3 +548,44 @@ describe('catchOnly and the tryCatch class list keep their error type under the 
     void narrow
   })
 })
+
+describe('result callback known limits', () => {
+  it('accepts a bare callback with an incompatible promise return type (Breaking)', () => {
+    // Known limit: the bare generic bypasses the return-type check.
+    expectTypeOf(Promise.resolve(1).then<string>(result)).toEqualTypeOf<
+      Promise<string>
+    >()
+    // @ts-expect-error - the wrapper checks the actual number Result
+    void Promise.resolve(1).then<string>((v: number) => result(v))
+  })
+
+  it('accepts a bare callback with an incompatible error arm (Breaking)', () => {
+    class Invalid extends Error {
+      readonly code = 'invalid'
+    }
+    // Known limit: a plain Error can be returned under the Invalid type.
+    const f: (e: Error) => Result<number, Invalid> = result
+    // @ts-expect-error - the wrapper preserves the plain Error arm
+    const wrapped: (e: Error) => Result<number, Invalid> = (e: Error) =>
+      result(e)
+    void [f, wrapped]
+  })
+
+  it('accepts a bare number callback declared to return a number (Breaking)', () => {
+    const f: (v: number) => number = result
+    const stringReturn: (v: number) => string = result
+    // @ts-expect-error - the wrapper checks the incompatible string return
+    const wrapped: (v: number) => string = (v: number) => result(v)
+    void [f, stringReturn, wrapped]
+  })
+
+  it('loses the value arm for a bare array callback (Breaking)', () => {
+    expectTypeOf([1, 2].map(result)).toEqualTypeOf<Result<unknown, Error>[]>()
+  })
+
+  it('infers unknown value and Error arms for a bare promise callback', () => {
+    expectTypeOf(Promise.resolve(1).then(result)).toEqualTypeOf<
+      Promise<Result<unknown, Error>>
+    >()
+  })
+})
