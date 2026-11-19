@@ -15,11 +15,68 @@ export type CompoundValueObject<TKey> = { readonly key: TKey }
 
 /**
  * The seam that recovers a domain object's DTO: a readonly `dto` built
- * from the object's own current values, the mirror of what a {@link
- * DomainObjectFactory}'s `from` validated it out of in the first place.
+ * from the object's own current values, the mirror of what a
+ * {@link DomainObjectFactory}'s `from` validated it out of in the first place.
  * Not the DTO itself — see CONTEXT.md's DTO Source entry.
+ * Where a Factory built the object, the DTO round-trips through it;
+ * a {@link DomainError} has no Factory, and its DTO goes one way.
  */
 export type DTOSource<TDTO> = { readonly dto: TDTO }
+
+/**
+ * A JSON value: a primitive, readonly array or string-keyed object of
+ * nested JSON values. Used to bound Domain Error params at compile time.
+ * Declare object params with a `type` alias: an interface gets no implicit
+ * index signature and is rejected.
+ * A class instance is accepted only when its class declares a JSON-valued
+ * string index signature; an ordinary class, even an empty one, is rejected.
+ */
+export type JSONValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly JSONValue[]
+  | { readonly [key: string]: JSONValue }
+
+/**
+ * The one-way DTO of a Domain Error, carrying its rule code and params.
+ * Serialise `error.dto` to send it to a UI or across the wire.
+ */
+export type ErrorDTO<TCode extends string, TParams extends JSONValue> = {
+  readonly code: TCode
+  readonly params: TParams
+}
+
+/**
+ * A Failure naming a broken domain rule with a literal code and JSON-valued
+ * params. Extend it with a code and params type for each kind of rule.
+ * Recognise it with `instanceof` or `catchOnly(DomainError)` from `/result`.
+ * Serialise `error.dto` explicitly: without `toJSON`, serialising the error
+ * itself includes its enumerable own fields, including subclass fields.
+ * The DTO keeps params by reference and has no Factory back to an error.
+ */
+export abstract class DomainError<
+  TCode extends string,
+  TParams extends JSONValue,
+>
+  extends Error
+  implements DTOSource<ErrorDTO<TCode, TParams>>
+{
+  constructor(
+    readonly code: TCode,
+    readonly params: TParams,
+    message?: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options)
+    this.name = new.target.name
+  }
+
+  get dto(): ErrorDTO<TCode, TParams> {
+    return { code: this.code, params: this.params }
+  }
+}
 
 /**
  * The construction seam of a domain object: takes a DTO (plus any `extra`

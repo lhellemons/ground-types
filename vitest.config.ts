@@ -24,7 +24,6 @@ export default defineConfig({
         // glob can see; a new type-only module has to be added here.
         'src/brand/index.ts',
         'src/call/types.ts',
-        'src/domain/index.ts',
         'src/result/internal.ts',
         // The Box surface and the act family are pinned but unimplemented
         // — every member throws (see docs/adr/0005-box-classes.md). The

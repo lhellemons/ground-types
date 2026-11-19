@@ -611,6 +611,9 @@ later is required.
   `BestEffort`, and `toResult` refuses a `BestEffort`-valued `T`. The root
   entry point gains the namespace `bestEffort`. See
   `docs/adr/0006-best-effort.md`.
+- Add `DomainError`, `ErrorDTO` and `JSONValue` to `/domain`: an abstract
+  `Error` base for broken domain rules, with a literal `code`, JSON-valued
+  `params` and a one-way `dto`, `{ code, params }`; no `toJSON`.
 
 ## [0.4.0] - 2026-11-14
 
