@@ -313,20 +313,33 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   than optimised, because the alternative is reimplementing four
   combinators whose semantics are worth inheriting exactly.
 
-### Accepted runtime boundaries (review of PR 133)
+### Runtime hardening boundary
 
-The captured intrinsics are Promise, Promise.prototype.then, Reflect.apply,
-Object.create and the prototype checks described above. Listener options use
-a frozen null-prototype object. Other operations still consult mutable runtime
-intrinsics: array push, splice and iteration, AbortController, EventTarget
-listener methods, Promise factory methods and inherited Promise methods.
-Replacing those is outside the hardening boundary; callers must retain their
-ordinary behaviour. Capturing every operation would expand this change beyond
-the smaller documentation boundary chosen for ticket 137.
+**Update, 2026-11-19:** the values captured when the module loads are
+`Promise`, `Promise.prototype`, `Promise.prototype.then`, `Reflect.apply`,
+`Object.create` and, through the shared prototype check in
+`src/internal/is-error.ts`, `Object.prototype.isPrototypeOf` bound to
+`Function.prototype.call`. Every abort listener is added with one frozen
+null-prototype options object built at load, so nothing on `Object.prototype`
+changes it. Everything else is read when it is used: `Array.prototype.push`,
+`splice` and array iteration, the global `AbortController` and its `abort`,
+`AbortSignal.prototype.aborted`, `EventTarget.prototype.addEventListener` and
+`removeEventListener`, the global `Promise` in `of`, `resolve` and `reject`,
+and the inherited `then`, `catch`, `finally`, `all`, `allSettled`, `race` and
+`any`. Replacing or patching one of these can leave a promise pending, keep a
+listener on a signal or lose an abort; the module assumes they keep their
+standard behaviour. Capturing them would put an `apply` indirection on every
+push, splice and listener call to defend against code that already runs in
+the same realm and can reach the promise directly.
 
-The executor context is the AbortState instance to avoid a per-promise wrapper
-allocation. Its TypeScript interface exposes only signal; this is not a runtime
-security boundary. Untyped callers can reach the state methods and
-sharedController, including claimSettlement, and can leave a promise pending
-or change cancellation bookkeeping. This exposure is accepted; executors must
-use only the declared AbortContext interface.
+The executor's `context` is the promise's `AbortState` itself, so building a
+promise allocates no wrapper. `AbortContext` declares only `signal`, which is
+a compile-time boundary only: code holding the context (the executor, or
+anything it passes the context to) can call `claimSettlement`,
+`captureReject`, `watchSignal`, `link`, `abort` and `watchController` and
+read `sharedController` and `startedAborted`, and so can leave the promise
+pending and unabortable. Making those members `#`-private behind a
+module-scope accessor would cost no allocation either, but would restructure
+every caller of `AbortState` to close a gap only an untyped cast opens. This is
+accepted, since the executor already holds `resolve` and `reject`; pass
+`context.signal`, not `context`, to code you do not trust.

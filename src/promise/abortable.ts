@@ -9,6 +9,8 @@ const promisePrototype = Promise.prototype
 const promiseThen = Promise.prototype.then
 const apply = Reflect.apply
 const createObject = Object.create
+/* The options every abort listener is added with: no prototype and frozen,
+   so nothing on Object.prototype is read as an option. */
 const listenerOptions = Object.freeze(
   Object.assign(createObject(null), { once: true }),
 ) as AddEventListenerOptions
@@ -669,7 +671,7 @@ export class AbortablePromise<T> extends Promise<T> {
         }
       }
 
-      // An executor that throws rejects through the same function it was given,
+      // Setup and an executor that throws reject through the same function,
       // so a throw after `resolve(thenable)` is ignored as a native one is.
       try {
         state.captureReject(reject)

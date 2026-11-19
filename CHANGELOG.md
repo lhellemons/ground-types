@@ -17,8 +17,6 @@ on a single promise, a prototype swapped after the fact or an `abort()` that
 throws, or they add fewer signal listeners than v0.4.0 did. TypeScript 5.4 or
 later is required.
 
-- `AbortablePromise` rejects cleanly when a supplied controller's signal getter throws, and releases signal listeners even when inherited listener options are polluted.
-
 - `success(x)`, `failure(e)` and `result(x)` now infer at a site typed to a
   narrower `Result`: `(n: number): Result<number, Invalid> => success(n)`,
   `(): Result<number, A | B> => failure(new A())` and
@@ -578,6 +576,16 @@ later is required.
   promise; before, each added one. `peer()` on such a promise adds none for the
   settled promise: the peer adds its own listener to the shared signal until it
   settles, where v0.4.0 added two, one of which stayed after the peer settled.
+- An `AbortablePromise` given a controller whose `signal` getter or
+  `addEventListener` throws is settled by that rejection: a later `abortOn`
+  adds no listener and a later `abort()` no longer reaches the controller. It
+  rejected with the same error before, but `abortOn` left its listener on the
+  signal and `abort()` still aborted the controller.
+- The abort listener is added with options of its own, so a `capture` or
+  `signal` on `Object.prototype` no longer changes it. With
+  `Object.prototype.capture = true` the listener stayed on the signal after the
+  promise settled; with `Object.prototype.signal` set to an aborted signal no
+  listener was added, and aborting the signal left the promise pending.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`
