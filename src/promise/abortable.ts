@@ -425,8 +425,11 @@ export class AbortablePromise<T> extends Promise<T> {
    * Makes the promise `combine` returns for the items of `values`, and links
    * its abort to the members: aborting it calls `abort()` on each member that
    * is an AbortablePromise (`#isAbortablePromise`) whose `then`, read when
-   * `AbortablePromise` takes the member, is a function, and that is still an
-   * AbortablePromise when it is aborted. `abort()` is called on every such
+   * `AbortablePromise` takes the member, is a function, whose thenable (below)
+   * has had its `then` read by the combinator's resolution, and that is still
+   * an AbortablePromise when it is aborted; a member whose thenable is first
+   * read after the abort is aborted on that read. A `resolve` that reads that
+   * `then` and does not call it is not detected. `abort()` is called on every such
    * member even when one throws; the first error is thrown after the last. A
    * member that settles first aborts no other (see
    * docs/adr/0002-abort-propagation.md).
@@ -446,6 +449,7 @@ export class AbortablePromise<T> extends Promise<T> {
     combine: (members: Iterable<unknown>) => Promise<unknown>,
   ): AbortablePromise<unknown> {
     const adopted: AbortablePromise<unknown>[] = []
+    let linkFired = false
     const members = function* (): Generator<unknown> {
       for (const item of values) {
         if (!AbortablePromise.#isAbortablePromise(item)) {
@@ -468,10 +472,27 @@ export class AbortablePromise<T> extends Promise<T> {
           yield item
           continue
         }
-        adopted.push(item)
+        let taken = false
         yield {
-          then: (onFulfilled: unknown, onRejected: unknown) =>
-            apply(then, item, [onFulfilled, onRejected]),
+          get then() {
+            // Counted once, when read: native resolution, which reads it, goes
+            // on to call it. A subclass resolve that reads it and then throws
+            // is not detected.
+            if (!taken) {
+              taken = true
+              if (!linkFired) {
+                adopted.push(item)
+              } else if (AbortablePromise.#isAbortablePromise(item)) {
+                try {
+                  item.abort()
+                } catch {
+                  // The combined promise is aborted already.
+                }
+              }
+            }
+            return (onFulfilled: unknown, onRejected: unknown) =>
+              apply(then, item, [onFulfilled, onRejected])
+          },
         }
       }
     }
@@ -480,6 +501,7 @@ export class AbortablePromise<T> extends Promise<T> {
     const combinedState = combined.#state
     try {
       combinedState.link(() => {
+        linkFired = true
         runAll(adopted, (member) => {
           if (AbortablePromise.#isAbortablePromise(member)) {
             member.abort()

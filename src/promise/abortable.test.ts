@@ -3498,6 +3498,156 @@ describe('AbortablePromise.abort order', () => {
 })
 
 describe('AbortablePromise fan-in aborted while it is being made', () => {
+  describe.each(['all', 'allSettled', 'race', 'any'] as const)(
+    '%s adoption',
+    (method) => {
+      function combine(
+        Sub: typeof AbortablePromise,
+        members: AbortablePromise<string>[],
+      ) {
+        switch (method) {
+          case 'all':
+            return Sub.all(members)
+          case 'allSettled':
+            return Sub.allSettled(members)
+          case 'race':
+            return Sub.race(members)
+          case 'any':
+            return Sub.any(members)
+        }
+      }
+
+      it('aborts a member first read after the abort without an unhandled rejection', async () => {
+        class Deferred<T> extends AbortablePromise<T> {}
+        void Object.defineProperty(Deferred, 'resolve', {
+          value: (value: unknown) =>
+            new AbortablePromise<unknown>((resolve) => {
+              queueMicrotask(() => resolve(value))
+            }),
+        })
+        let signal!: AbortSignal
+        const member = new AbortablePromise<string>(
+          (_resolve, _reject, context) => {
+            signal = context.signal
+          },
+        )
+        let result!: AbortablePromise<unknown>
+        const unhandled = await unhandledDuring(() => {
+          result = combine(Deferred, [member])
+          void result.catch(() => {})
+          result.abort()
+        })
+        expect(signal.aborted).toBe(true)
+        expect(unhandled).toEqual([])
+        await expect(result).rejects.toSatisfy(isAbortError)
+        await expect(member).rejects.toSatisfy(isAbortError)
+      })
+
+      it('aborts the subscribed first member and leaves the second alone when resolve throws', async () => {
+        const Sub = abortingSubclass()
+        let resolved = 0
+        void Object.defineProperty(Sub, 'resolve', {
+          value: (value: unknown) => {
+            if (resolved++ === 1) throw new RangeError('cannot resolve second')
+            return AbortablePromise.resolve(value)
+          },
+        })
+        const a = new AbortablePromise<string>(() => {})
+        let signal!: AbortSignal
+        let fulfil!: (value: string) => void
+        const b = new AbortablePromise<string>((resolve, _reject, context) => {
+          fulfil = resolve
+          signal = context.signal
+        })
+        let result!: AbortablePromise<unknown>
+        const unhandled = await unhandledDuring(() => {
+          result = combine(Sub, [a, b])
+          void result.catch(() => {})
+        })
+        expect(signal.aborted).toBe(false)
+        expect(unhandled).toEqual([])
+        await expect(result).rejects.toSatisfy(isAbortError)
+        await expect(a).rejects.toSatisfy(isAbortError)
+        fulfil('untouched')
+        await expect(b).resolves.toBe('untouched')
+      })
+
+      it('counts a wrapper once when resolve reads its then twice', async () => {
+        class Reading<T> extends AbortablePromise<T> {}
+        void Object.defineProperty(Reading, 'resolve', {
+          value: (value: PromiseLike<unknown>) => {
+            void value.then
+            return AbortablePromise.resolve(value)
+          },
+        })
+        const member = new AbortablePromise<string>(() => {})
+        const abort = vi.spyOn(member, 'abort')
+        let result!: AbortablePromise<unknown>
+        const unhandled = await unhandledDuring(() => {
+          result = combine(Reading, [member])
+          void result.catch(() => {})
+          result.abort()
+        })
+        expect(abort).toHaveBeenCalledTimes(1)
+        expect(unhandled).toEqual([])
+        await expect(result).rejects.toSatisfy(isAbortError)
+        await expect(member).rejects.toSatisfy(isAbortError)
+      })
+    },
+  )
+
+  it.each(['all', 'allSettled', 'race', 'any'] as const)(
+    '%s leaves an unsubscribed member pending when subclass resolve throws after construction-time abort',
+    async (method) => {
+      let made = 0
+      class Sub<T> extends AbortablePromise<T> {
+        constructor(
+          executor: ConstructorParameters<typeof AbortablePromise<T>>[0],
+        ) {
+          super(executor)
+          if (made++ === 0) this.abort()
+        }
+
+        static override resolve(): never {
+          throw new RangeError('cannot resolve')
+        }
+      }
+      let fulfil!: (value: string) => void
+      let signal!: AbortSignal
+      const member = new AbortablePromise<string>(
+        (resolve, _reject, context) => {
+          fulfil = resolve
+          signal = context.signal
+        },
+      )
+      const then = vi.spyOn(member, 'then')
+      let result!: AbortablePromise<unknown>
+      const unhandled = await unhandledDuring(() => {
+        switch (method) {
+          case 'all':
+            result = Sub.all([member])
+            break
+          case 'allSettled':
+            result = Sub.allSettled([member])
+            break
+          case 'race':
+            result = Sub.race([member])
+            break
+          case 'any':
+            result = Sub.any([member])
+        }
+        void result.catch(() => {})
+      })
+
+      expect(then).not.toHaveBeenCalled()
+      expect(unhandled).toEqual([])
+      expect(signal.aborted).toBe(false)
+      await expect(result).rejects.toSatisfy(isAbortError)
+      fulfil('still pending')
+      await expect(member).resolves.toBe('still pending')
+    },
+  )
+
   /* A subclass whose latest instance is exposed, for a `values` generator that
      aborts the combined promise while it is iterated. */
   function exposingSubclass() {
