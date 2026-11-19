@@ -1081,3 +1081,31 @@ describe('call resultify catchOnly handler', () => {
     }
   })
 })
+
+describe('native-source pattern boundaries', () => {
+  it('refuses parentheses and braces in the apparent native name', () => {
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const entry = new Function(
+      'return function f() { return 1 // function () { [native code]\n}',
+    )() as never
+    ;(entry as { prototype: unknown }).prototype = undefined
+    expect(() => catchOnly(entry)).toThrow(
+      'catchOnly entry 0 is not an error class: it cannot be used with instanceof',
+    )
+  })
+  it('refuses trailing source after an apparent native representation', () => {
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const entry = new Function(
+      'return function /* () { [native code] } */ g() {}',
+    )() as never
+    const prototype = (entry as { prototype: unknown }).prototype
+    ;(entry as { prototype: unknown }).prototype = undefined
+    expect(() => catchOnly(entry)).toThrow(
+      'catchOnly entry 0 is not an error class: it cannot be used with instanceof',
+    )
+    ;(entry as { prototype: unknown }).prototype = prototype
+    delete (entry as { prototype: { constructor?: unknown } }).prototype
+      .constructor
+    expect(tryCatch(() => 1, entry)()).toBe(1)
+  })
+})
