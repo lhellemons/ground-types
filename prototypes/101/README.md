@@ -14,12 +14,18 @@ a diagnostic, then the diagnostics outside the probe. `--suite` also runs
 vitest with the project's TypeScript: the type tests, the Box pins and the
 consumer declaration-emit test.
 
-| File          | What                                                                                            |
-| ------------- | ----------------------------------------------------------------------------------------------- |
-| `arm-a.patch` | `readonly stack?: never` added to `SuccessMarkers`: every `SuccessArm` carries it               |
-| `arm-b.patch` | the marker only on object members of `T` that declare no `stack` key (a conditional type)       |
-| `probe.ts`    | the cases: raw `Error` returns the marker should close, and `stack`-carrying types it may break |
-| `example.ts`  | a standalone model of the three shapes side by side, for reading; it typechecks as written      |
+| File           | What                                                                                                          |
+| -------------- | ------------------------------------------------------------------------------------------------------------- |
+| `arm-a.patch`  | `readonly stack?: never` added to `SuccessMarkers`: every `SuccessArm` carries it                             |
+| `arm-b.patch`  | the marker only on object members of `T` that declare no `stack` key (a conditional type)                     |
+| `arm-b2.patch` | arm B with the marker typed as a branded string (`string & { '#notAnErrorStack': true }`) in place of `never` |
+| `probe.ts`     | the cases: raw `Error` returns the marker should close, and `stack`-carrying types it may break               |
+| `example.ts`   | a standalone model of the four shapes side by side, for reading; it typechecks as written                     |
+
+## Decision
+
+The owner chose **arm B2** (2026-11-19); see ADR 0001's amendment of that
+date. A follow-up ticket implements it.
 
 ## Measured
 
@@ -34,8 +40,8 @@ for every arm.
 `Readonly<Record<string, any>>`, `{ id?: string } & object`,
 `{ cause?: unknown }`, a wrong `Error` subclass into `{ code: string }`,
 and the unions `number | { name?: string }`, `number | Record<string, any>`.
-Arm A closes all of them and `{ stack?: string }`; arm B closes all but
-`{ stack?: string }`, and any other `T` that declares `stack`. Neither
+Arm A closes all of them and `{ stack?: string }`; arms B and B2 close all
+but `{ stack?: string }`, and any other `T` that declares `stack`. No arm
 closes `any`, `void`, or an `Error` hidden in a value's static type
 (`const v: { code: string } = new Other()`).
 
@@ -48,22 +54,35 @@ optional `stack?: string` keeps the object but its `stack` becomes
 `Editor` class), a parser state holding a `Stack<string>`, and a log
 record with `stack?: string`. A class named `Stack` is unaffected, and so is
 generic code over `T extends { stack }` (the constraint stays deferred).
+Arms B and B2 break none of these.
 
-**What both arms break.** A `Success` of an object no longer fits a
-string-valued index signature: `stack?: never` is an optional string key,
-so `new URLSearchParams(success({ a: '1' }))` and
-`const m: Record<string, string | number> = success(…)` are TS2345/TS2322.
-`Record<string, unknown>` still fits.
+**What arms A and B break.** A `Success` of an object no longer fits a
+string-valued index signature: `stack?: never` is an optional member whose
+only value is `undefined`, so `new URLSearchParams(success({ a: '1' }))`
+and `const m: Record<string, string | number> = success(…)` are
+TS2345/TS2322. That reverses the pin ADR 0001's #99 amendment chose a
+design to keep. B2 keeps it: TypeScript drops the `undefined` of an
+optional member against an index signature unless `undefined` is all it
+holds, and a branded string fits a string-valued one.
 
-**The suite.** Both arms fail exactly two type tests, 16 diagnostics: the
+**What every arm breaks.** A `Success` of an object into a number- or
+boolean-valued index signature: `const counts: Record<string, number> =
+success({ n: 1 })` is TS2322. `Record<string, unknown>` and
+`{ [k: string]: string | undefined }` still fit. Every arm also makes
+`.stack` readable on every `Success` of an object (TS2339 on `main`).
+
+**The suite.** Arms A and B fail two type tests, 16 diagnostics: the
 fifteen residual pins in `never-defaults.test-d.ts` ("a raw Error returned
 without failure() still compiles into the residual types"), and the
 `URLSearchParams` pin in `api-surface.test-d.ts` ("a Success of an object
-literal type fits an index signature"). Every other test passes, the Box
-pins and the consumer declaration-emit test among them (1160 of 1162). The
-probe's exported values emit declarations on every arm; the only TS4023 is
-the spread of a `Success`, which fails on `main` too (the open case the
-declaration-emit test pins).
+literal type fits an index signature"). Arm B2 fails only the first (1161
+of 1162). Every other test passes, the Box pins and the consumer
+declaration-emit test among them. The probe's exported values emit
+declarations on every arm; the only TS4023 is the spread of a `Success`,
+which fails on `main` too (the open case the declaration-emit test pins).
 
-**Unchanged by either arm.** Raw returns of a generic `T` and `success()`
+**Unchanged by every arm.** Raw returns of a generic `T` and `success()`
 of one fail on `main` already; `failure()` into any `Result` is untouched.
+
+**Not measured.** A consumer with `exactOptionalPropertyTypes`, and
+compile time.
