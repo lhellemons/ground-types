@@ -80,6 +80,18 @@ const open1 = (): ResultA<any, Invalid> => raw
 const hidden: { kind: 'Invalid' } = new Invalid()
 const open2 = (): ResultA<{ kind: 'Invalid' }, Invalid> => hidden
 
+// …and an Error subclass that narrows its own `stack` to `undefined`: every
+// marker is optional, so it accepts `undefined` (from the review of ticket 94).
+class Stackless extends Error {
+  readonly code = 'other'
+  override stack = undefined
+}
+const open3 = (): ResultB2<{ code: string }, Invalid> => new Stackless() // compiles on every arm
+const castError = new Error() as Error & { code: string }
+// @ts-expect-error — a plain Error cast to carry `code` is still rejected
+const closed3 = (): ResultB2<{ code: string }, Invalid> => castError
+void [open3, closed3]
+
 /* ── 2. What arm A breaks: a value type with a `stack` member ──────────────
    `{ stack: Frame[] } & { stack?: never }` has a `stack` of type never, and
    TypeScript reduces the whole object to never: the Success arm vanishes,
