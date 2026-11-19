@@ -445,7 +445,10 @@ change from `Success<number, Error>` to `Success<number, never>` and from
 `stack?: never` marker on the marked arm would close every structural case
 above and leave `any` and `void`, at the cost of every `T` with a `stack`
 member; ticket #101 holds that decision, and no type changed for it (ticket
-#94).
+#94). **Update, 2026-11-19:** decided in the amendment of that date
+below (#101): a branded-string `stack` marker on the object members of `T`
+that declare no `stack`. Until the follow-up ships it, the residual above
+stands as written.
 
 **Decision: reverse the 2026-08-04 amendment.** The phantom is kept, and
 the annotation is no longer accepted as a sharp edge: the constructors
@@ -1068,3 +1071,74 @@ test file itself runs on the repository's TypeScript, 5.9.3.
 Costs: two more type names on `/result`; the object spread of a `Success` or a
 `Failure` still needs an explicit type in a consumer that emits declarations.
 Not measured: a consumer with `exactOptionalPropertyTypes`.
+
+### 2026-11-19 — A `stack` marker closes the raw-`Error` residual for every `T` that declares no `stack` (#101)
+
+The 2026-11-14 amendment records a residual: a raw `Error` returned without
+`failure()` compiles where `T` is an object type a plain `Error` fits
+(`Result<object, Invalid>`, `Result<{ name?: string }, Invalid>`,
+`Result<Record<string, any>, Invalid>` and the rest listed there), and says
+no type closes it without a cost. A `stack` marker on the marked arm closes
+it, because every `Error` has `stack?: string`. A prototype
+(`prototypes/101/`, `run.sh` against `HEAD` with each arm's patch, on
+TypeScript 5.4.5, 5.9.3 and 7.0.2, with identical results on all three)
+measured three shapes of it.
+
+- **`readonly stack?: never` on every `SuccessArm`** closes every case in
+  the residual list and `{ stack?: string }`. It makes the whole arm `never`
+  for a `T` with a required `stack` (a parsed call stack, an editor with an
+  undo stack, a parser state holding a stack): TypeScript reduces
+  `{ id: string; stack: Frame[] } & { stack?: never }` to `never`, so after
+  `isSuccess` even `r.id` is TS2339, a raw `T` no longer fits `Result<T>`,
+  and `success(trace)` compiles silently to `never`. Rejected.
+- **The same marker only on the object members of `T` that declare no
+  `stack` key** (a conditional type in `SuccessArm`; a member with a string
+  index signature gets it too) breaks none of those types, and closes every
+  case in the list. It leaves open a `T` that declares `stack` and that a
+  plain `Error` fits (`{ stack?: string }`). A `Success` of an object no
+  longer fits a string-valued index signature, since an optional member
+  whose only value is `undefined` does not: `new URLSearchParams(success({
+a: '1' }))` fails, the call the 2026-11-16 amendment (#99) chose a design
+  to keep compiling. Rejected for that.
+- **That conditional with the marker typed as a branded string**
+  (`readonly stack?: string & { readonly '#notAnErrorStack': true }` in the
+  prototype) closes the same cases, as no `Error`'s `string | undefined`
+  stack fits it, and keeps a `Success` fitting a string-valued index
+  signature: against one, TypeScript drops the `undefined` of an optional
+  member unless `undefined` is all it holds.
+
+**Decision: the branded-string marker, on the object members of `T` that
+declare no `stack`.** A follow-up ticket implements it; this amendment
+changes no type. With it, a raw `Error` returned without `failure()` is
+rejected at every `T` the residual list names, and the residual becomes:
+a `T` that declares a `stack` member a plain `Error` fits (`{ stack?:
+string }`, or any object type with one and with no required member an
+`Error` lacks); `any`, and a returned expression typed `any`; `void`; and an
+`Error` hidden in a value's static type
+(`const v: { code: string } = new Other()`), which no marker on the target
+can see.
+
+Costs, measured on the prototype:
+
+- A `Success` of an object no longer fits a number- or boolean-valued index
+  signature: `const counts: Record<string, number> = success({ n: 1 })`
+  fails with TS2322. `Record<string, unknown>`, `Record<string, string>`
+  and `{ [k: string]: string | undefined }` still fit. Every shape of the
+  marker has this cost.
+- `.stack` becomes a readable member of every `Success` of an object, typed
+  as the brand or `undefined`, where `main` reports TS2339.
+- `SuccessArm` gains a conditional type over each member of `T`, one more
+  thing to read in its definition.
+- Breaking, for the CHANGELOG: the two above, and a raw `Error` returned
+  into the residual list's types, which compiled on 0.4.0.
+
+In the suite, the prototype fails only the test that pins the residual,
+"a raw Error returned without failure() still compiles into the residual
+types" in `src/result/never-defaults.test-d.ts` (15 diagnostics, one per
+closed case), which the follow-up turns into the closed list plus the new
+residual. Every other test passes, the Box pins and the consumer
+declaration-emit test among them, and #99's index-signature pin. The brand's
+key is a string, so a consumer's declaration emit can name it; the
+follow-up gives the marker an exported name, as #99 did for the others.
+Not measured: a consumer with `exactOptionalPropertyTypes`, and compile
+time.
