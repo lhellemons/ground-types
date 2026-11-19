@@ -121,7 +121,8 @@ export function* take<R extends Result<unknown, Error>>(
 /**
  * Drives a generator body to its return, or to its first yielded Failure.
  * Nothing is caught: a throw in the body propagates. On a Failure the
- * generator is closed with `return()`, so `finally` blocks in the body run.
+ * generator receives one `return()` call: `finally` blocks in the body run
+ * only up to their first `yield`; cleanup that yields is abandoned there.
  */
 export function gen<T, Y extends Error>(
   body: () => Generator<Y, T, unknown>,
