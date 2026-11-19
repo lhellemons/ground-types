@@ -1,9 +1,12 @@
 /* PROTOTYPE #101 — a standalone model of /result's Success arm, four ways,
    side by side. Open it in an editor: every `@ts-expect-error` marks a line
    the compiler rejects, so the file typechecks as written
-   (`tsc --noEmit --strict --lib ES2022,DOM prototypes/101/example.ts`). `Now` is the shipped shape, `A` adds `stack?: never` to every
-   Success, `B` adds it only to object members of T that declare no `stack`
-   key, and `B2` is B with a branded string in place of `never`. The measured results on the real library are in README.md. */
+   (`tsc --noEmit --strict --lib ES2022,DOM prototypes/101/example.ts`).
+   `Now` is the shipped shape, `A` adds `stack?: never` to every Success,
+   `B` adds it only to object members of T that do not explicitly declare
+   `stack` (an index signature alone does not count), and `B2` is B with a
+   branded string in place of `never`. The measured results on the real
+   library are in README.md. */
 /* eslint-disable */
 
 declare const _phantom: unique symbol
@@ -21,28 +24,38 @@ type SuccessA<T, E> =
   (Plain<T> & Markers<T, E> & { readonly stack?: never }) | Nullish<T>
 type ResultA<T, E extends Error> = SuccessA<T, E> | (E & Markers<T, E>)
 
-// Arm B: the marker only on object members of T that declare no `stack`.
+// Arm B: the marker only on object members of T that do not explicitly
+// declare `stack`. A string, number or symbol index signature alone does not
+// count, so `Record<string, any>` gets the marker and
+// `{ [key: string]: unknown; stack: number[] }` keeps its own `stack`.
+type ExplicitMembers<U> = {
+  [
+    K in keyof U as string extends K
+      ? never
+      : number extends K
+        ? never
+        : symbol extends K
+          ? never
+          : K
+  ]: U[K]
+}
 type StackMarked<U> = U extends object
-  ? string extends keyof U
-    ? U & { readonly stack?: never }
-    : 'stack' extends keyof U
-      ? U
-      : U & { readonly stack?: never }
+  ? 'stack' extends keyof ExplicitMembers<U>
+    ? U
+    : U & { readonly stack?: never }
   : U
 type SuccessB<T, E> = (StackMarked<Plain<T>> & Markers<T, E>) | Nullish<T>
 type ResultB<T, E extends Error> = SuccessB<T, E> | (E & Markers<T, E>)
 
-// Arm B2: arm B with a branded string for the marker. No Error's
-// `string | undefined` stack fits it, and an optional string-typed key still
+// Arm B2: arm B with a branded string for the marker. A `stack` typed
+// `string | undefined`, as a plain Error's is, does not fit it, and an optional string-typed key still
 // fits a string-valued index signature (TypeScript ignores the `undefined`
 // of an optional member there unless the member is `undefined` only).
 type NotAnErrorStack = string & { readonly '#notAnErrorStack': true }
 type StackMarked2<U> = U extends object
-  ? string extends keyof U
-    ? U & { readonly stack?: NotAnErrorStack }
-    : 'stack' extends keyof U
-      ? U
-      : U & { readonly stack?: NotAnErrorStack }
+  ? 'stack' extends keyof ExplicitMembers<U>
+    ? U
+    : U & { readonly stack?: NotAnErrorStack }
   : U
 type SuccessB2<T, E> = (StackMarked2<Plain<T>> & Markers<T, E>) | Nullish<T>
 type ResultB2<T, E extends Error> = SuccessB2<T, E> | (E & Markers<T, E>)
@@ -54,8 +67,8 @@ const raw = new Error('forgot failure()')
 
 /* ── 1. What the marker closes ─────────────────────────────────────────────
    A raw Error returned where a Result is expected, without failure(). Today
-   it compiles for these T, and the caller's `isSuccess` then treats the
-   Error as a value. */
+   it compiles for these T, letting an Error outside the declared E into the
+   Result; at run time `isSuccess` still recognises it as a Failure. */
 
 const now1 = (): ResultNow<{ name: string }, Invalid> => raw // compiles: the residual
 const now2 = (): ResultNow<Record<string, any>, Invalid> => raw // compiles: the residual
@@ -87,10 +100,14 @@ class Stackless extends Error {
   override stack = undefined
 }
 const open3 = (): ResultB2<{ code: string }, Invalid> => new Stackless() // compiles on every arm
+class Quiet extends Error {
+  override stack = undefined
+}
+const open4 = (): ResultB2<object, Invalid> => new Quiet() // compiles on every arm
 const castError = new Error() as Error & { code: string }
 // @ts-expect-error — a plain Error cast to carry `code` is still rejected
 const closed3 = (): ResultB2<{ code: string }, Invalid> => castError
-void [open3, closed3]
+void [open3, open4, closed3]
 
 /* ── 2. What arm A breaks: a value type with a `stack` member ──────────────
    `{ stack: Frame[] } & { stack?: never }` has a `stack` of type never, and
@@ -111,6 +128,12 @@ const nowTrace = (): ResultNow<Trace, Invalid> => trace // fine today
 // @ts-expect-error — A: a Trace is no longer a Result<Trace>
 const aTrace = (): ResultA<Trace, Invalid> => trace
 const bTrace = (): ResultB<Trace, Invalid> => trace // B: fine, Trace declares `stack`
+
+// An indexed type that declares `stack` keeps it too: the index signature is
+// dropped before the check, so only the explicit `stack` counts.
+type IndexedTrace = { [key: string]: unknown; id: string; stack: number[] }
+declare const indexed: IndexedTrace
+const b2Indexed = (): ResultB2<IndexedTrace, Invalid> => indexed // B2: fine
 
 declare const rA: ResultA<Trace, Invalid>
 declare const isSuccessA: <T, E extends Error>(
@@ -161,4 +184,4 @@ const countsB2: Record<string, number> = nB2
 
 void [b2raw, countsNow, countsB2]
 void [now1, now2, now3, a1, a2, a3, b1, b2, b3, open1, open2]
-void [nowTrace, aTrace, bTrace, idA, lenA, bOpen]
+void [nowTrace, aTrace, bTrace, b2Indexed, idA, lenA, bOpen]

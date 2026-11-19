@@ -1084,76 +1084,88 @@ Costs: two more type names on `/result`; the object spread of a `Success` or a
 `Failure` still needs an explicit type in a consumer that emits declarations.
 Not measured: a consumer with `exactOptionalPropertyTypes`.
 
-### 2026-11-19 — A `stack` marker closes the raw-`Error` residual for every `T` that declares no `stack` (#101)
+### 2026-11-19 — A branded `stack` marker narrows the raw-`Error` residual (#101)
 
 The 2026-11-14 amendment records a residual: a raw `Error` returned without
 `failure()` compiles where `T` is an object type a plain `Error` fits
 (`Result<object, Invalid>`, `Result<{ name?: string }, Invalid>`,
 `Result<Record<string, any>, Invalid>` and the rest listed there), and says
-no type closes it without a cost. A `stack` marker on the marked arm closes
-it, because every `Error` has `stack?: string`. A prototype
+no type closes it without a cost. A `stack` marker on the marked arm narrows
+it, because a plain `Error`'s `stack` is `string | undefined`. A prototype
 (`prototypes/101/`, `run.sh` against `HEAD` with each arm's patch, on
 TypeScript 5.4.5, 5.9.3 and 7.0.2, with identical results on all three)
 measured three shapes of it.
 
-- **`readonly stack?: never` on every `SuccessArm`** closes every case in
-  the residual list and `{ stack?: string }`. It makes the whole arm `never`
-  for a `T` with a required `stack` (a parsed call stack, an editor with an
-  undo stack, a parser state holding a stack): TypeScript reduces
+- **`readonly stack?: never` on every `SuccessArm`** closes every object
+  case in the residual list and `{ stack?: string }`. It makes the whole arm
+  `never` for a `T` with a required `stack` (a parsed call stack, an editor
+  with an undo stack, a parser state holding a stack): TypeScript reduces
   `{ id: string; stack: Frame[] } & { stack?: never }` to `never`, so after
   `isSuccess` even `r.id` is TS2339, a raw `T` no longer fits `Result<T>`,
   and `success(trace)` compiles silently to `never`. Rejected.
-- **The same marker only on the object members of `T` that declare no
-  `stack` key** (a conditional type in `SuccessArm`; a member with a string
-  index signature gets it too) breaks none of those types, and closes every
-  case in the list. It leaves open a `T` that declares `stack` and that a
-  plain `Error` fits (`{ stack?: string }`). A `Success` of an object no
+- **The same marker only on the object members of `T` that do not
+  explicitly declare `stack`** (a conditional type in `SuccessArm`; a
+  string, number or symbol index signature alone does not count as
+  declaring one) breaks none of those types, an indexed type that declares
+  `stack` among them, and closes every object case in the list that
+  declares no `stack`. It leaves open a `T` that declares `stack` and that
+  a plain `Error` fits (`{ stack?: string }`). A `Success` of an object no
   longer fits a string-valued index signature, since an optional member
-  whose only value is `undefined` does not: `new URLSearchParams(success({
-a: '1' }))` fails, the call the 2026-11-16 amendment (#99) chose a design
-  to keep compiling. Rejected for that.
+  whose only value is `undefined` does not:
+  `new URLSearchParams(success({ a: '1' }))` fails, the call the 2026-11-16
+  amendment (#99) chose a design to keep compiling. Rejected for that.
 - **That conditional with the marker typed as a branded string**
   (`readonly stack?: string & { readonly '#notAnErrorStack': true }` in the
-  prototype) closes the same cases, as no `Error`'s `string | undefined`
-  stack fits it, and keeps a `Success` fitting a string-valued index
+  prototype) closes the same cases, as a `stack` typed `string | undefined`
+  does not fit it, and keeps a `Success` fitting a string-valued index
   signature: against one, TypeScript drops the `undefined` of an optional
   member unless `undefined` is all it holds.
 
 **Decision: the branded-string marker, on the object members of `T` that
-declare no `stack`.** A follow-up ticket implements it; this amendment
-changes no type. With it, a raw `Error` returned without `failure()` is
-rejected at every `T` the residual list names, as long as its `stack` is
-typed `string | undefined` as `Error`'s is. The residual becomes:
+do not explicitly declare a `stack` member (a string index signature alone
+does not count as declaring one).** A follow-up ticket implements it; this
+amendment changes no type. With it, a plain `Error` returned without
+`failure()` is rejected at every object `T` the residual list names that
+declares no `stack`, and the residual becomes: a `T` that declares a
+`stack` member a plain `Error` fits (`{ stack?: string }`,
+`{ message?: string; stack?: string }`); `any`, and a returned expression
+typed `any`; `void`; an `Error` subclass that narrows `stack` to
+`undefined` or `never`
+(`class Quiet extends Error { override stack = undefined }`), returned into
+any `T` a plain `Error` fits today, which the brand's optional `undefined`
+admits; and an `Error` hidden in a value's static type
+(`const v: { code: string } = new Other()`), which no marker on the target
+can see.
 
-- a `T` that declares a `stack` member a plain `Error` fits (`{ stack?:
-string }`, or any object type with one and with no required member an
-  `Error` lacks);
-- an `Error` subclass that narrows its own `stack` to `undefined`
-  (`class Stackless extends Error { readonly code = 'other'; override stack
-= undefined }` returned into `Result<{ code: string }, Invalid>`
-  compiles, and `isFailure` of it is true). Every shape of the marker leaves
-  this open: an optional marker accepts `undefined`. Found in the review of
-  #94 and measured on all three arms; a plain `Error` cast to `Error & {
-code: string }` is rejected by all three;
-- `any`, and a returned expression typed `any`;
-- `void`;
-- an `Error` hidden in a value's static type
-  (`const v: { code: string } = new Other()`), which no marker on the target
-  can see.
+The narrowed-`stack` subclass was found in the review of #94 and measured
+on every arm: `Quiet` returned into `object`, `{ name?: string }` or
+`Record<string, any>` compiles under each, and so does a subclass with a
+`code` member into `Result<{ code: string }, Invalid>`, whose `isFailure`
+is true at run time. A plain `Error` cast to `Error & { code: string }`,
+which compiles on `main`, is rejected by every arm.
 
 Costs, measured on the prototype:
 
-- A `Success` of an object no longer fits a number- or boolean-valued index
-  signature: `const counts: Record<string, number> = success({ n: 1 })`
-  fails with TS2322. `Record<string, unknown>`, `Record<string, string>`
+- The added marker breaks assignment to an index signature whose value type
+  does not accept the branded string: number, boolean, and string-literal
+  unions such as `'yes' | 'no'`.
+  `const counts: Record<string, number> = success({ n: 1 })` and
+  `const m: Record<string, 'yes' | 'no'> = success({ answer: 'yes' as const })`
+  fail with TS2322. `Record<string, unknown>`, `Record<string, string>`
   and `{ [k: string]: string | undefined }` still fit. Every shape of the
   marker has this cost.
-- `.stack` becomes a readable member of every `Success` of an object, typed
-  as the brand or `undefined`, where `main` reports TS2339.
+- `'stack' in r` no longer narrows a `Result` of an object to its
+  `Failure`: for `r: Result<{ q: number }, Invalid>`,
+  `'stack' in r ? r.kind : …` compiles on `main` and is TS2339 with the
+  marker.
+- Object members that receive the marker gain a readable `.stack`, typed as
+  the brand or `undefined`; members that declare their own `stack` keep its
+  type.
 - `SuccessArm` gains a conditional type over each member of `T`, one more
   thing to read in its definition.
-- Breaking, for the CHANGELOG: the two above, and a raw `Error` returned
-  into the residual list's types, which compiled on 0.4.0.
+- Breaking, for the CHANGELOG: the index-signature cost, the `'stack' in`
+  narrowing, and a raw `Error` returned into the residual list's types,
+  which compiled on 0.4.0.
 
 In the suite, the prototype fails only the test that pins the residual,
 "a raw Error returned without failure() still compiles into the residual
@@ -1161,7 +1173,7 @@ types" in `src/result/never-defaults.test-d.ts` (15 diagnostics, one per
 closed case), which the follow-up turns into the closed list plus the new
 residual. Every other test passes, the Box pins and the consumer
 declaration-emit test among them, and #99's index-signature pin. The brand's
-key is a string, so a consumer's declaration emit can name it; the
-follow-up gives the marker an exported name, as #99 did for the others.
-Not measured: a consumer with `exactOptionalPropertyTypes`, and compile
-time.
+key is a string, so a consumer's declaration emit can write it out; whether
+the follow-up also gives it an exported name, as #99 did for the symbol
+markers, is the follow-up's call. Not measured: a consumer with
+`exactOptionalPropertyTypes`, and compile time.

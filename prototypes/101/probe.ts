@@ -153,6 +153,32 @@ class Stackless extends Error {
   readonly code = 'other'
   override stack = undefined
 }
-export const s1 = (): Result<{ code: string }, Invalid> => new Stackless() // CASE: closes: Error subclass with stack narrowed to undefined
+export const s1 = (): Result<{ code: string }, Invalid> => new Stackless() // CASE: closes: Error subclass with stack narrowed to undefined, into { code: string } (expected to stay open)
 export const s2 = (): Result<{ code: string }, Invalid> =>
   new Error() as Error & { code: string } // CASE: closes: plain Error cast to Error & { code }
+
+// Review of #101 round 1: the same narrowing into other residual types.
+class Quiet extends Error {
+  override stack = undefined
+}
+export const q1 = (): Result<object, Invalid> => new Quiet() // CASE: closes: Quiet into object (expected to stay open)
+export const q2 = (): Result<{ name?: string }, Invalid> => new Quiet() // CASE: closes: Quiet into { name?: string } (expected to stay open)
+export const q3 = (): Result<Record<string, any>, Invalid> => new Quiet() // CASE: closes: Quiet into Record<string, any> (expected to stay open)
+
+// An indexed type that explicitly declares `stack`: B and B2 exempt it.
+type IndexedTrace = { [key: string]: unknown; id: string; stack: number[] }
+declare const it: IndexedTrace
+export const x1 = (): Result<IndexedTrace, Invalid> => it // CASE: breaks: indexed type declaring stack, returned raw
+declare const rit: Result<IndexedTrace, Invalid>
+export const x2 = isSuccess(rit) ? rit.stack.length : 0 // CASE: breaks: indexed type declaring stack, read after isSuccess
+export const x3 = (): Result<Record<string, any>, Invalid> => raw // CASE: closes: Record<string, any> (again, beside the indexed Trace)
+
+// A string-literal-valued index signature.
+const answer = success({ answer: 'yes' as const })
+export const l1: Record<string, 'yes' | 'no'> = answer // CASE: breaks: success({ answer: 'yes' }) into Record<string, 'yes' | 'no'>
+
+// `'stack' in r` as a narrowing to the Failure.
+declare const rin: Result<{ q: number }, Invalid>
+export const n1 = 'stack' in rin ? rin.kind : undefined // CASE: breaks: 'stack' in r narrows to the Failure
+type MessageStack = { message?: string; stack?: string }
+export const m1 = (): Result<MessageStack, Invalid> => raw // CASE: closes: { message?; stack? } (open on B and B2: declares stack)

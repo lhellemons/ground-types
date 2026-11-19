@@ -10,8 +10,11 @@
 set -euo pipefail
 ARM=${1:?arm: main, a, b or b2}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-TSC=${2:-$ROOT/node_modules/.bin/tsc}
-SUITE=${3:-}
+TSC=$ROOT/node_modules/.bin/tsc; SUITE=
+for x in "${@:2}"; do
+  if [ "$x" = --suite ]; then SUITE=--suite; else TSC=$x; fi
+done
+"$TSC" -v >/dev/null 2>&1 || { echo "cannot run tsc: $TSC" >&2; exit 2; }
 case "$ARM" in main | a | b | b2) ;; *) echo "unknown arm: $ARM" >&2; exit 2 ;; esac
 WT=$(mktemp -d "${TMPDIR:-/tmp}/proto101.XXXXXX")
 cleanup() {
