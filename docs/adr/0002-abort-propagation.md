@@ -315,6 +315,19 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
 
 ### Runtime hardening boundary
 
+**Update, 2026-11-19:** resolution reads a value's `then` to distinguish
+adoption from immediate settlement. If it is not callable, native resolution
+reads it again. A getter that first returns `undefined` and then throws
+therefore rejects rather than fulfils; one that returns a function on the
+second read is followed with the abort window already closed. If that
+function never settles, the promise stays pending and `abort()` does nothing,
+including on a supplied controller. This applies to terminal values reached
+through adoption too. Native Promise reads once. There is no public native
+fulfil operation that preserves an object's identity without reading `then`;
+avoiding the second read would require replacing the native Promise storage
+and chaining model or mutating the caller's object. That cost is not accepted
+for values whose `then` changes between reads. Use stable `then` properties.
+
 **Update, 2026-11-19:** the values captured when the module loads are
 `Promise`, `Promise.prototype`, `Promise.prototype.then`, `Reflect.apply`,
 `Object.create` and, through the shared prototype check in

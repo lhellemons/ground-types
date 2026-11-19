@@ -52,6 +52,53 @@ afterEach(() => {
 })
 
 describe('AbortablePromise', () => {
+  it('follows a second then read with its abort window closed', async () => {
+    let reads = 0
+    const value = {
+      get then() {
+        return ++reads === 1 ? undefined : () => {}
+      },
+    }
+    const controller = new AbortController()
+    const promise = new AbortablePromise(
+      (resolve) => resolve(value),
+      controller,
+    )
+    promise.abort()
+    const outcome = await Promise.race([
+      promise.then(
+        () => 'fulfilled',
+        () => 'rejected',
+      ),
+      new Promise((resolve) => setTimeout(() => resolve('pending'), 0)),
+    ])
+    expect(outcome).toBe('pending')
+    expect(reads).toBe(2)
+    expect(controller.signal.aborted).toBe(false)
+    expect(listeners(controller.signal)).toEqual([])
+  })
+
+  it('rejects when a second then read throws', async () => {
+    let reads = 0
+    const error = new Error('second read')
+    const value = {
+      get then(): undefined {
+        if (++reads === 1) return undefined
+        throw error
+      },
+    }
+    const controller = new AbortController()
+    const promise = new AbortablePromise(
+      (resolve) => resolve(value),
+      controller,
+    )
+    promise.abort()
+    await expect(promise).rejects.toBe(error)
+    expect(reads).toBe(2)
+    expect(controller.signal.aborted).toBe(false)
+    expect(listeners(controller.signal)).toEqual([])
+  })
+
   it('is a Promise', async () => {
     const apThatResolves = new AbortablePromise((resolve) => {
       resolve('resolved')
