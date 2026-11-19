@@ -14,13 +14,13 @@ a diagnostic, then the diagnostics outside the probe. `--suite` also runs
 vitest with the project's TypeScript: the type tests, the Box pins and the
 consumer declaration-emit test.
 
-| File           | What                                                                                                                                          |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `arm-a.patch`  | `readonly stack?: never` added to `SuccessMarkers`: every `SuccessArm` carries it                                                             |
-| `arm-b.patch`  | the marker only on object members of `T` that do not explicitly declare `stack`; an index signature alone does not count (a conditional type) |
-| `arm-b2.patch` | arm B with the marker typed as a branded string (`string & { '#notAnErrorStack': true }`) in place of `never`                                 |
-| `probe.ts`     | the cases: raw `Error` returns the marker should close, and `stack`-carrying types it may break                                               |
-| `example.ts`   | a standalone model of the four shapes side by side, for reading; it typechecks as written                                                     |
+| File           | What                                                                                                                                      |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `arm-a.patch`  | `readonly stack?: never` added to `SuccessMarkers`: every `SuccessArm` carries it                                                         |
+| `arm-b.patch`  | the marker only on object members of `T` with no literal `stack` key; an index signature alone, template-literal included, does not count |
+| `arm-b2.patch` | arm B with the marker typed as a branded string (`string & { '#notAnErrorStack': true }`) in place of `never`                             |
+| `probe.ts`     | the cases: raw `Error` returns the marker should close, and `stack`-carrying types it may break                                           |
+| `example.ts`   | a standalone model of the four shapes side by side, for reading; it typechecks as written                                                 |
 
 ## Decision
 
@@ -42,9 +42,11 @@ for every arm.
 and the unions `number | { name?: string }`, `number | Record<string, any>`.
 Arm A closes all of them and `{ stack?: string }`; arms B and B2 close all
 but `{ stack?: string }`, and any other `T` that declares `stack`
-(`{ message?: string; stack?: string }`). A string, number or symbol index
-signature alone does not count as declaring `stack`, so B and B2 still
-close `Record<string, any>`.
+(`{ message?: string; stack?: string }`). Only a literal `stack` key
+counts as declaring one: an index signature alone does not, a
+template-literal one that `'stack'` matches (``[k: `sta${string}`]``)
+included, so B and B2 still close `Record<string, any>` and
+``{ [k: string]: any; [k: `sta${string}`]: any }``.
 
 No arm closes `any`, `void`, an `Error` hidden in a value's static type
 (`const v: { code: string } = new Other()`), or an `Error` subclass that
@@ -92,15 +94,33 @@ fit. `'stack' in r` no longer narrows a `Result` of an object to its
 `Failure` (`'stack' in r ? r.kind : …` is TS2339). Members that receive
 the marker gain a readable `.stack` (TS2339 on `main`).
 
+**What arms B and B2 break.** A `Success` whose value declares a `stack`
+the marker does not fit no longer widens to a `Result` whose value type
+omits `stack`. Through a variable, these are TS2322 (under A they compile,
+but only because the `Success` is already `never`):
+
+    const value = success({ id: 'x', stack: [1] })
+    const widened: Result<{ id: string }, Invalid> = value
+    const loose: Result<object, Invalid> = value
+
+**An unsound read under B2.** The `.stack` it adds is typed as the brand or
+`undefined`, but `success` adds no property and checks none, so a value
+whose static type hides a real `stack` reads wrong. This compiles under B2
+and throws at run time; on `main` and under A and B it is TS2339:
+
+    const view: { id: string } = { id: 'x', stack: 42 }
+    success(view).stack?.toUpperCase()
+
 **The suite.** Arms A and B fail two type tests, 16 diagnostics: the
-fifteen residual pins in `never-defaults.test-d.ts` ("a raw Error returned
-without failure() still compiles into the residual types"), and the
-`URLSearchParams` pin in `api-surface.test-d.ts` ("a Success of an object
-literal type fits an index signature"). Arm B2 fails only the first (1226
-of 1227, on `main` with #158 merged). Every other test passes, the Box pins and the consumer
-declaration-emit test among them. The probe's exported values emit
-declarations on every arm; the only TS4023 is the spread of a `Success`,
-which fails on `main` too (the open case the declaration-emit test pins).
+fifteen residual pins in `never-defaults.test-d.ts` ("a raw Error
+returned without failure() still compiles into the residual types"), and
+the `URLSearchParams` pin in `api-surface.test-d.ts` ("a Success of an
+object literal type fits an index signature"). Arm B2 fails only the
+first (1226 of 1227, on `main` with #158 merged). Every other test
+passes, the Box pins and the consumer declaration-emit test among them.
+The probe's exported values emit declarations on every arm; the only
+TS4023 is the spread of a `Success`, which fails on `main` too (the open
+case the declaration-emit test pins).
 
 **Unchanged by every arm.** Raw returns of a generic `T` and `success()`
 of one fail on `main` already; `failure()` into any `Result` is untouched.

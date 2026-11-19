@@ -182,3 +182,21 @@ declare const rin: Result<{ q: number }, Invalid>
 export const n1 = 'stack' in rin ? rin.kind : undefined // CASE: breaks: 'stack' in r narrows to the Failure
 type MessageStack = { message?: string; stack?: string }
 export const m1 = (): Result<MessageStack, Invalid> => raw // CASE: closes: { message?; stack? } (open on B and B2: declares stack)
+
+// Review of #101 round 2: a template-literal index signature that `stack`
+// matches is not a declared `stack`.
+type TemplateIndexed = { [k: string]: any; [k: `sta${string}`]: any }
+export const t1 = (): Result<TemplateIndexed, Invalid> => raw // CASE: closes: template-literal index matching 'stack'
+type TemplateWithStack = { [k: `sta${string}`]: unknown; stack: number[] }
+declare const tws: TemplateWithStack
+export const t2 = (): Result<TemplateWithStack, Invalid> => tws // CASE: breaks: template index that also declares stack, returned raw
+
+// Widening a Success whose value declares a `stack` the brand does not fit.
+const withStack = success({ id: 'x', stack: [1] })
+export const w1: Result<{ id: string }, Invalid> = withStack // CASE: breaks: Success of { id; stack } widened to Result<{ id }>
+export const w2: Result<object, Invalid> = withStack // CASE: breaks: Success of { id; stack } widened to Result<object>
+
+// An unsound read: the static type hides a real `stack`.
+const actual = { id: 'x', stack: 42 }
+const view: { id: string } = actual
+export const u1 = success(view).stack?.toUpperCase() // CASE: loosens: .stack read through a type that hides a real stack (throws at run time)

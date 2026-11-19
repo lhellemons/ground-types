@@ -24,23 +24,15 @@ type SuccessA<T, E> =
   (Plain<T> & Markers<T, E> & { readonly stack?: never }) | Nullish<T>
 type ResultA<T, E extends Error> = SuccessA<T, E> | (E & Markers<T, E>)
 
-// Arm B: the marker only on object members of T that do not explicitly
-// declare `stack`. A string, number or symbol index signature alone does not
-// count, so `Record<string, any>` gets the marker and
+// Arm B: the marker only on object members of T with no literal `stack`
+// key. An index signature alone does not count, a template-literal one that
+// 'stack' matches included, so `Record<string, any>` gets the marker and
 // `{ [key: string]: unknown; stack: number[] }` keeps its own `stack`.
-type ExplicitMembers<U> = {
-  [
-    K in keyof U as string extends K
-      ? never
-      : number extends K
-        ? never
-        : symbol extends K
-          ? never
-          : K
-  ]: U[K]
+type ExplicitStack<U> = {
+  [K in keyof U as K extends 'stack' ? K : never]: U[K]
 }
 type StackMarked<U> = U extends object
-  ? 'stack' extends keyof ExplicitMembers<U>
+  ? 'stack' extends keyof ExplicitStack<U>
     ? U
     : U & { readonly stack?: never }
   : U
@@ -53,7 +45,7 @@ type ResultB<T, E extends Error> = SuccessB<T, E> | (E & Markers<T, E>)
 // of an optional member there unless the member is `undefined` only).
 type NotAnErrorStack = string & { readonly '#notAnErrorStack': true }
 type StackMarked2<U> = U extends object
-  ? 'stack' extends keyof ExplicitMembers<U>
+  ? 'stack' extends keyof ExplicitStack<U>
     ? U
     : U & { readonly stack?: NotAnErrorStack }
   : U
@@ -135,6 +127,19 @@ type IndexedTrace = { [key: string]: unknown; id: string; stack: number[] }
 declare const indexed: IndexedTrace
 const b2Indexed = (): ResultB2<IndexedTrace, Invalid> => indexed // B2: fine
 
+// A template-literal index that 'stack' matches is not a declared `stack`:
+type TemplateIndexed = { [k: string]: any; [k: `sta${string}`]: any }
+// @ts-expect-error — B2 still closes it
+const b2Template = (): ResultB2<TemplateIndexed, Invalid> => raw
+
+// B2's own cost: the `.stack` it adds is a promise `success` does not check.
+// A value whose static type hides a real `stack` reads wrong: this compiles
+// under B2 and throws at run time (TS2339 on `Now`).
+declare const successB2: <T>(value: T) => SuccessB2<T, never>
+const actual = { id: 'x', stack: 42 }
+const view: { id: string } = actual
+const unsound = () => successB2(view).stack?.toUpperCase()
+
 declare const rA: ResultA<Trace, Invalid>
 declare const isSuccessA: <T, E extends Error>(
   r: ResultA<T, E>,
@@ -184,4 +189,14 @@ const countsB2: Record<string, number> = nB2
 
 void [b2raw, countsNow, countsB2]
 void [now1, now2, now3, a1, a2, a3, b1, b2, b3, open1, open2]
-void [nowTrace, aTrace, bTrace, b2Indexed, idA, lenA, bOpen]
+void [
+  nowTrace,
+  aTrace,
+  bTrace,
+  b2Indexed,
+  b2Template,
+  unsound,
+  idA,
+  lenA,
+  bOpen,
+]

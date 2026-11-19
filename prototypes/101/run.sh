@@ -14,6 +14,8 @@ TSC=$ROOT/node_modules/.bin/tsc; SUITE=
 for x in "${@:2}"; do
   if [ "$x" = --suite ]; then SUITE=--suite; else TSC=$x; fi
 done
+TSC_PATH=$(command -v "$TSC") || { echo "cannot find tsc: $TSC" >&2; exit 2; }
+case "$TSC_PATH" in /*) TSC=$TSC_PATH ;; *) TSC="$PWD/$TSC_PATH" ;; esac
 "$TSC" -v >/dev/null 2>&1 || { echo "cannot run tsc: $TSC" >&2; exit 2; }
 case "$ARM" in main | a | b | b2) ;; *) echo "unknown arm: $ARM" >&2; exit 2 ;; esac
 WT=$(mktemp -d "${TMPDIR:-/tmp}/proto101.XXXXXX")
@@ -48,5 +50,10 @@ lines.forEach((t,i)=>{const c=t.match(/CASE: (.*)$/);if(!c)return;
 console.log(`-- diagnostics outside the probe: ${other.length}`);other.forEach(o=>console.log("   "+o));' "$OUT"
 if [ "$SUITE" = --suite ]; then
   rm src/result/proto101.ts
-  node_modules/.bin/vitest run 2>&1 | grep -E "^ +(×|FAIL)|Test Files|Tests |Type Errors" || true
+  SUMMARY=$(node_modules/.bin/vitest run 2>&1 | grep -E "^ +(×|FAIL)|Test Files|Tests |Type Errors" || true)
+  if [ -z "$SUMMARY" ]; then
+    echo "suite: no vitest summary (did vitest run?)" >&2
+  else
+    echo "$SUMMARY"
+  fi
 fi

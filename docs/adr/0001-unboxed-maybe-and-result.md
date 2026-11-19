@@ -456,7 +456,7 @@ and are accepted where a callback declares a different return type
 (`result`) or Box type (`Result.from`), which 0.4.0 refused; wrapping the
 factory restores both. No signature found closes this and keeps the
 direct-call inference above (#151).
-**Update, 2026-11-19:** decided in the amendment of that date below
+**Update, 2026-11-19:** decided in the 2026-11-19 amendment below
 (#101): a branded-string `stack` marker on the object members of `T` that
 do not explicitly declare a `stack` member. Until the follow-up ships it,
 the residual above stands as written.
@@ -1104,14 +1104,15 @@ measured three shapes of it.
   `isSuccess` even `r.id` is TS2339, a raw `T` no longer fits `Result<T>`,
   and `success(trace)` compiles silently to `never`. Rejected.
 - **The same marker only on the object members of `T` that do not
-  explicitly declare `stack`** (a conditional type in `SuccessArm`; a
-  string, number or symbol index signature alone does not count as
-  declaring one) breaks none of those types, an indexed type that declares
-  `stack` among them, and closes every object case in the list that
-  declares no `stack`. It leaves open a `T` that declares `stack` and that
-  a plain `Error` fits (`{ stack?: string }`). A `Success` of an object no
-  longer fits a string-valued index signature, since an optional member
-  whose only value is `undefined` does not:
+  explicitly declare `stack`** (a conditional type in `SuccessArm` that
+  looks for a literal `stack` key; an index signature alone, a
+  template-literal one such as ``[k: `sta${string}`]`` included, does
+  not count as declaring one) breaks none of those types, an indexed type
+  that declares `stack` among them, and closes every object case in the
+  list that declares no `stack`. It leaves open a `T` that declares
+  `stack` and that a plain `Error` fits (`{ stack?: string }`). A `Success`
+  of an object no longer fits a string-valued index signature, since an
+  optional member whose only value is `undefined` does not:
   `new URLSearchParams(success({ a: '1' }))` fails, the call the 2026-11-16
   amendment (#99) chose a design to keep compiling. Rejected for that.
 - **That conditional with the marker typed as a branded string**
@@ -1122,8 +1123,8 @@ measured three shapes of it.
   member unless `undefined` is all it holds.
 
 **Decision: the branded-string marker, on the object members of `T` that
-do not explicitly declare a `stack` member (a string index signature alone
-does not count as declaring one).** A follow-up ticket implements it; this
+do not explicitly declare a `stack` member (an index signature alone does
+not count as declaring one).** A follow-up ticket implements it; this
 amendment changes no type. With it, a plain `Error` returned without
 `failure()` is rejected at every object `T` the residual list names that
 declares no `stack`, and the residual becomes: a `T` that declares a
@@ -1158,14 +1159,25 @@ Costs, measured on the prototype:
   `Failure`: for `r: Result<{ q: number }, Invalid>`,
   `'stack' in r ? r.kind : …` compiles on `main` and is TS2339 with the
   marker.
+- A `Success` whose value declares a `stack` the brand does not fit no
+  longer widens to a `Result` whose value type omits `stack`: assigning
+  `success({ id: 'x', stack: [1] })` through a variable to
+  `Result<{ id: string }, Invalid>` or `Result<object, Invalid>` now fails
+  with TS2322.
 - Object members that receive the marker gain a readable `.stack`, typed as
   the brand or `undefined`; members that declare their own `stack` keep its
-  type.
+  type. This read is unsound when the value's static type hides a real
+  `stack` property: the marker promises the brand or `undefined`, but the
+  property can hold anything. `success` adds no property and checks none.
+  For `const view: { id: string } = { id: 'x', stack: 42 }`,
+  `success(view).stack?.toUpperCase()` compiles and throws at run time; on
+  `main` it is TS2339.
 - `SuccessArm` gains a conditional type over each member of `T`, one more
   thing to read in its definition.
 - Breaking, for the CHANGELOG: the index-signature cost, the `'stack' in`
-  narrowing, and a raw `Error` returned into the residual list's types,
-  which compiled on 0.4.0.
+  narrowing, the lost widening of a `Success` whose value declares a
+  `stack`, and a raw `Error` returned into the residual list's types, which
+  compiled on 0.4.0.
 
 In the suite, the prototype fails only the test that pins the residual,
 "a raw Error returned without failure() still compiles into the residual

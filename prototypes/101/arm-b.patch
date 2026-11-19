@@ -1,8 +1,8 @@
 diff --git a/src/result/index.ts b/src/result/index.ts
-index c51f7a9..19046d8 100644
+index c51f7a9..f7d377c 100644
 --- a/src/result/index.ts
 +++ b/src/result/index.ts
-@@ -65,12 +65,29 @@ export type Success<T, E extends Error = Error> =
+@@ -65,12 +65,23 @@ export type Success<T, E extends Error = Error> =
   * `undefined` and `void` members, carrying the phantom markers. A `Success`
   * is a `SuccessArm` or a bare nullish member of `T`.
   */
@@ -15,19 +15,13 @@ index c51f7a9..19046d8 100644
    SuccessMarkers<T, E>
  
 +/* PROTOTYPE #101 arm B: each object member of T that does not explicitly
-+   declare `stack` (a broad index signature alone does not count) carries
++   declare `stack` (an index signature alone does not count) carries
 +   `stack?: never`; a member that declares one keeps it. */
-+type ExplicitMembers<U> = {
-+  [K in keyof U as string extends K
-+    ? never
-+    : number extends K
-+      ? never
-+      : symbol extends K
-+        ? never
-+        : K]: U[K]
++type ExplicitStack<U> = {
++  [K in keyof U as K extends 'stack' ? K : never]: U[K]
 +}
 +type StackMarked<U> = U extends object
-+  ? 'stack' extends keyof ExplicitMembers<U>
++  ? 'stack' extends keyof ExplicitStack<U>
 +    ? U
 +    : U & { readonly stack?: never }
 +  : U
