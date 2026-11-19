@@ -224,9 +224,9 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   creates. Both consequences are real. The premise is not: they follow
   from observing settlement _from outside_, and `AbortState` is not
   outside. It is the bookkeeping that decides settlement —
-  `claimSettlement` and `abort` are the moments themselves — so it can
-  release from there with no handler attached and no effect on whether the
-  promise counts as handled.
+  `settle` and `abort` are the moments themselves, releasing right after native
+  settlement — so it can release from there with no handler attached and no
+  effect on whether the promise counts as handled.
 
   What the earlier ruling accepted as its cost is therefore no longer
   paid: binding many short-lived promises to one long-lived signal used to
@@ -335,11 +335,19 @@ the same realm and can reach the promise directly.
 The executor's `context` is the promise's `AbortState` itself, so building a
 promise allocates no wrapper. `AbortContext` declares only `signal`, which is
 a compile-time boundary only: code holding the context (the executor, or
-anything it passes the context to) can call `claimSettlement`,
-`captureReject`, `watchSignal`, `link`, `abort` and `watchController` and
-read `sharedController` and `startedAborted`, and so can leave the promise
+anything it passes the context to) can call `settle`, `captureReject`,
+`watchSignal`, `link`, `abort` and `watchController` and read
+`sharedController` and `startedAborted`, and so can leave the promise
 pending and unabortable. Making those members `#`-private behind a
 module-scope accessor would cost no allocation either, but would restructure
 every caller of `AbortState` to close a gap only an untyped cast opens. This is
 accepted, since the executor already holds `resolve` and `reject`; pass
 `context.signal`, not `context`, to code you do not trust.
+
+**Update, 2026-11-19:** a promise is settled before its listeners are
+released. The list is emptied, every removal is attempted, and the first
+removal error is thrown once all have run: to the caller of `resolve`,
+`reject` or `abort()`, or as an unhandled rejection when the promise settles
+by following a thenable. During abort, an error from the controller or an
+upstream link comes first. A throwing removal can still leave its listener on
+the signal.

@@ -3628,3 +3628,209 @@ describe('AbortablePromise with an Array.prototype.push that throws', () => {
     expect(listeners(controller.signal)).toHaveLength(0)
   })
 })
+
+describe('AbortablePromise throwing releases', () => {
+  it.each(['resolve', 'reject', 'abort'] as const)(
+    'settles and attempts every release on %s',
+    async (path) => {
+      const first = new AbortController()
+      const second = new AbortController()
+      const error = new Error('release')
+      const reason = new Error('reason')
+      let resolve!: (value: number) => void
+      let reject!: (reason: unknown) => void
+      const promise = new AbortablePromise<number>((yes, no) => {
+        resolve = yes
+        reject = no
+      })
+      void promise.abortOn(first.signal).abortOn(second.signal)
+      const outcome = promise.then(
+        (value) => value,
+        (caught: unknown) => caught,
+      )
+      const remove = first.signal.removeEventListener.bind(first.signal)
+      let calls = 0
+      first.signal.removeEventListener = (
+        ...args: Parameters<AbortSignal['removeEventListener']>
+      ) => {
+        calls++
+        remove(...args)
+        throw error
+      }
+      const settle = () => {
+        if (path === 'resolve') resolve(1)
+        else if (path === 'reject') reject(reason)
+        else promise.abort()
+      }
+      expect(settle).toThrow(error)
+      const result = await Promise.race([
+        outcome,
+        new Promise((r) => setTimeout(() => r('pending'), 0)),
+      ])
+      if (path === 'resolve') expect(result).toBe(1)
+      else if (path === 'reject') expect(result).toBe(reason)
+      else expect(isAbortError(result)).toBe(true)
+      expect(listeners(first.signal)).toHaveLength(0)
+      expect(listeners(second.signal)).toHaveLength(0)
+      promise.abort()
+      resolve(2)
+      reject(reason)
+      expect(calls).toBe(1)
+    },
+  )
+})
+
+describe('AbortablePromise settlement releases', () => {
+  it.each([
+    'native',
+    'follow',
+    'abortable',
+    'thenable',
+    'getter',
+    'then',
+    'self',
+    'executor',
+  ] as const)('removes listeners after %s settlement', async (kind) => {
+    const controller = new AbortController()
+    const reason = new Error('failure')
+    let resolve!: (value: unknown) => void
+    const promise = new AbortablePromise<unknown>((yes) => {
+      resolve = yes
+      if (kind === 'executor') throw reason
+    }, controller)
+    const outcome = promise.then(
+      (value) => value,
+      (caught: unknown) => caught,
+    )
+    if (kind === 'follow') {
+      const native = Promise.resolve(1)
+      void Object.defineProperty(native, 'constructor', {
+        get() {
+          throw reason
+        },
+      })
+      resolve(native)
+    }
+    if (kind === 'native') resolve(Promise.resolve(1))
+    if (kind === 'abortable') resolve(AbortablePromise.resolve(1))
+    if (kind === 'thenable')
+      resolve({
+        then(yes: (value: number) => void) {
+          yes(1)
+        },
+      })
+    if (kind === 'getter')
+      resolve({
+        get then() {
+          throw reason
+        },
+      })
+    if (kind === 'then')
+      resolve({
+        then() {
+          throw reason
+        },
+      })
+    if (kind === 'self') resolve(promise)
+    const result = await Promise.race([
+      outcome,
+      new Promise((r) => setTimeout(() => r('pending'), 0)),
+    ])
+    if (kind === 'self') expect(result).toBeInstanceOf(TypeError)
+    else
+      expect(result).toBe(
+        ['getter', 'then', 'executor', 'follow'].includes(kind) ? reason : 1,
+      )
+    expect(listeners(controller.signal)).toHaveLength(0)
+  })
+
+  it('keeps synchronous executor settlement when constructor removal throws', async () => {
+    const controller = new AbortController()
+    const error = new Error('removal')
+    const remove = controller.signal.removeEventListener.bind(controller.signal)
+    let removals = 0
+    controller.signal.removeEventListener = (
+      ...args: Parameters<AbortSignal['removeEventListener']>
+    ) => {
+      removals++
+      remove(...args)
+      throw error
+    }
+    const promise = new AbortablePromise<number>(
+      (resolve) => resolve(1),
+      controller,
+    )
+    expect(
+      await Promise.race([
+        promise,
+        new Promise((r) => setTimeout(() => r('pending'), 0)),
+      ]),
+    ).toBe(1)
+    expect(removals).toBe(1)
+    expect(listeners(controller.signal)).toHaveLength(0)
+  })
+
+  it.each(['fulfilling', 'rejecting'] as const)(
+    'settles a %s adoption and reports its removal error as an unhandled rejection',
+    async (kind) => {
+      const error = new Error('removal')
+      const reason = new Error('reason')
+      let outcome!: Promise<unknown>
+      const unhandled = await unhandledDuring(() => {
+        const controller = new AbortController()
+        controller.signal.removeEventListener = () => {
+          throw error
+        }
+        const promise = new AbortablePromise<number>(
+          (resolve) =>
+            resolve(
+              kind === 'fulfilling'
+                ? Promise.resolve(1)
+                : Promise.reject(reason),
+            ),
+          controller,
+        )
+        outcome = promise.then(
+          (value) => value,
+          (caught: unknown) => caught,
+        )
+      })
+      expect(unhandled).toEqual([error])
+      expect(
+        await Promise.race([
+          outcome,
+          new Promise((r) => setTimeout(() => r('pending'), 0)),
+        ]),
+      ).toBe(kind === 'fulfilling' ? 1 : reason)
+    },
+  )
+
+  it.each(['controller', 'link'] as const)(
+    'preserves an earlier %s error over removal',
+    async (kind) => {
+      const earlier = new Error(kind)
+      const removal = new Error('removal')
+      class ThrowingController extends AbortController {
+        override abort(): void {
+          throw earlier
+        }
+      }
+      const controller =
+        kind === 'controller' ? new ThrowingController() : undefined
+      const source = new AbortablePromise<number>(() => {}, controller)
+      if (kind === 'link')
+        source.abort = () => {
+          throw earlier
+        }
+      const promise = kind === 'link' ? source.then((value) => value) : source
+      const signal = new AbortController().signal
+      signal.removeEventListener = () => {
+        throw removal
+      }
+      void promise.abortOn(signal)
+      const outcome = promise.catch((caught: unknown) => caught)
+      expect(() => promise.abort()).toThrow(earlier)
+      expect(isAbortError(await outcome)).toBe(true)
+    },
+  )
+})
