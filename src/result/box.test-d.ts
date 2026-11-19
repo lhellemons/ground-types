@@ -9,18 +9,6 @@ import type {
 } from './index.js'
 import { pipe } from '../fn/index.js'
 
-describe('Result.from callback known limits', () => {
-  it('accepts a bare number callback declared to return a string Box', () => {
-    type StringBox = ReturnType<typeof Result.from<string>>
-    // Known limit: the bare generic bypasses the return-type check.
-    // eslint-disable-next-line @typescript-eslint/unbound-method -- bare callback is the case under test
-    const bare: (v: number) => StringBox = Result.from
-    // @ts-expect-error - the wrapper checks the actual number Box
-    const wrapped: (v: number) => StringBox = (v: number) => Result.from(v)
-    void [bare, wrapped]
-  })
-})
-
 /**
  * Pins the Result Box surface declared in `./box.ts` — the held type every
  * member tracks, the error-union accumulation, the narrowing, the negative
@@ -370,5 +358,17 @@ describe('the merged name', () => {
   it('the alias restates the arity: the value argument is required', () => {
     // @ts-expect-error — bare Result does not resolve, exactly like the module type
     expectTypeOf<Result>().toBeUnknown()
+  })
+})
+
+describe('Result.from callback known limits', () => {
+  it('accepts a bare number callback declared to return a string Box (Breaking)', () => {
+    type StringBox = ReturnType<typeof Result.from<string>>
+    // Known limit: the bare generic bypasses the return-type check.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- under test
+    const bare: (v: number) => StringBox = Result.from
+    // @ts-expect-error - the wrapper checks the actual number Box
+    const wrapped: (v: number) => StringBox = (v: number) => Result.from(v)
+    void [bare, wrapped]
   })
 })

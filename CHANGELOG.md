@@ -23,7 +23,7 @@ later is required.
   `(x: number | Invalid): Result<number, Invalid> => result(x)` compile with no
   type arguments. A `Success` carries `E = never` and a `Failure` carries
   `T = never`, and both flow into any `Result<T, E>`. A plain `Error` is still
-  rejected, through
+  rejected, through calls to
   `failure`, `result` and `success`, where a narrower class is expected, and
   `Result<Result<T>>` is still not assignable to `Result<T>`. A raw `Error`
   returned without `failure()` still compiles where `T` is `object`, a union
@@ -143,12 +143,16 @@ later is required.
   overload: `result<number>(5)` is `Result<number, never>`,
   `result<number>(x)` with `x: any` is too, and
   `result<number | Invalid>(x)` is `Result<number, Invalid>`.
-  **Breaking:** bare callback assignments that v0.4.0 refused now compile:
-  `Promise.resolve(1).then<string>(result)`, assigning `result` to
-  `(e: Error) => Result<number, Invalid>` with a distinguishing member on
-  `Invalid`, and assigning `Result.from` to a number-taking callback returning
-  a string Box. Wrap the factory, for example `(v: number) => result(v)`, to
-  keep the return-type check.
+- **Breaking:** passed bare as a callback rather than called, `result` and
+  `Result.from` lose the value type v0.4.0 inferred:
+  `Promise.resolve(1).then(result)` is `Promise<Result<unknown, Error>>` and
+  `[1, 2].map(result)` is `Result<unknown, Error>[]`, where v0.4.0 inferred
+  `number` in the value arm. They are also accepted where v0.4.0 refused them:
+  `result` for any return type the callback declares
+  (`const f: (v: number) => number = result`,
+  `Promise.resolve(1).then<string>(result)`), and `Result.from` for any Box
+  type it declares. Wrap the factory, for example `(v: number) => result(v)`,
+  to get both the value type and the check back.
 - `SuccessArm` carries a third marker, `[_error]?: never`, so that no `Failure`
   can pass as a `Success`.
 - Add `NotPossiblyAnError`, the type of `success`'s guard, exported from
