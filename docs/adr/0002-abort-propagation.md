@@ -351,3 +351,29 @@ removal error is thrown once all have run: to the caller of `resolve`,
 by following a thenable. During abort, an error from the controller or an
 upstream link comes first. A throwing removal can still leave its listener on
 the signal.
+
+**Update, 2026-11-19:** resolution reads a value's `then` to distinguish
+adoption from immediate settlement. If it is not a function, native resolution
+reads it again. A getter that first returns `undefined` and then throws
+therefore rejects rather than fulfils; one that returns a function on the
+second read is followed with the abort window already closed. Until that
+function calls back, if ever, the promise stays pending, `abort()` neither
+rejects it nor aborts a supplied controller, and aborting that controller does
+not reject it. A native Promise resolved directly with such a value reads
+`then` once and fulfils with it. A value that an adopted plain thenable settles
+with is read twice: once by the native promise that follows the thenable,
+once by this promise's native resolution, where a native Promise reads it
+once. Returning the value from a `then` handler has the same difference.
+A native Promise that adopts a native promise reads the terminal value twice
+too, and follows the second read as this promise does; there the closed abort
+window is the only difference. An adopted AbortablePromise itself reads the
+value twice, so either kind of adopting promise follows its pending outcome;
+the adopting AbortablePromise remains abortable while waiting for it.
+There is no public native fulfil operation that preserves an object's
+identity without reading `then`. A single read would therefore mean one of
+three things: not reading `then` before native resolution, which closes the
+abort window for every thenable not recognised as a promise, contrary to
+"Resolving with a promise is not settling"; replacing the native Promise
+storage and chaining model; or mutating the caller's object. That cost is not
+accepted for values whose `then` changes between reads. Use stable `then`
+properties.

@@ -2964,6 +2964,90 @@ describe('AbortablePromise resolve functions, as a native promise has them', () 
   })
 })
 
+describe('AbortablePromise with a then getter that changes between reads', () => {
+  it('follows a second then read with its abort window closed', async () => {
+    let reads = 0
+    const value = {
+      get then() {
+        return ++reads === 1
+          ? undefined
+          : (res: (v: string) => void) => res('second')
+      },
+    }
+    const controller = new AbortController()
+    const promise = new AbortablePromise(
+      (resolve) => resolve(value),
+      controller,
+    )
+    promise.abort()
+    await expect(promise).resolves.toBe('second')
+    expect(reads).toBe(2)
+    expect(controller.signal.aborted).toBe(false)
+    expect(listeners(controller.signal)).toEqual([])
+  })
+
+  it.each(['direct', 'plain thenable', 'native promise'] as const)(
+    'stays pending after both aborts through %s resolution',
+    async (path) => {
+      let reads = 0
+      const followed = vi.fn()
+      const value = {
+        get then() {
+          return ++reads === 1 ? undefined : followed
+        },
+      }
+      const controller = new AbortController()
+      const promise = new AbortablePromise((resolve) => {
+        if (path === 'direct') resolve(value)
+        else if (path === 'native promise') resolve(Promise.resolve(value))
+        else
+          resolve({
+            then: (fulfil: (v: unknown) => void) => fulfil(value),
+          })
+      }, controller)
+      const outcome = () =>
+        Promise.race([
+          promise.then(
+            () => 'fulfilled',
+            () => 'rejected',
+          ),
+          new Promise((resolve) => setTimeout(() => resolve('pending'), 0)),
+        ])
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      promise.abort()
+      expect(await outcome()).toBe('pending')
+      expect(reads).toBe(2)
+      expect(followed).toHaveBeenCalledTimes(1)
+      expect(controller.signal.aborted).toBe(false)
+      expect(listeners(controller.signal)).toEqual([])
+      controller.abort()
+      expect(await outcome()).toBe('pending')
+      expect(followed).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('rejects when a second then read throws', async () => {
+    let reads = 0
+    const error = new Error('second read')
+    const value = {
+      get then(): undefined {
+        if (++reads === 1) return undefined
+        throw error
+      },
+    }
+    const controller = new AbortController()
+    const promise = new AbortablePromise(
+      (resolve) => resolve(value),
+      controller,
+    )
+    promise.abort()
+    await expect(promise).rejects.toBe(error)
+    expect(reads).toBe(2)
+    expect(controller.signal.aborted).toBe(false)
+    expect(listeners(controller.signal)).toEqual([])
+  })
+})
+
 describe('AbortablePromise combinators, as the native ones are called', () => {
   const calls = {
     all: (values: unknown) =>

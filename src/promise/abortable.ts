@@ -547,9 +547,15 @@ export class AbortablePromise<T> extends Promise<T> {
   readonly #state: AbortState
 
   /**
-   * Creates a new AbortablePromise, which behaves exactly as a regular Promise
-   * except that calling {@link AbortablePromise.abort} before it settles
-   * rejects it with an {@link AbortError}.
+   * Creates a new AbortablePromise that settles with the outcome a regular
+   * Promise would, though not always in the same tick, for values whose
+   * `then` gives the same result on every read. Calling
+   * {@link AbortablePromise.abort} before it settles rejects it with an
+   * {@link AbortError}. When the first read of an object's `then` gives
+   * something other than a function, native resolution reads `then` again:
+   * if that read gives a function, the promise follows it with its abort
+   * window already closed, and if it throws, the promise rejects. See
+   * docs/adr/0002-abort-propagation.md.
    *
    * @param executor An executor callback as a regular Promise takes, with an
    * {@link AbortContext} passed as a third argument. Only the first call to
