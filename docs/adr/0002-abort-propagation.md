@@ -312,3 +312,34 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
 - Fan-in costs three promises per member rather than one. Recorded rather
   than optimised, because the alternative is reimplementing four
   combinators whose semantics are worth inheriting exactly.
+
+### Runtime hardening boundary
+
+**Update, 2026-11-19:** the values captured when the module loads are
+`Promise`, `Promise.prototype`, `Promise.prototype.then`, `Reflect.apply`,
+`Object.create` and, through the shared prototype check in
+`src/internal/is-error.ts`, `Object.prototype.isPrototypeOf` bound to
+`Function.prototype.call`. Every abort listener is added with one frozen
+null-prototype options object built at load, so nothing on `Object.prototype`
+changes it. Everything else is read when it is used: `Array.prototype.push`,
+`splice` and array iteration, the global `AbortController` and its `abort`,
+`AbortSignal.prototype.aborted`, `EventTarget.prototype.addEventListener` and
+`removeEventListener`, the global `Promise` in `of`, `resolve` and `reject`,
+and the inherited `then`, `catch`, `finally`, `all`, `allSettled`, `race` and
+`any`. Replacing or patching one of these can leave a promise pending, keep a
+listener on a signal or lose an abort; the module assumes they keep their
+standard behaviour. Capturing them would put an `apply` indirection on every
+push, splice and listener call to defend against code that already runs in
+the same realm and can reach the promise directly.
+
+The executor's `context` is the promise's `AbortState` itself, so building a
+promise allocates no wrapper. `AbortContext` declares only `signal`, which is
+a compile-time boundary only: code holding the context (the executor, or
+anything it passes the context to) can call `claimSettlement`,
+`captureReject`, `watchSignal`, `link`, `abort` and `watchController` and
+read `sharedController` and `startedAborted`, and so can leave the promise
+pending and unabortable. Making those members `#`-private behind a
+module-scope accessor would cost no allocation either, but would restructure
+every caller of `AbortState` to close a gap only an untyped cast opens. This is
+accepted, since the executor already holds `resolve` and `reject`; pass
+`context.signal`, not `context`, to code you do not trust.
