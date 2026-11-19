@@ -443,8 +443,11 @@ change from `Success<number, Error>` to `Success<number, never>` and from
 `Failure<unknown, Invalid>` to `Failure<never, Invalid>`, plus the Box
 `from` expectations the overload moves. **Update, 2026-11-15:** a
 `stack?: never` marker on the marked arm would close every structural case
-above and leave `any` and `void`, at the cost of every `T` with a `stack`
-member; ticket #101 holds that decision, and no type changed for it (ticket
+above for a plain `Error` and any subclass that keeps `stack?: string`, and
+leave `any` and `void`, at the cost of every `T` with a `stack` member;
+an `Error` subclass that narrows its own `stack` (`override stack =
+undefined`) still passes as a `Success` (found in the review of #94 and
+measured in #101); ticket #101 holds that decision, and no type changed for it (ticket
 #94). **Update, 2026-11-19:** decided in the amendment of that date
 below (#101): a branded-string `stack` marker on the object members of `T`
 that declare no `stack`. Until the follow-up ships it, the residual above
@@ -1110,13 +1113,24 @@ a: '1' }))` fails, the call the 2026-11-16 amendment (#99) chose a design
 **Decision: the branded-string marker, on the object members of `T` that
 declare no `stack`.** A follow-up ticket implements it; this amendment
 changes no type. With it, a raw `Error` returned without `failure()` is
-rejected at every `T` the residual list names, and the residual becomes:
-a `T` that declares a `stack` member a plain `Error` fits (`{ stack?:
+rejected at every `T` the residual list names, as long as its `stack` is
+typed `string | undefined` as `Error`'s is. The residual becomes:
+
+- a `T` that declares a `stack` member a plain `Error` fits (`{ stack?:
 string }`, or any object type with one and with no required member an
-`Error` lacks); `any`, and a returned expression typed `any`; `void`; and an
-`Error` hidden in a value's static type
-(`const v: { code: string } = new Other()`), which no marker on the target
-can see.
+  `Error` lacks);
+- an `Error` subclass that narrows its own `stack` to `undefined`
+  (`class Stackless extends Error { readonly code = 'other'; override stack
+= undefined }` returned into `Result<{ code: string }, Invalid>`
+  compiles, and `isFailure` of it is true). Every shape of the marker leaves
+  this open: an optional marker accepts `undefined`. Found in the review of
+  #94 and measured on all three arms; a plain `Error` cast to `Error & {
+code: string }` is rejected by all three;
+- `any`, and a returned expression typed `any`;
+- `void`;
+- an `Error` hidden in a value's static type
+  (`const v: { code: string } = new Other()`), which no marker on the target
+  can see.
 
 Costs, measured on the prototype:
 

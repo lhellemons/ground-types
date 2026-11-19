@@ -42,8 +42,12 @@ for every arm.
 and the unions `number | { name?: string }`, `number | Record<string, any>`.
 Arm A closes all of them and `{ stack?: string }`; arms B and B2 close all
 but `{ stack?: string }`, and any other `T` that declares `stack`. No arm
-closes `any`, `void`, or an `Error` hidden in a value's static type
-(`const v: { code: string } = new Other()`).
+closes `any`, `void`, an `Error` hidden in a value's static type
+(`const v: { code: string } = new Other()`), or an `Error` subclass that
+narrows its own `stack` to `undefined` (`override stack = undefined`, from
+the review of ticket 94): every marker is optional, so it accepts
+`undefined`. A plain `Error` cast to `Error & { code: string }` is
+rejected by every arm.
 
 **What arm A breaks.** A required `stack` member makes the whole arm
 `never`: TypeScript reduces `{ id; stack: Frame[] } & { stack?: never }`

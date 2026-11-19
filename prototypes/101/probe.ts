@@ -154,4 +154,5 @@ class Stackless extends Error {
   override stack = undefined
 }
 export const s1 = (): Result<{ code: string }, Invalid> => new Stackless() // CASE: closes: Error subclass with stack narrowed to undefined
-export const s2 = (): Result<{ code: string }, Invalid> => new Error() as Error & { code: string } // CASE: closes: plain Error cast to Error & { code }
+export const s2 = (): Result<{ code: string }, Invalid> =>
+  new Error() as Error & { code: string } // CASE: closes: plain Error cast to Error & { code }
