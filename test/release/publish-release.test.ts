@@ -108,6 +108,8 @@ afterEach(() => {
 })
 
 interface Options {
+  /** Limit each file the script writes to 2 MiB (`ulimit -f 2048`). */
+  limitFileSize?: boolean
   tag?: string
   view?: string
   /** Contents of the tarball the build packed. */
@@ -125,7 +127,7 @@ interface Options {
   writeFails?: Array<'create' | 'upload' | 'edit'>
   /** Make the `call`th use of a tool in the version comparison exit `code`. */
   toolFails?: {
-    tool: 'grep' | 'sed' | 'sort' | 'tail'
+    tool: 'grep' | 'sed' | 'sort' | 'tail' | 'sha256sum'
     code?: number
     call?: number
   }
@@ -175,7 +177,10 @@ const run = (options: Options) => {
   if (options.published) {
     writeFileSync(join(dir, 'published'), options.published)
   }
-  const result = spawnSync('bash', [script], {
+  const args = options.limitFileSize
+    ? ['-c', 'ulimit -f 2048 && exec bash "$1"', 'release-test', script]
+    : [script]
+  const result = spawnSync('bash', args, {
     cwd: dir,
     env,
     encoding: 'utf8',
@@ -521,6 +526,19 @@ describe('an already published release', () => {
     expect(result.output).toContain('compressed differently')
   })
 
+  it('compares large expanded streams under a small file-size limit', () => {
+    const contents = 'package contents '.repeat(1024 * 1024)
+    const result = run({
+      view: 'published',
+      tarballs: { 'a.tgz': gzipSync(contents, { level: 1 }) },
+      published: gzipSync(contents, { level: 9 }),
+      limitFileSize: true,
+    })
+    expect(result.status).toBe(0)
+    expect(result.writes).toEqual([])
+    expect(result.output).toContain('compressed differently')
+  })
+
   it('fails without changes when the asset differs', () => {
     const result = run({ view: 'published', published: gzipSync('other') })
     expect(result.status).toBe(1)
@@ -596,6 +614,38 @@ describe('an already published release', () => {
     expect(result.output).toContain('no assets match')
     expect(result.output).toContain('convert the release back to a draft')
   })
+})
+
+describe('a hashing failure', () => {
+  it.each([1, 0])(
+    'reports a built-side hasher exiting %i without a digest',
+    (code) => {
+      const result = run({ toolFails: { tool: 'sha256sum', code } })
+      expect(result.status).toBe(1)
+      expect(result.calls).toEqual([])
+      expect(result.output).toContain(
+        '::error::sha256sum could not hash the built a.tgz. Nothing was written to the release.',
+      )
+      expect(result.output).not.toContain('gzip could not decompress')
+    },
+  )
+
+  it.each([1, 0])(
+    'reports a published-side hasher exiting %i without a digest',
+    (code) => {
+      const result = run({
+        view: 'published',
+        published: gzipSync('other'),
+        toolFails: { tool: 'sha256sum', call: 2, code },
+      })
+      expect(result.status).toBe(1)
+      expect(result.writes).toEqual([])
+      expect(result.output).toContain(
+        '::error::Release v0.5.0 is already published, and sha256sum could not hash the published a.tgz, so the two cannot be compared. Refusing to modify a published release.',
+      )
+      expect(result.output).not.toContain('gzip could not decompress')
+    },
+  )
 })
 
 describe('an unusable lookup', () => {
