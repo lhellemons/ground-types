@@ -1,0 +1,31 @@
+diff --git a/src/result/index.ts b/src/result/index.ts
+index cf20521..b484b89 100644
+--- a/src/result/index.ts
++++ b/src/result/index.ts
+@@ -65,12 +65,23 @@ export type Success<T, E extends Error = Error> =
+  * `undefined` and `void` members, carrying the phantom markers. A `Success`
+  * is a `SuccessArm` or a bare nullish member of `T`.
+  */
+-export type SuccessArm<T, E extends Error = Error> = Exclude<
+-  T,
+-  Error | null | undefined | void
++export type SuccessArm<T, E extends Error = Error> = StackMarked<
++  Exclude<T, Error | null | undefined | void>
+ > &
+   SuccessMarkers<T, E>
+ 
++/* PROTOTYPE #101 arm B2: arm B with a branded string for the marker, which
++   no Error's `stack` fits and an optional string key still fits a
++   string-valued index signature with. */
++type NotAnErrorStack = string & { readonly '#notAnErrorStack': true }
++type StackMarked<U> = U extends object
++  ? string extends keyof U
++    ? U & { readonly stack?: NotAnErrorStack }
++    : 'stack' extends keyof U
++      ? U
++      : U & { readonly stack?: NotAnErrorStack }
++  : U
++
+ /**
+  * The `Error`-carrying case of a {@link Result}, unboxed — a `Failure` *is*
+  * the `Error`, keeping its concrete subclass so a caller can branch on the

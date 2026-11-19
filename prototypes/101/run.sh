@@ -3,16 +3,16 @@
 # worktree of HEAD: apply an arm's patch, drop probe.ts into src/result,
 # typecheck with declaration emit on, and report which probe cases raise a
 # diagnostic and which suite files break.
-#   prototypes/101/run.sh <main|a|b> [path to a tsc binary] [--suite]
+#   prototypes/101/run.sh <main|a|b|b2> [path to a tsc binary] [--suite]
 # The default tsc is the project's; pass another (5.4, 7.0) installed
 # anywhere. --suite also runs vitest (the project's TypeScript only), which
 # covers the type tests, the Box pins and the consumer declaration-emit test.
 set -euo pipefail
-ARM=${1:?arm: main, a or b}
+ARM=${1:?arm: main, a, b or b2}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 TSC=${2:-$ROOT/node_modules/.bin/tsc}
 SUITE=${3:-}
-case "$ARM" in main | a | b) ;; *) echo "unknown arm: $ARM" >&2; exit 2 ;; esac
+case "$ARM" in main | a | b | b2) ;; *) echo "unknown arm: $ARM" >&2; exit 2 ;; esac
 WT=$(mktemp -d "${TMPDIR:-/tmp}/proto101.XXXXXX")
 cleanup() {
   git -C "$ROOT" worktree remove --force "$WT" >/dev/null 2>&1 || true
