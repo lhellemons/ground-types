@@ -378,12 +378,9 @@ later is required.
   whose prototype is such a Proxy is adopted too, and is not aborted with the
   outer promise; before, `resolve` threw.
 - The `then` of a delegate, and the `constructor` of a promise delegate, are
-  read as often as `new Promise` reads them, avoiding extra reads in v0.4.0. A
+  read as often as `new Promise` reads them; v0.4.0 read each once more. A
   `then` getter that throws only on its second read now makes the promise
   follow the delegate, as it does for `new Promise`.
-- Fan-in leaves a member untouched when a subclass's `resolve` throws before
-  subscribing to it. In v0.4.0, aborting the combined promise during construction
-  also aborted that member, causing an unhandled rejection.
 - A delegate is followed with the `Promise` captured when the module loads: a
   global `Promise` replaced afterwards is not used, where `Promise.resolve` was
   called on the replacement when `resolve` ran. Likewise a
@@ -448,9 +445,11 @@ later is required.
   below, is skipped, where `abort()` threw a `TypeError`.
 - Aborting the promise returned by `all`, `race`, `any` or `allSettled` aborts
   every `AbortablePromise` member whose `then` is a function on the one read
-  `AbortablePromise` makes as it takes the member. A throw from one member's
-  `abort()` no longer stops the loop: `abort()` is called on every member, then
-  the first error is thrown, except when the combined promise was aborted while
+  `AbortablePromise` makes as it takes the member, once the combinator's
+  `resolve` has read the `then` of the thenable it is handed for it.
+  A throw from one member's `abort()` no longer stops the loop: `abort()` is
+  called on every member, then the first error is thrown, except when the
+  combined promise was aborted while
   it was being made. For a subclass constructor that aborts `this`, that error
   is dropped, where `Sub.all()` threw it. An iterator that aborts the combined
   promise, which a subclass constructor can expose to it, is new with the lazy
@@ -477,6 +476,17 @@ later is required.
   thrown inside the signal's event listener and so reported as an uncaught
   exception, as before; `abortOn` with a signal that has already aborted throws
   it to the caller of `abortOn`, as before.
+- A member of `all`, `race`, `any` or `allSettled` is aborted with the
+  combined promise only once the combinator's `resolve` has read the `then`
+  of the thenable it is handed for that member; a member read after the abort
+  is aborted on that read. A subclass's `resolve` that throws before that
+  read, or never reads it, leaves the member alone. In v0.4.0 the member was
+  aborted all the same, and since nothing had subscribed to it, its rejection
+  was unhandled, which ends a Node process: for a combined promise aborted
+  while it was being made, by a subclass constructor, with a `resolve` that
+  throws, and for any abort with a `resolve` that ignores its argument. A
+  `resolve` that reads that `then` and does not call it is not detected: the
+  member is aborted, unhandled, as before.
 - "Is an `AbortablePromise`", asked by `of`, the four combinators and an
   executor that resolves with a thenable, now asks whether the value carries the
   private field that only this class's constructor sets, and whether

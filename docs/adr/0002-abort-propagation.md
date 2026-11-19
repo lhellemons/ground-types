@@ -100,9 +100,11 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   only this class's constructor sets, and `AbortablePromise.prototype` is on its
   chain (answering false when the walk throws). The combinators abort the
   members of that kind whose `then` is a function on the one read
-  `AbortablePromise` makes as it takes the member. A member whose `then` is no
-  function was taken as a plain value, and one whose `then` getter throws was
-  taken as a member rejected with the getter's error; neither has a handler, so
+  `AbortablePromise` makes as it takes the member once the combinator's
+  `resolve` has read the `then` of the thenable it is handed for the member.
+  A member whose `then` is no function was taken as a plain value, and one whose
+  `then` getter throws was taken as a member rejected with the getter's error;
+  neither has a handler, so
   aborting it is an unhandled rejection. A `then` function that subscribes
   nothing is not detected and is aborted. The combinators call the member's
   `abort()`, so a subclass's override is honoured, as it is by `then`'s upstream
@@ -130,9 +132,17 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   `values` has been iterated. When the combined promise was aborted while it was
   being made, whether while `values` was iterated or by a subclass constructor,
   the link is registered after the abort and fires at once, for every member
-  taken, including those taken after the abort; a throw from a member's
-  `abort()` there is dropped, as it is for a delegate, since the combined
-  promise is aborted already.
+  whose thenable's `then` has been read, including those taken after the abort,
+  and a member whose thenable is first read later is aborted on that read;
+  a throw from a member's `abort()` there is dropped, as it is for a delegate,
+  since the combined promise is aborted already.
+
+  **Update, 2026-11-19:** a member counts once the thenable it is handed over as
+  has its `then` read, which native resolution does as it subscribes to it.
+  A subclass's `resolve` that throws before reading it leaves the member
+  unsubscribed, and it is not aborted, where aborting it was an unhandled
+  rejection. A `resolve` that reads the thenable's `then` and then throws is
+  not detected: the member is aborted, unhandled.
 
 - **Resolving with a promise is not settling.** The abort window closes
   when the promise actually settles, not when its executor calls
