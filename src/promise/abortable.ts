@@ -426,7 +426,8 @@ export class AbortablePromise<T> extends Promise<T> {
    * its abort to the members: aborting it calls `abort()` on each member that
    * is an AbortablePromise (`#isAbortablePromise`) whose `then`, read when
    * `AbortablePromise` takes the member, is a function, and that is still an
-   * AbortablePromise when it is aborted. `abort()` is called on every such
+   * AbortablePromise when it is aborted. Adoption starts when resolution reads
+   * the wrapper's `then`. `abort()` is called on every such adopted
    * member even when one throws; the first error is thrown after the last. A
    * member that settles first aborts no other (see
    * docs/adr/0002-abort-propagation.md).
@@ -468,10 +469,14 @@ export class AbortablePromise<T> extends Promise<T> {
           yield item
           continue
         }
-        adopted.push(item)
         yield {
-          then: (onFulfilled: unknown, onRejected: unknown) =>
-            apply(then, item, [onFulfilled, onRejected]),
+          get then() {
+            // Reading this schedules adoption; a subclass resolve that throws
+            // before reaching it has not subscribed to the member.
+            adopted.push(item)
+            return (onFulfilled: unknown, onRejected: unknown) =>
+              apply(then, item, [onFulfilled, onRejected])
+          },
         }
       }
     }

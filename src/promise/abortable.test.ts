@@ -3498,6 +3498,58 @@ describe('AbortablePromise.abort order', () => {
 })
 
 describe('AbortablePromise fan-in aborted while it is being made', () => {
+  it.each(['all', 'allSettled', 'race', 'any'] as const)(
+    '%s leaves an unsubscribed member pending when subclass resolve throws after construction-time abort',
+    async (method) => {
+      let made = 0
+      class Sub<T> extends AbortablePromise<T> {
+        constructor(
+          executor: ConstructorParameters<typeof AbortablePromise<T>>[0],
+        ) {
+          super(executor)
+          if (made++ === 0) this.abort()
+        }
+
+        static override resolve(): never {
+          throw new RangeError('cannot resolve')
+        }
+      }
+      let fulfil!: (value: string) => void
+      let signal!: AbortSignal
+      const member = new AbortablePromise<string>(
+        (resolve, _reject, context) => {
+          fulfil = resolve
+          signal = context.signal
+        },
+      )
+      const then = vi.spyOn(member, 'then')
+      let result!: AbortablePromise<unknown>
+      const unhandled = await unhandledDuring(() => {
+        switch (method) {
+          case 'all':
+            result = Sub.all([member])
+            break
+          case 'allSettled':
+            result = Sub.allSettled([member])
+            break
+          case 'race':
+            result = Sub.race([member])
+            break
+          case 'any':
+            result = Sub.any([member])
+        }
+        void result.catch(() => {})
+      })
+
+      expect(then).not.toHaveBeenCalled()
+      expect(unhandled).toEqual([])
+      expect(signal.aborted).toBe(false)
+      await expect(result).rejects.toSatisfy(isAbortError)
+      fulfil('still pending')
+      await expect(member).resolves.toBe('still pending')
+    },
+  )
+
   /* A subclass whose latest instance is exposed, for a `values` generator that
      aborts the combined promise while it is iterated. */
   function exposingSubclass() {

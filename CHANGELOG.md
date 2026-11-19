@@ -378,9 +378,12 @@ later is required.
   whose prototype is such a Proxy is adopted too, and is not aborted with the
   outer promise; before, `resolve` threw.
 - The `then` of a delegate, and the `constructor` of a promise delegate, are
-  each read once, as `new Promise` reads them; before they were read twice. A
+  read as often as `new Promise` reads them, avoiding extra reads in v0.4.0. A
   `then` getter that throws only on its second read now makes the promise
   follow the delegate, as it does for `new Promise`.
+- Fan-in leaves a member untouched when a subclass's `resolve` throws before
+  subscribing to it. In v0.4.0, aborting the combined promise during construction
+  also aborted that member, causing an unhandled rejection.
 - A delegate is followed with the `Promise` captured when the module loads: a
   global `Promise` replaced afterwards is not used, where `Promise.resolve` was
   called on the replacement when `resolve` ran. Likewise a
