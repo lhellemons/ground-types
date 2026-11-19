@@ -1,9 +1,9 @@
-/* PROTOTYPE #101 — a standalone model of /result's Success arm, three ways,
+/* PROTOTYPE #101 — a standalone model of /result's Success arm, four ways,
    side by side. Open it in an editor: every `@ts-expect-error` marks a line
-   the compiler rejects, so the file typechecks as written (run.sh checks
-   it). `Now` is the shipped shape, `A` adds `stack?: never` to every
+   the compiler rejects, so the file typechecks as written
+   (`tsc --noEmit --strict --lib ES2022,DOM prototypes/101/example.ts`). `Now` is the shipped shape, `A` adds `stack?: never` to every
    Success, `B` adds it only to object members of T that declare no `stack`
-   key. The measured results on the real library are in README.md. */
+   key, and `B2` is B with a branded string in place of `never`. The measured results on the real library are in README.md. */
 /* eslint-disable */
 
 declare const _phantom: unique symbol
@@ -31,6 +31,21 @@ type StackMarked<U> = U extends object
   : U
 type SuccessB<T, E> = (StackMarked<Plain<T>> & Markers<T, E>) | Nullish<T>
 type ResultB<T, E extends Error> = SuccessB<T, E> | (E & Markers<T, E>)
+
+// Arm B2: arm B with a branded string for the marker. No Error's
+// `string | undefined` stack fits it, and an optional string-typed key still
+// fits a string-valued index signature (TypeScript ignores the `undefined`
+// of an optional member there unless the member is `undefined` only).
+type NotAnErrorStack = string & { readonly '#notAnErrorStack': true }
+type StackMarked2<U> = U extends object
+  ? string extends keyof U
+    ? U & { readonly stack?: NotAnErrorStack }
+    : 'stack' extends keyof U
+      ? U
+      : U & { readonly stack?: NotAnErrorStack }
+  : U
+type SuccessB2<T, E> = (StackMarked2<Plain<T>> & Markers<T, E>) | Nullish<T>
+type ResultB2<T, E extends Error> = SuccessB2<T, E> | (E & Markers<T, E>)
 
 class Invalid extends Error {
   readonly kind = 'Invalid' as const
@@ -120,5 +135,18 @@ new URLSearchParams(qA)
 // @ts-expect-error — B: the same
 new URLSearchParams(qB)
 
+// B2 keeps the string-valued fit (ADR 0001's #99 amendment pins it)…
+declare const qB2: SuccessB2<Query, Invalid>
+new URLSearchParams(qB2) // B2: fine
+// @ts-expect-error — B2 still closes the raw Error
+const b2raw = (): ResultB2<{ name: string }, Invalid> => raw
+// …and still breaks a non-string-valued one, as every arm does:
+declare const nNow: SuccessNow<{ n: number }, Invalid>
+declare const nB2: SuccessB2<{ n: number }, Invalid>
+const countsNow: Record<string, number> = nNow // fine today
+// @ts-expect-error — B2: the marker is a string, not a number
+const countsB2: Record<string, number> = nB2
+
+void [b2raw, countsNow, countsB2]
 void [now1, now2, now3, a1, a2, a3, b1, b2, b3, open1, open2]
 void [nowTrace, aTrace, bTrace, idA, lenA, bOpen]
