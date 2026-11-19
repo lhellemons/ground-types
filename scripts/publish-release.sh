@@ -53,9 +53,9 @@ esac
 work=$(mktemp -d "${TMPDIR:-/tmp}/publish-release.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 
-# The built tarball is decompressed once, before any gh call; the published
-# path compares its contents.
-if ! gzip -dc "$tarball" >"$work/built.tar" 2>"$work/built.err"; then
+# Hash the expanded stream before any gh call, without writing an expanded
+# archive. pipefail keeps gzip failures visible even when hashing succeeds.
+if ! built_digest=$(gzip -dc "$tarball" 2>"$work/built.err" | sha256sum); then
   cat "$work/built.err" >&2
   echo "::error::gzip could not decompress the built $asset (see the gzip output above). Nothing was written to the release. Rebuild the tarball and rerun."
   exit 1
@@ -92,11 +92,9 @@ handle_published() {
     exit 1
   fi
   published=$work/published/$asset
-  # The published asset is decompressed to a file and its gzip exit status is
-  # checked before any comparison. One that does not decompress cleanly is
-  # reported on its own, not as a difference. Otherwise the tarballs match when
-  # byte-identical or when the decompressed contents are.
-  if ! gzip -dc "$published" >"$work/published.tar" 2>"$work/published.err"; then
+  # Check the entire published stream too, including its gzip trailer. Never
+  # retain the expansion on disk; pipefail rejects a partial stream's digest.
+  if ! published_digest=$(gzip -dc "$published" 2>"$work/published.err" | sha256sum); then
     cat "$work/published.err" >&2
     echo "::error::Release $RELEASE_TAG is already published, and gzip could not decompress the published $asset (see the gzip output above), so the two cannot be compared. Refusing to modify a published release. Convert the release back to a draft and rerun."
     exit 1
@@ -105,7 +103,7 @@ handle_published() {
     echo "Release $RELEASE_TAG is already published with an identical $asset. Nothing to do."
     exit 0
   fi
-  if cmp -s "$work/built.tar" "$work/published.tar"; then
+  if [ "$built_digest" = "$published_digest" ]; then
     echo "Release $RELEASE_TAG is already published with the same contents in $asset, compressed differently. Nothing to do."
     exit 0
   fi

@@ -108,6 +108,8 @@ afterEach(() => {
 })
 
 interface Options {
+  /** Limit each file written by the script to 1–2 MiB (platform dependent). */
+  limitFileSize?: boolean
   tag?: string
   view?: string
   /** Contents of the tarball the build packed. */
@@ -175,7 +177,10 @@ const run = (options: Options) => {
   if (options.published) {
     writeFileSync(join(dir, 'published'), options.published)
   }
-  const result = spawnSync('bash', [script], {
+  const args = options.limitFileSize
+    ? ['-c', 'ulimit -f 2048 && exec bash "$1"', 'release-test', script]
+    : [script]
+  const result = spawnSync('bash', args, {
     cwd: dir,
     env,
     encoding: 'utf8',
@@ -515,6 +520,19 @@ describe('an already published release', () => {
       view: 'published',
       tarballs: { 'a.tgz': fast },
       published: best,
+    })
+    expect(result.status).toBe(0)
+    expect(result.writes).toEqual([])
+    expect(result.output).toContain('compressed differently')
+  })
+
+  it('compares large expanded streams under a small file-size limit', () => {
+    const contents = 'package contents '.repeat(1024 * 1024)
+    const result = run({
+      view: 'published',
+      tarballs: { 'a.tgz': gzipSync(contents, { level: 1 }) },
+      published: gzipSync(contents, { level: 9 }),
+      limitFileSize: true,
     })
     expect(result.status).toBe(0)
     expect(result.writes).toEqual([])
