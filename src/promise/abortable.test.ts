@@ -3543,6 +3543,36 @@ describe('AbortablePromise fan-in aborted while it is being made', () => {
         await expect(member).rejects.toSatisfy(isAbortError)
       })
 
+      it('drops a throw from aborting a member first read after the abort', async () => {
+        class Deferred<T> extends AbortablePromise<T> {}
+        const rejected = vi.fn()
+        void Object.defineProperty(Deferred, 'resolve', {
+          value: (value: unknown) => {
+            const wrapper = new AbortablePromise<unknown>((resolve) => {
+              queueMicrotask(() => resolve(value))
+            })
+            // The combined promise already rejected, so also observe the
+            // deferred wrapper: a thrown then getter would reject it silently.
+            void wrapper.catch(rejected)
+            return wrapper
+          },
+        })
+        const member = new AbortablePromise<string>(() => {})
+        const abort = vi.spyOn(member, 'abort').mockImplementation(() => {
+          throw new RangeError('boom')
+        })
+        let result!: AbortablePromise<unknown>
+        const unhandled = await unhandledDuring(() => {
+          result = combine(Deferred, [member])
+          void result.catch(() => {})
+          expect(() => result.abort()).not.toThrow()
+        })
+        expect(unhandled).toEqual([])
+        expect(abort).toHaveBeenCalledTimes(1)
+        expect(rejected).not.toHaveBeenCalled()
+        await expect(result).rejects.toSatisfy(isAbortError)
+      })
+
       it('aborts the subscribed first member and leaves the second alone when resolve throws', async () => {
         const Sub = abortingSubclass()
         let resolved = 0
