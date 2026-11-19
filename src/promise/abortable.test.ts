@@ -3646,7 +3646,7 @@ describe('AbortablePromise throwing releases', () => {
       void promise.abortOn(first.signal).abortOn(second.signal)
       const outcome = promise.then(
         (value) => value,
-        (error: unknown) => error,
+        (caught: unknown) => caught,
       )
       const remove = first.signal.removeEventListener.bind(first.signal)
       let calls = 0
@@ -3663,7 +3663,10 @@ describe('AbortablePromise throwing releases', () => {
         else promise.abort()
       }
       expect(settle).toThrow(error)
-      const result = await outcome
+      const result = await Promise.race([
+        outcome,
+        new Promise((r) => setTimeout(() => r('pending'), 0)),
+      ])
       if (path === 'resolve') expect(result).toBe(1)
       else if (path === 'reject') expect(result).toBe(reason)
       else expect(isAbortError(result)).toBe(true)
@@ -3767,21 +3770,40 @@ describe('AbortablePromise settlement releases', () => {
     expect(listeners(controller.signal)).toHaveLength(0)
   })
 
-  it('reports an adoption removal error as an unhandled rejection', async () => {
-    const error = new Error('removal')
-    const unhandled = await unhandledDuring(() => {
-      const controller = new AbortController()
-      controller.signal.removeEventListener = () => {
-        throw error
-      }
-      const promise = new AbortablePromise<number>(
-        (resolve) => resolve(Promise.resolve(1)),
-        controller,
-      )
-      void promise.catch(() => {})
-    })
-    expect(unhandled).toEqual([error])
-  })
+  it.each(['fulfilling', 'rejecting'] as const)(
+    'settles a %s adoption and reports its removal error as an unhandled rejection',
+    async (kind) => {
+      const error = new Error('removal')
+      const reason = new Error('reason')
+      let outcome!: Promise<unknown>
+      const unhandled = await unhandledDuring(() => {
+        const controller = new AbortController()
+        controller.signal.removeEventListener = () => {
+          throw error
+        }
+        const promise = new AbortablePromise<number>(
+          (resolve) =>
+            resolve(
+              kind === 'fulfilling'
+                ? Promise.resolve(1)
+                : Promise.reject(reason),
+            ),
+          controller,
+        )
+        outcome = promise.then(
+          (value) => value,
+          (caught: unknown) => caught,
+        )
+      })
+      expect(unhandled).toEqual([error])
+      expect(
+        await Promise.race([
+          outcome,
+          new Promise((r) => setTimeout(() => r('pending'), 0)),
+        ]),
+      ).toBe(kind === 'fulfilling' ? 1 : reason)
+    },
+  )
 
   it.each(['controller', 'link'] as const)(
     'preserves an earlier %s error over removal',

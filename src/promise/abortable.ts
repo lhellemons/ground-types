@@ -181,8 +181,10 @@ class AbortState {
     signal.addEventListener('abort', onAbort, listenerOptions)
   }
 
-  /** Stops listening to every signal this promise was bound to: empties the
-   * list, attempts every removal, and throws the first error once all have run. */
+  /**
+   * Stops listening to every signal this promise was bound to: empties the
+   * list, attempts every removal, and throws the first error once all have run.
+   */
   #release(): void {
     const releases = this.#releases
     this.#releases = []
@@ -701,8 +703,8 @@ export class AbortablePromise<T> extends Promise<T> {
    * promise's listener from a signal throws. In each case this promise is
    * rejected, removing each of its listeners is attempted, and `abort()` is
    * called on every promise the abort reaches; the first error is thrown after
-   * the last, the controller's before the others and a removal's after them. A controller whose signal has
-   * aborted already is not asked to abort again.
+   * the last, the controller's before the others and a removal's after them.
+   * A controller whose signal has aborted already is not asked to abort again.
    *
    * Called through a signal that aborts later ({@link AbortablePromise.abortOn},
    * a controller passed to the constructor, {@link AbortablePromise.peer}), the
