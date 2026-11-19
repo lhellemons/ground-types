@@ -378,7 +378,8 @@ later is required.
   whose prototype is such a Proxy is adopted too, and is not aborted with the
   outer promise; before, `resolve` threw.
 - The `then` of a delegate, and the `constructor` of a promise delegate, are
-  read as often as `new Promise` reads them; v0.4.0 read each once more. A
+  read by the `resolve` an executor receives as often as `new Promise` reads
+  them; v0.4.0 read each once more. A
   `then` getter that throws only on its second read now makes the promise
   follow the delegate, as it does for `new Promise`.
 - A delegate is followed with the `Promise` captured when the module loads: a
@@ -486,7 +487,9 @@ later is required.
   while it was being made, by a subclass constructor, with a `resolve` that
   throws, and for any abort with a `resolve` that ignores its argument. A
   `resolve` that reads that `then` and does not call it is not detected: the
-  member is aborted, unhandled, as before.
+  member is aborted, unhandled, as before. A throw from the `abort()` of a
+  member aborted on that read is dropped, since the combined promise is
+  aborted already; v0.4.0 threw it from the `abort()` of the combined promise.
 - "Is an `AbortablePromise`", asked by `of`, the four combinators and an
   executor that resolves with a thenable, now asks whether the value carries the
   private field that only this class's constructor sets, and whether
