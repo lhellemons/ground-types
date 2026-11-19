@@ -1,4 +1,4 @@
-import { catchOnly, isSuccess, success, tryCatch } from './index.js'
+import { catchOnly, isSuccess, result, success, tryCatch } from './index.js'
 import { resultify } from '../promise/index.js'
 import { resultify as callResultify } from '../call/index.js'
 import { definePrimitiveValueObject } from '../value-object/index.js'
@@ -20,6 +20,35 @@ import type {
   SuccessMarkers,
   Take,
 } from './index.js'
+
+describe('result callback known limits', () => {
+  it('accepts a bare callback with an incompatible promise return type', () => {
+    // Known limit: the bare generic bypasses the return-type check.
+    expectTypeOf(Promise.resolve(1).then<string>(result)).toEqualTypeOf<
+      Promise<string>
+    >()
+    // @ts-expect-error - the wrapper checks the actual number Result
+    void Promise.resolve(1).then<string>((v: number) => result(v))
+  })
+
+  it('accepts a bare callback with an incompatible error arm', () => {
+    class Invalid extends Error {
+      readonly code = 'invalid'
+    }
+    // Known limit: a plain Error can be returned under the Invalid type.
+    const f: (e: Error) => Result<number, Invalid> = result
+    // @ts-expect-error - the wrapper preserves the plain Error arm
+    const wrapped: (e: Error) => Result<number, Invalid> = (e: Error) =>
+      result(e)
+    void [f, wrapped]
+  })
+
+  it('infers unknown value and Error arms for a bare promise callback', () => {
+    expectTypeOf(Promise.resolve(1).then(result)).toEqualTypeOf<
+      Promise<Result<unknown, Error>>
+    >()
+  })
+})
 
 /**
  * Pins `/result`'s type-only exports — invisible at runtime, so untouched by

@@ -97,6 +97,8 @@ export type Result<T, E extends Error = Error> = Success<T, E> | Failure<T, E>
  * an `Error` (an object type, `unknown`) keeps a plain `Error` in the
  * error arm; only a primitive, `null` or `undefined` contributes none.
  * With explicit type arguments, `result<T, E>` names both arms.
+ * Passed bare as a callback, it is not checked against a different return
+ * type on the parameter; wrap it (`(v) => result(v)`) to get that check.
  */
 export function result<V>(value: V): Result<Exclude<V, Error>, ErrorArmOf<V>>
 export function result<T, E extends Error = Error>(value: T | E): Result<T, E>

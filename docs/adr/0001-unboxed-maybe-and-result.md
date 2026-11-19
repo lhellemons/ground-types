@@ -438,6 +438,8 @@ and reject it the same way. A user sees TS2322 elaborated through the
 `Failure` arm for all of these, not TS2559. Where `T` is `Record<string,
 unknown>`, `Error` has no index signature; where `T` is `{ name?: number }`,
 `Error`'s `name` is a string, and the shared key passes weak-type detection.
+Bare `result` and `Result.from` callbacks also accept incompatible declared
+return types; wrapping the factory checks the return type.
 Every existing type-level test stays green but two, whose expectations
 change from `Success<number, Error>` to `Success<number, never>` and from
 `Failure<unknown, Invalid>` to `Failure<never, Invalid>`, plus the Box

@@ -143,6 +143,12 @@ later is required.
   overload: `result<number>(5)` is `Result<number, never>`,
   `result<number>(x)` with `x: any` is too, and
   `result<number | Invalid>(x)` is `Result<number, Invalid>`.
+  **Breaking:** bare callback assignments that v0.4.0 refused now compile:
+  `Promise.resolve(1).then<string>(result)`, assigning `result` to
+  `(e: Error) => Result<number, Invalid>` with a distinguishing member on
+  `Invalid`, and assigning `Result.from` to a number-taking callback returning
+  a string Box. Wrap the factory, for example `(v: number) => result(v)`, to
+  keep the return-type check.
 - `SuccessArm` carries a third marker, `[_error]?: never`, so that no `Failure`
   can pass as a `Success`.
 - Add `NotPossiblyAnError`, the type of `success`'s guard, exported from
