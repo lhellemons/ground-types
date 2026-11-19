@@ -9,6 +9,9 @@ const promisePrototype = Promise.prototype
 const promiseThen = Promise.prototype.then
 const apply = Reflect.apply
 const createObject = Object.create
+const listenerOptions = Object.freeze(
+  Object.assign(createObject(null), { once: true }),
+) as AddEventListenerOptions
 const cycleMessage = 'Chaining cycle detected for promise #<AbortablePromise>'
 
 /* Whether `value` is a native Promise or a subclass instance: `instanceof
@@ -170,10 +173,10 @@ class AbortState {
     }
 
     const onAbort = () => this.abort()
-    signal.addEventListener('abort', onAbort, { once: true })
     this.#releases.push(() => {
       signal.removeEventListener('abort', onAbort)
     })
+    signal.addEventListener('abort', onAbort, listenerOptions)
   }
 
   /** Stops listening to every signal this promise was bound to. */
@@ -566,14 +569,6 @@ export class AbortablePromise<T> extends Promise<T> {
       owner.promise !== undefined && value === owner.promise
 
     super((resolve, reject) => {
-      state.captureReject(reject)
-
-      if (state.startedAborted) {
-        state.abort()
-        return
-      }
-      state.watchController()
-
       // Native resolve and reject functions share one flag: every call after
       // the first is ignored, also while a thenable passed to the first is
       // being followed. Whether the promise has settled is another matter, and
@@ -677,6 +672,12 @@ export class AbortablePromise<T> extends Promise<T> {
       // An executor that throws rejects through the same function it was given,
       // so a throw after `resolve(thenable)` is ignored as a native one is.
       try {
+        state.captureReject(reject)
+        if (state.startedAborted) {
+          state.abort()
+          return
+        }
+        state.watchController()
         executor(resolveWith, rejectWith, state)
       } catch (error) {
         rejectWith(error)

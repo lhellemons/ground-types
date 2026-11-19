@@ -312,3 +312,21 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
 - Fan-in costs three promises per member rather than one. Recorded rather
   than optimised, because the alternative is reimplementing four
   combinators whose semantics are worth inheriting exactly.
+
+### Accepted runtime boundaries (review of PR 133)
+
+The captured intrinsics are Promise, Promise.prototype.then, Reflect.apply,
+Object.create and the prototype checks described above. Listener options use
+a frozen null-prototype object. Other operations still consult mutable runtime
+intrinsics: array push, splice and iteration, AbortController, EventTarget
+listener methods, Promise factory methods and inherited Promise methods.
+Replacing those is outside the hardening boundary; callers must retain their
+ordinary behaviour. Capturing every operation would expand this change beyond
+the smaller documentation boundary chosen for ticket 137.
+
+The executor context is the AbortState instance to avoid a per-promise wrapper
+allocation. Its TypeScript interface exposes only signal; this is not a runtime
+security boundary. Untyped callers can reach the state methods and
+sharedController, including claimSettlement, and can leave a promise pending
+or change cancellation bookkeeping. This exposure is accepted; executors must
+use only the declared AbortContext interface.

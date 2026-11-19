@@ -17,6 +17,8 @@ on a single promise, a prototype swapped after the fact or an `abort()` that
 throws, or they add fewer signal listeners than v0.4.0 did. TypeScript 5.4 or
 later is required.
 
+- `AbortablePromise` rejects cleanly when a supplied controller's signal getter throws, and releases signal listeners even when inherited listener options are polluted.
+
 - `success(x)`, `failure(e)` and `result(x)` now infer at a site typed to a
   narrower `Result`: `(n: number): Result<number, Invalid> => success(n)`,
   `(): Result<number, A | B> => failure(new A())` and

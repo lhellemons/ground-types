@@ -3578,3 +3578,67 @@ describe('AbortablePromise with an Object.create replaced after the module loade
     expect(replacement).not.toHaveBeenCalled()
   })
 })
+
+describe('listener robustness', () => {
+  it('settles bookkeeping when the controller signal getter throws', async () => {
+    const error = new Error('signal')
+    class Bad extends AbortController {
+      override get signal(): AbortSignal {
+        throw error
+      }
+    }
+    const controller = new Bad()
+    const abort = vi.spyOn(controller, 'abort')
+    const promise = new AbortablePromise(() => {}, controller)
+    await expect(promise).rejects.toBe(error)
+    const other = new AbortController()
+    void promise.abortOn(other.signal)
+    expect(getEventListeners(other.signal, 'abort')).toHaveLength(0)
+    promise.abort()
+    expect(abort).not.toHaveBeenCalled()
+  })
+
+  it.each(['capture', 'signal'])(
+    'ignores inherited %s listener options',
+    async (key) => {
+      const controller = new AbortController()
+      let resolve!: (value: number) => void
+      const promise = new AbortablePromise<number>((done) => {
+        resolve = done
+      })
+      const previous = Object.getOwnPropertyDescriptor(Object.prototype, key)
+      try {
+        Object.defineProperty(Object.prototype, key, {
+          configurable: true,
+          value: key === 'capture' ? true : AbortSignal.abort(),
+        })
+        void promise.abortOn(controller.signal)
+      } finally {
+        if (previous) Object.defineProperty(Object.prototype, key, previous)
+        else Reflect.deleteProperty(Object.prototype, key)
+      }
+      expect(getEventListeners(controller.signal, 'abort')).toHaveLength(1)
+      resolve(1)
+      await expect(promise).resolves.toBe(1)
+      expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
+    },
+  )
+
+  it('does not attach a listener if recording its release throws', () => {
+    const promise = new AbortablePromise(() => {})
+    const controller = new AbortController()
+    const push = vi.spyOn(Array.prototype, 'push').mockImplementation(() => {
+      throw new Error('push')
+    })
+    let threw = false
+    try {
+      void promise.abortOn(controller.signal)
+    } catch {
+      threw = true
+    } finally {
+      push.mockRestore()
+    }
+    expect(threw).toBe(true)
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
+  })
+})
