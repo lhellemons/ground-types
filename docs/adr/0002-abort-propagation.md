@@ -343,3 +343,9 @@ module-scope accessor would cost no allocation either, but would restructure
 every caller of `AbortState` to close a gap only an untyped cast opens. This is
 accepted, since the executor already holds `resolve` and `reject`; pass
 `context.signal`, not `context`, to code you do not trust.
+
+A throwing listener release no longer prevents native settlement. Releases are
+removed from state before every release is attempted, and the first release
+error is rethrown afterwards. During abort, an earlier controller or upstream
+link error takes precedence over a release error. A throwing removal can still
+leave its listener attached to the signal.

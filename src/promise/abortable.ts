@@ -182,11 +182,10 @@ class AbortState {
   }
 
   /** Stops listening to every signal this promise was bound to. */
-  #release(): void {
-    for (const release of this.#releases) {
-      release()
-    }
-    this.#releases.length = 0
+  release(): void {
+    const releases = this.#releases
+    this.#releases = []
+    runAll(releases, (release) => release())
   }
 
   captureReject(reject: (reason?: unknown) => void): void {
@@ -205,7 +204,6 @@ class AbortState {
     this.#linked.length = 0
     // Same reasoning one step out: a settled promise can no longer be aborted,
     // so every signal it is bound to is now listening for nothing.
-    this.#release()
     return true
   }
 
@@ -267,7 +265,14 @@ class AbortState {
     }
     // Last, so that a signal firing into this call has already been handled
     // by the listener that is about to be removed.
-    this.#release()
+    try {
+      this.release()
+    } catch (error) {
+      if (!failed) {
+        failed = true
+        firstError = error
+      }
+    }
     if (failed) {
       throw firstError
     }
@@ -587,6 +592,7 @@ export class AbortablePromise<T> extends Promise<T> {
         if (isOwner(value)) {
           if (state.claimSettlement()) {
             reject(new TypeError(cycleMessage))
+            state.release()
           }
           return
         }
@@ -601,6 +607,7 @@ export class AbortablePromise<T> extends Promise<T> {
         } catch (error) {
           if (state.claimSettlement()) {
             reject(error)
+            state.release()
           }
           return
         }
@@ -608,6 +615,7 @@ export class AbortablePromise<T> extends Promise<T> {
         if (then === undefined) {
           if (state.claimSettlement()) {
             resolve(value)
+            state.release()
           }
           return
         }
@@ -626,11 +634,13 @@ export class AbortablePromise<T> extends Promise<T> {
             (settledValue: T) => {
               if (state.claimSettlement()) {
                 resolve(settledValue)
+                state.release()
               }
             },
             (reason: unknown) => {
               if (state.claimSettlement()) {
                 reject(reason)
+                state.release()
               }
             },
             isOwner,
@@ -657,6 +667,7 @@ export class AbortablePromise<T> extends Promise<T> {
           // when a late link throws, the error is dropped.
           if (state.claimSettlement()) {
             reject(error)
+            state.release()
           }
         }
       }
@@ -668,6 +679,7 @@ export class AbortablePromise<T> extends Promise<T> {
         alreadyResolved = true
         if (state.claimSettlement()) {
           reject(reason)
+          state.release()
         }
       }
 

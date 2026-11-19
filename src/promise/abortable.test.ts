@@ -3628,3 +3628,55 @@ describe('AbortablePromise with an Array.prototype.push that throws', () => {
     expect(listeners(controller.signal)).toHaveLength(0)
   })
 })
+
+describe('AbortablePromise throwing releases', () => {
+  it.each(['resolve', 'reject', 'abort'] as const)(
+    'settles and attempts every release on %s',
+    async (path) => {
+      const first = new AbortController()
+      const second = new AbortController()
+      const error = new Error('release')
+      const reason = new Error('reason')
+      let context!: AbortContext
+      let resolve!: (value: number) => void
+      let reject!: (reason: unknown) => void
+      const promise = new AbortablePromise<number>((yes, no, ctx) => {
+        context = ctx
+        resolve = yes
+        reject = no
+      })
+      void promise.abortOn(first.signal).abortOn(second.signal)
+      const outcome = promise.then(
+        (value) => value,
+        (error: unknown) => error,
+      )
+      const remove = first.signal.removeEventListener.bind(first.signal)
+      let calls = 0
+      first.signal.removeEventListener = (
+        ...args: Parameters<AbortSignal['removeEventListener']>
+      ) => {
+        calls++
+        remove(...args)
+        throw error
+      }
+      const settle = () => {
+        if (path === 'resolve') resolve(1)
+        else if (path === 'reject') reject(reason)
+        else promise.abort()
+      }
+      expect(settle).toThrow(error)
+      const result = await outcome
+      if (path === 'resolve') expect(result).toBe(1)
+      else if (path === 'reject') expect(result).toBe(reason)
+      else expect(isAbortError(result)).toBe(true)
+      expect(listeners(first.signal)).toHaveLength(0)
+      expect(listeners(second.signal)).toHaveLength(0)
+      promise.abort()
+      resolve(2)
+      reject(reason)
+      // The runtime context exposes state; a second release must be empty.
+      ;(context as AbortContext & { release(): void }).release()
+      expect(calls).toBe(1)
+    },
+  )
+})
