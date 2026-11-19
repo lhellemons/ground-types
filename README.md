@@ -146,6 +146,52 @@ including foreign-realm errors, propagate unchanged.
 `tryCatch(construct, [InvalidValue, OtherError])` is shorthand.
 Handlers such as `() => new InvalidValue()` turn bugs into domain failures.
 
+## Domain Error
+
+`DomainError` from `@lhellemons/ground-types/domain` is an abstract Error
+base class for broken domain rules:
+
+```ts
+import { DomainError } from '@lhellemons/ground-types/domain'
+import { catchOnly } from '@lhellemons/ground-types/result'
+
+class MissingItem extends DomainError<'missing-item', { id: string }> {
+  constructor(id: string) {
+    super('missing-item', { id }, 'Item is missing')
+  }
+}
+
+const error = new MissingItem('a')
+const handle = catchOnly(DomainError)
+handle(error) // the same instance, as a Failure
+JSON.stringify(error.dto) // {"code":"missing-item","params":{"id":"a"}}
+```
+
+Recognise a Domain Error with `instanceof` or `catchOnly(DomainError)`,
+never a `code` property check: Node system errors carry string codes too.
+Catch the subclasses you handle, `catchOnly(A, B)`, or check `instanceof`
+against a subclass, to get a type that narrows by its literal `code`;
+`instanceof DomainError` on an unknown value leaves `code` and `params`
+as `any`.
+`name` is the concrete subclass name. The optional third and fourth
+constructor arguments are the Error message and Error options.
+
+`ErrorDTO<TCode, TParams>` is the one-way `{ code, params }` DTO; there is
+no Factory, registry or `toJSON`. Serialise `error.dto` explicitly.
+`JSON.stringify(error)` instead includes enumerable own fields (`name`,
+`code`, `params` and any subclass fields), excluding the standard
+non-enumerable `message`, `stack` and `cause`.
+
+`JSONValue` bounds params to nested JSON values in the types only:
+`NaN` and `Infinity` serialise as `null`, cyclic params make
+`JSON.stringify` throw, and `dto` returns params by reference.
+An optional member admits `undefined`, which `JSON.stringify` drops;
+`{}` or `any` as params admit any value.
+Declare object params with a `type` alias: an interface gets no implicit
+index signature and is rejected.
+A class instance is accepted only when its class declares a JSON-valued
+string index signature; an ordinary class, even an empty one, is rejected.
+
 ## Validating domain values
 
 A Primitive Value Object factory is callable. Use the throwing form when
@@ -484,42 +530,3 @@ Not yet published to npm; expect breaking changes within 0.x.
 ## Licence
 
 MIT — see [LICENSE](./LICENSE).
-
-## Domain Error
-
-`DomainError` from `@lhellemons/ground-types/domain` is an abstract Error
-base class for broken domain rules:
-
-```ts
-import { DomainError } from '@lhellemons/ground-types/domain'
-import { catchOnly } from '@lhellemons/ground-types/result'
-
-class MissingItem extends DomainError<'missing-item', { id: string }> {
-  constructor(id: string) {
-    super('missing-item', { id }, 'Item is missing')
-  }
-}
-
-const error = new MissingItem('a')
-const handle = catchOnly(DomainError)
-handle(error) // the same instance, as a Failure
-JSON.stringify(error.dto) // {"code":"missing-item","params":{"id":"a"}}
-```
-
-Recognise a Domain Error with `instanceof` or `catchOnly(DomainError)`,
-never a `code` property check: Node system errors carry string codes too.
-A union of subclasses narrows by its literal `code` after recognition.
-`name` is the concrete subclass name. The optional third and fourth
-constructor arguments are the Error message and Error options.
-
-`ErrorDTO<TCode, TParams>` is the one-way `{ code, params }` DTO; there is
-no Factory, registry or `toJSON`. Serialise `error.dto` explicitly.
-`JSON.stringify(error)` instead includes enumerable own fields (`name`,
-`code`, `params` and any subclass fields), excluding the standard
-non-enumerable `message`, `stack` and `cause`.
-
-`JSONValue` bounds params to nested JSON values in the types only:
-`NaN` and `Infinity` serialise as `null`, cyclic params make
-`JSON.stringify` throw, and `dto` returns params by reference.
-Structural typing accepts an empty class with an explicit JSON-valued
-string index signature, but rejects an ordinary empty class.

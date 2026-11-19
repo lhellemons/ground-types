@@ -10,10 +10,12 @@ import type {
 import type { Result } from '../result/index.js'
 
 /**
- * Pins `/domain`'s type-only exports — invisible at runtime, so untouched by
- * `test/api-surface/domain.test.ts`. Referencing each by name means a
+ * Pins `/domain`'s type-only exports. Its class, `DomainError`, is pinned at
+ * runtime in `test/api-surface/domain.test.ts` and its types are exercised
+ * in `domain-error.test-d.ts`. Referencing each type-only export means a
  * removal or rename fails typecheck instead of silently dropping from the
- * public surface. See that file's docblock for the full rationale.
+ * public surface. See `test/api-surface/domain.test.ts`'s docblock for the
+ * full rationale.
  */
 describe('/domain type exports', () => {
   it('exports JSONValue and ErrorDTO', () => {

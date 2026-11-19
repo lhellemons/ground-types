@@ -14,17 +14,22 @@ export type Entity<TId> = { readonly id: TId }
 export type CompoundValueObject<TKey> = { readonly key: TKey }
 
 /**
- * A domain object's capability to produce a DTO of its current values.
- * Where a Factory built the object, the DTO round-trips through that
- * Factory; a Domain Error has no Factory and its DTO goes one way.
+ * The seam that recovers a domain object's DTO: a readonly `dto` built
+ * from the object's own current values, the mirror of what a
+ * {@link DomainObjectFactory}'s `from` validated it out of in the first place.
+ * Not the DTO itself — see CONTEXT.md's DTO Source entry.
+ * Where a Factory built the object, the DTO round-trips through it;
+ * a {@link DomainError} has no Factory, and its DTO goes one way.
  */
 export type DTOSource<TDTO> = { readonly dto: TDTO }
 
 /**
  * A JSON value: a primitive, readonly array or string-keyed object of
  * nested JSON values. Used to bound Domain Error params at compile time.
- * Structural typing accepts an empty class with an explicit JSON-valued
- * string index signature, but rejects an ordinary empty class.
+ * Declare object params with a `type` alias: an interface gets no implicit
+ * index signature and is rejected.
+ * A class instance is accepted only when its class declares a JSON-valued
+ * string index signature; an ordinary class, even an empty one, is rejected.
  */
 export type JSONValue =
   | string

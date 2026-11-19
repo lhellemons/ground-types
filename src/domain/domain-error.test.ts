@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DomainError } from './index.js'
+import type { JSONValue } from './index.js'
 import { catchOnly, isFailure } from '../result/index.js'
 
 class Missing extends DomainError<'missing', { id: string }> {
@@ -28,6 +29,7 @@ describe('DomainError', () => {
   it('exposes only code and params in the DTO, keeping params by reference', () => {
     const error = new DeepMissing()
     expect(error.dto.params).toBe(error.params)
+    expect(Object.keys(error.dto)).toEqual(['code', 'params'])
     expect(JSON.parse(JSON.stringify(error.dto))).toEqual({
       code: 'missing',
       params: { id: 'a' },
@@ -59,7 +61,12 @@ describe('DomainError', () => {
     const error = new DeepMissing()
     expect(precise(error)).toBe(error)
     const other = new Other()
-    expect(() => precise(other)).toThrow(other)
+    try {
+      precise(other)
+      expect.unreachable()
+    } catch (caught) {
+      expect(caught).toBe(other)
+    }
   })
 
   it('leaves JSON runtime limitations visible', () => {
@@ -70,6 +77,9 @@ describe('DomainError', () => {
     const cycle: { self?: unknown } = {}
     cycle.self = cycle
     // Deliberate untyped boundary: the library performs no runtime validation.
-    expect(() => JSON.stringify({ code: 'cycle', params: cycle })).toThrow()
+    class Cyclic extends DomainError<'cycle', JSONValue> {}
+    expect(() =>
+      JSON.stringify(new Cyclic('cycle', cycle as never).dto),
+    ).toThrow(TypeError)
   })
 })

@@ -10,6 +10,13 @@ class Empty {}
 class IndexedEmpty {
   readonly [key: string]: JSONValue
 }
+class IndexedNamed {
+  readonly [key: string]: JSONValue
+  value = 1
+}
+interface IParams {
+  id: string
+}
 class Named {
   value = 1
 }
@@ -18,6 +25,16 @@ class Method {
 }
 
 describe('DomainError types', () => {
+  it('requires an abstract base and readonly code and params', () => {
+    // @ts-expect-error DomainError is abstract
+    new DomainError('x', null)
+    const a = new A('a', { id: 'a' })
+    // @ts-expect-error code is readonly
+    a.code = 'a'
+    // @ts-expect-error params is readonly
+    a.params = { id: 'b' }
+  })
+
   it('narrows subclasses by code', () => {
     const narrow = (error: A | B) => {
       if (error.code === 'a') {
@@ -39,6 +56,14 @@ describe('DomainError types', () => {
     expectTypeOf<{
       readonly nested: readonly [null, string, number, boolean]
     }>().toExtend<JSONValue>()
+    expectTypeOf<IParams>().not.toExtend<JSONValue>()
+    expectTypeOf<IndexedNamed>().toExtend<JSONValue>()
+    expectTypeOf<{ a?: string }>().toExtend<JSONValue>()
+    // Deliberately pin the broad empty-object constraint loophole.
+    // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+    expectTypeOf<{}>().toExtend<JSONValue>()
+    expectTypeOf<readonly Date[]>().not.toExtend<JSONValue>()
+    expectTypeOf<{ a: (() => void)[] }>().not.toExtend<JSONValue>()
     expectTypeOf<Empty>().not.toExtend<JSONValue>()
     expectTypeOf<IndexedEmpty>().toExtend<JSONValue>()
     expectTypeOf<Named>().not.toExtend<JSONValue>()

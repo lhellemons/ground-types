@@ -7,11 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- `/domain` exports `DomainError`, `ErrorDTO` and `JSONValue` for domain
-  rule Failures with literal codes, typed params and a one-way DTO.
-
 Upgrading from 0.4.0: `success`, `failure` and `result` no longer need type
 arguments in early-return code, and several calls that compiled now do not; some
 calls also behave differently at run time. The entries marked **Breaking** below
@@ -616,6 +611,9 @@ later is required.
   `BestEffort`, and `toResult` refuses a `BestEffort`-valued `T`. The root
   entry point gains the namespace `bestEffort`. See
   `docs/adr/0006-best-effort.md`.
+- Add `DomainError`, `ErrorDTO` and `JSONValue` to `/domain`: an abstract
+  `Error` base for broken domain rules, with a literal `code`, JSON-valued
+  `params` and a one-way `dto`, `{ code, params }`; no `toJSON`.
 
 ## [0.4.0] - 2026-11-14
 
