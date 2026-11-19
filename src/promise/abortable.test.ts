@@ -3026,6 +3026,63 @@ describe('AbortablePromise with a then getter that changes between reads', () =>
     },
   )
 
+  it.each(['adoption', 'handler'] as const)(
+    'pins pending second reads through %s against native promises',
+    async (path) => {
+      const makeValue = () => {
+        let reads = 0
+        const followed = vi.fn()
+        return {
+          value: {
+            get then() {
+              return ++reads === 1 ? undefined : followed
+            },
+          },
+          reads: () => reads,
+          followed,
+        }
+      }
+      const actual = makeValue()
+      const native = makeValue()
+      const controller = new AbortController()
+      const promise =
+        path === 'adoption'
+          ? new AbortablePromise((resolve) => {
+              resolve(new AbortablePromise((r) => r(actual.value)))
+            }, controller)
+          : AbortablePromise.resolve().then(() => actual.value)
+      const reference =
+        path === 'adoption'
+          ? new Promise((resolve) => {
+              resolve(new AbortablePromise((r) => r(native.value)))
+            })
+          : Promise.resolve().then(() => native.value)
+      const pending = (value: Promise<unknown>) =>
+        Promise.race([
+          value.then(
+            () => 'fulfilled',
+            () => 'rejected',
+          ),
+          new Promise((resolve) => setTimeout(() => resolve('pending'), 0)),
+        ])
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(await pending(promise)).toBe('pending')
+      promise.abort()
+      if (path === 'adoption') {
+        await expect(promise).rejects.toSatisfy(isAbortError)
+        expect(controller.signal.aborted).toBe(true)
+        expect(await pending(reference)).toBe('pending')
+      } else {
+        expect(await pending(promise)).toBe('pending')
+        await expect(reference).resolves.toBe(native.value)
+      }
+      expect(actual.reads()).toBe(2)
+      expect(actual.followed).toHaveBeenCalledTimes(1)
+      expect(native.reads()).toBe(path === 'adoption' ? 2 : 1)
+      expect(native.followed).toHaveBeenCalledTimes(path === 'adoption' ? 1 : 0)
+    },
+  )
+
   it('rejects when a second then read throws', async () => {
     let reads = 0
     const error = new Error('second read')

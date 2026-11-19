@@ -359,7 +359,8 @@ therefore rejects rather than fulfils; one that returns a function on the
 second read is followed with the abort window already closed. Until that
 function calls back, if ever, the promise stays pending, `abort()` neither
 rejects it nor aborts a supplied controller, and aborting that controller does
-not reject it. A native Promise resolved directly with such a value reads
+not reject it, except through an adopted AbortablePromise, below. A native
+Promise resolved directly with such a value reads
 `then` once and fulfils with it. A value that an adopted plain thenable settles
 with is read twice: once by the native promise that follows the thenable,
 once by this promise's native resolution, where a native Promise reads it
