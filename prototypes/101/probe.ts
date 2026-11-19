@@ -146,3 +146,12 @@ export const i3: { [k: string]: string | undefined } = success({ a: '1' }) // CA
 // The marker adds a member: `.stack` on a Success with no `stack` is TS2339 on main.
 declare const sq: Success<{ q: string }, Invalid>
 export const i4 = sq.stack // CASE: loosens: `.stack` readable on a Success of { q } (TS2339 on main)
+
+// An Error subclass that narrows its own `stack` to `undefined` fits every
+// marker shape's optional `stack` (from the review of ticket 94, PR 100).
+class Stackless extends Error {
+  readonly code = 'other'
+  override stack = undefined
+}
+export const s1 = (): Result<{ code: string }, Invalid> => new Stackless() // CASE: closes: Error subclass with stack narrowed to undefined
+export const s2 = (): Result<{ code: string }, Invalid> => new Error() as Error & { code: string } // CASE: closes: plain Error cast to Error & { code }
