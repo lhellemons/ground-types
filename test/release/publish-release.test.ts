@@ -108,7 +108,7 @@ afterEach(() => {
 })
 
 interface Options {
-  /** Limit each file written by the script to 1–2 MiB (platform dependent). */
+  /** Limit each file the script writes to 2 MiB (`ulimit -f 2048`). */
   limitFileSize?: boolean
   tag?: string
   view?: string
@@ -127,7 +127,7 @@ interface Options {
   writeFails?: Array<'create' | 'upload' | 'edit'>
   /** Make the `call`th use of a tool in the version comparison exit `code`. */
   toolFails?: {
-    tool: 'grep' | 'sed' | 'sort' | 'tail'
+    tool: 'grep' | 'sed' | 'sort' | 'tail' | 'sha256sum'
     code?: number
     call?: number
   }
@@ -614,6 +614,38 @@ describe('an already published release', () => {
     expect(result.output).toContain('no assets match')
     expect(result.output).toContain('convert the release back to a draft')
   })
+})
+
+describe('a hashing failure', () => {
+  it.each([1, 0])(
+    'reports a built-side hasher exiting %i without a digest',
+    (code) => {
+      const result = run({ toolFails: { tool: 'sha256sum', code } })
+      expect(result.status).toBe(1)
+      expect(result.calls).toEqual([])
+      expect(result.output).toContain(
+        '::error::sha256sum could not hash the built a.tgz. Nothing was written to the release.',
+      )
+      expect(result.output).not.toContain('gzip could not decompress')
+    },
+  )
+
+  it.each([1, 0])(
+    'reports a published-side hasher exiting %i without a digest',
+    (code) => {
+      const result = run({
+        view: 'published',
+        published: gzipSync('other'),
+        toolFails: { tool: 'sha256sum', call: 2, code },
+      })
+      expect(result.status).toBe(1)
+      expect(result.writes).toEqual([])
+      expect(result.output).toContain(
+        '::error::Release v0.5.0 is already published, and sha256sum could not hash the published a.tgz, so the two cannot be compared. Refusing to modify a published release.',
+      )
+      expect(result.output).not.toContain('gzip could not decompress')
+    },
+  )
 })
 
 describe('an unusable lookup', () => {

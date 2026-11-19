@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Publishes the packed tarball as the GitHub Release for $RELEASE_TAG.
 #
-# Needs the `gh` CLI with GH_TOKEN and GH_REPO set, and `pnpm pack` output in
-# release-artifacts/. A release is replaced only while it is a draft:
+# Needs the `gh` CLI with GH_TOKEN and GH_REPO set, gzip, sha256sum
+# (coreutils), and `pnpm pack` output in release-artifacts/. A release is
+# replaced only while it is a draft:
 #
 #   no release yet     create a draft, upload the tarball, publish
 #   draft              (re)upload the tarball, publish
@@ -53,13 +54,32 @@ esac
 work=$(mktemp -d "${TMPDIR:-/tmp}/publish-release.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 
-# Hash the expanded stream before any gh call, without writing an expanded
-# archive. pipefail keeps gzip failures visible even when hashing succeeds.
-if ! built_digest=$(gzip -dc "$tarball" 2>"$work/built.err" | sha256sum); then
-  cat "$work/built.err" >&2
-  echo "::error::gzip could not decompress the built $asset (see the gzip output above). Nothing was written to the release. Rebuild the tarball and rerun."
-  exit 1
-fi
+# Prints the SHA-256 of the expanded gzip stream in $1; gzip's stderr goes to $2.
+# Returns 2 when gzip fails, 3 when sha256sum fails or prints no digest.
+expanded_digest() {
+  local out
+  out=$({ gzip -dc "$1" 2>"$2" || : >"$2.failed"; } | sha256sum) || return 3
+  [ ! -e "$2.failed" ] || return 2
+  out=${out%% *}
+  [[ $out =~ ^[0-9a-f]{64}$ ]] || return 3
+  printf '%s\n' "$out"
+}
+
+# The built tarball's expanded stream is hashed before any gh call, without
+# writing it. A gzip failure and a hashing failure are reported apart.
+digest_status=0
+built_digest=$(expanded_digest "$tarball" "$work/built.err") || digest_status=$?
+case "$digest_status" in
+  2)
+    cat "$work/built.err" >&2
+    echo "::error::gzip could not decompress the built $asset (see the gzip output above). Nothing was written to the release. Rebuild the tarball and rerun."
+    exit 1
+    ;;
+  3)
+    echo "::error::sha256sum could not hash the built $asset. Nothing was written to the release."
+    exit 1
+    ;;
+esac
 
 # Sets is_draft to true, false or none (no such release). A failed lookup exits
 # 1 and is not read as none.
@@ -92,13 +112,24 @@ handle_published() {
     exit 1
   fi
   published=$work/published/$asset
-  # Check the entire published stream too, including its gzip trailer. Never
-  # retain the expansion on disk; pipefail rejects a partial stream's digest.
-  if ! published_digest=$(gzip -dc "$published" 2>"$work/published.err" | sha256sum); then
-    cat "$work/published.err" >&2
-    echo "::error::Release $RELEASE_TAG is already published, and gzip could not decompress the published $asset (see the gzip output above), so the two cannot be compared. Refusing to modify a published release. Convert the release back to a draft and rerun."
-    exit 1
-  fi
+  # The published asset's expanded stream, gzip trailer included, is hashed
+  # without writing it. One that does not decompress cleanly, or cannot be
+  # hashed, is reported on its own, not as a difference. Otherwise the tarballs
+  # match when byte-identical or when the digests of their expanded streams
+  # are equal.
+  digest_status=0
+  published_digest=$(expanded_digest "$published" "$work/published.err") || digest_status=$?
+  case "$digest_status" in
+    2)
+      cat "$work/published.err" >&2
+      echo "::error::Release $RELEASE_TAG is already published, and gzip could not decompress the published $asset (see the gzip output above), so the two cannot be compared. Refusing to modify a published release. Convert the release back to a draft and rerun."
+      exit 1
+      ;;
+    3)
+      echo "::error::Release $RELEASE_TAG is already published, and sha256sum could not hash the published $asset, so the two cannot be compared. Refusing to modify a published release."
+      exit 1
+      ;;
+  esac
   if cmp -s "$tarball" "$published"; then
     echo "Release $RELEASE_TAG is already published with an identical $asset. Nothing to do."
     exit 0
