@@ -9,6 +9,11 @@ const promisePrototype = Promise.prototype
 const promiseThen = Promise.prototype.then
 const apply = Reflect.apply
 const createObject = Object.create
+/* The options every abort listener is added with: no prototype and frozen,
+   so nothing on Object.prototype is read as an option. */
+const listenerOptions = Object.freeze(
+  Object.assign(createObject(null), { once: true }),
+) as AddEventListenerOptions
 const cycleMessage = 'Chaining cycle detected for promise #<AbortablePromise>'
 
 /* Whether `value` is a native Promise or a subclass instance: `instanceof
@@ -170,38 +175,44 @@ class AbortState {
     }
 
     const onAbort = () => this.abort()
-    signal.addEventListener('abort', onAbort, { once: true })
     this.#releases.push(() => {
       signal.removeEventListener('abort', onAbort)
     })
+    signal.addEventListener('abort', onAbort, listenerOptions)
   }
 
-  /** Stops listening to every signal this promise was bound to. */
+  /**
+   * Stops listening to every signal this promise was bound to: empties the
+   * list, attempts every removal, and throws the first error once all have run.
+   */
   #release(): void {
-    for (const release of this.#releases) {
-      release()
-    }
-    this.#releases.length = 0
+    const releases = this.#releases
+    this.#releases = []
+    runAll(releases, (release) => release())
   }
 
   captureReject(reject: (reason?: unknown) => void): void {
     this.#rejectSelf = reject
   }
 
-  /** True when this call is the one that settles the promise. */
-  claimSettlement(): boolean {
+  /**
+   * Settles the promise through `settle` with `value` unless it has settled
+   * already, then stops listening to every signal it was bound to; throws
+   * the first removal error once every removal has run.
+   */
+  settle<A>(settle: (value: A) => void, value: A): void {
     if (this.#settled) {
-      return false
+      return
     }
     this.#settled = true
     // A settled promise can never fire its upstream links, since `abort`
     // returns early once `#settled`. Dropping them here releases the chain a
     // retained tail would otherwise keep reachable all the way to its head.
     this.#linked.length = 0
-    // Same reasoning one step out: a settled promise can no longer be aborted,
-    // so every signal it is bound to is now listening for nothing.
+    settle(value)
+    // A settled promise can no longer be aborted, so every signal it is
+    // bound to is now listening for nothing.
     this.#release()
-    return true
   }
 
   /**
@@ -262,7 +273,14 @@ class AbortState {
     }
     // Last, so that a signal firing into this call has already been handled
     // by the listener that is about to be removed.
-    this.#release()
+    try {
+      this.#release()
+    } catch (error) {
+      if (!failed) {
+        failed = true
+        firstError = error
+      }
+    }
     if (failed) {
       throw firstError
     }
@@ -407,8 +425,11 @@ export class AbortablePromise<T> extends Promise<T> {
    * Makes the promise `combine` returns for the items of `values`, and links
    * its abort to the members: aborting it calls `abort()` on each member that
    * is an AbortablePromise (`#isAbortablePromise`) whose `then`, read when
-   * `AbortablePromise` takes the member, is a function, and that is still an
-   * AbortablePromise when it is aborted. `abort()` is called on every such
+   * `AbortablePromise` takes the member, is a function, whose thenable (below)
+   * has had its `then` read by the combinator's resolution, and that is still
+   * an AbortablePromise when it is aborted; a member whose thenable is first
+   * read after the abort is aborted on that read. A `resolve` that reads that
+   * `then` and does not call it is not detected. `abort()` is called on every such
    * member even when one throws; the first error is thrown after the last. A
    * member that settles first aborts no other (see
    * docs/adr/0002-abort-propagation.md).
@@ -428,6 +449,7 @@ export class AbortablePromise<T> extends Promise<T> {
     combine: (members: Iterable<unknown>) => Promise<unknown>,
   ): AbortablePromise<unknown> {
     const adopted: AbortablePromise<unknown>[] = []
+    let linkFired = false
     const members = function* (): Generator<unknown> {
       for (const item of values) {
         if (!AbortablePromise.#isAbortablePromise(item)) {
@@ -450,10 +472,27 @@ export class AbortablePromise<T> extends Promise<T> {
           yield item
           continue
         }
-        adopted.push(item)
+        let taken = false
         yield {
-          then: (onFulfilled: unknown, onRejected: unknown) =>
-            apply(then, item, [onFulfilled, onRejected]),
+          get then() {
+            // Counted once, when read: native resolution, which reads it, goes
+            // on to call it. A subclass resolve that reads it and then throws
+            // is not detected.
+            if (!taken) {
+              taken = true
+              if (!linkFired) {
+                adopted.push(item)
+              } else if (AbortablePromise.#isAbortablePromise(item)) {
+                try {
+                  item.abort()
+                } catch {
+                  // The combined promise is aborted already.
+                }
+              }
+            }
+            return (onFulfilled: unknown, onRejected: unknown) =>
+              apply(then, item, [onFulfilled, onRejected])
+          },
         }
       }
     }
@@ -462,6 +501,7 @@ export class AbortablePromise<T> extends Promise<T> {
     const combinedState = combined.#state
     try {
       combinedState.link(() => {
+        linkFired = true
         runAll(adopted, (member) => {
           if (AbortablePromise.#isAbortablePromise(member)) {
             member.abort()
@@ -529,9 +569,15 @@ export class AbortablePromise<T> extends Promise<T> {
   readonly #state: AbortState
 
   /**
-   * Creates a new AbortablePromise, which behaves exactly as a regular Promise
-   * except that calling {@link AbortablePromise.abort} before it settles
-   * rejects it with an {@link AbortError}.
+   * Creates a new AbortablePromise that settles with the outcome a regular
+   * Promise would, though not always in the same tick, for values whose
+   * `then` gives the same result on every read. Calling
+   * {@link AbortablePromise.abort} before it settles rejects it with an
+   * {@link AbortError}. When the first read of an object's `then` gives
+   * something other than a function, native resolution reads `then` again:
+   * if that read gives a function, the promise follows it with its abort
+   * window already closed, and if it throws, the promise rejects. See
+   * docs/adr/0002-abort-propagation.md.
    *
    * @param executor An executor callback as a regular Promise takes, with an
    * {@link AbortContext} passed as a third argument. Only the first call to
@@ -540,6 +586,8 @@ export class AbortablePromise<T> extends Promise<T> {
    * that throws rejects the promise unless `resolve` or `reject` was called
    * already. Resolving with the promise itself rejects it with a `TypeError`,
    * as does a thenable it was resolved with that fulfils with the promise.
+   * The resolve and reject callbacks can throw a listener removal error after
+   * settling the promise.
    * @param controller If given, this AbortablePromise is governed by that
    * controller rather than one of its own. Aborting the promise then aborts
    * the passed controller too, and so everything else it governs — which cuts
@@ -566,14 +614,6 @@ export class AbortablePromise<T> extends Promise<T> {
       owner.promise !== undefined && value === owner.promise
 
     super((resolve, reject) => {
-      state.captureReject(reject)
-
-      if (state.startedAborted) {
-        state.abort()
-        return
-      }
-      state.watchController()
-
       // Native resolve and reject functions share one flag: every call after
       // the first is ignored, also while a thenable passed to the first is
       // being followed. Whether the promise has settled is another matter, and
@@ -588,9 +628,7 @@ export class AbortablePromise<T> extends Promise<T> {
 
         // A promise resolved with itself rejects, as a native one does.
         if (isOwner(value)) {
-          if (state.claimSettlement()) {
-            reject(new TypeError(cycleMessage))
-          }
+          state.settle(reject, new TypeError(cycleMessage))
           return
         }
 
@@ -602,16 +640,12 @@ export class AbortablePromise<T> extends Promise<T> {
         try {
           then = thenOf(value)
         } catch (error) {
-          if (state.claimSettlement()) {
-            reject(error)
-          }
+          state.settle(reject, error)
           return
         }
 
         if (then === undefined) {
-          if (state.claimSettlement()) {
-            resolve(value)
-          }
+          state.settle(resolve, value)
           return
         }
 
@@ -627,14 +661,10 @@ export class AbortablePromise<T> extends Promise<T> {
             adopted,
             then,
             (settledValue: T) => {
-              if (state.claimSettlement()) {
-                resolve(settledValue)
-              }
+              state.settle(resolve, settledValue)
             },
             (reason: unknown) => {
-              if (state.claimSettlement()) {
-                reject(reason)
-              }
+              state.settle(reject, reason)
             },
             isOwner,
           )
@@ -658,9 +688,7 @@ export class AbortablePromise<T> extends Promise<T> {
           // As a native resolve function rejects when following the thenable
           // throws (its `then` throws). Once the promise is settled, so also
           // when a late link throws, the error is dropped.
-          if (state.claimSettlement()) {
-            reject(error)
-          }
+          state.settle(reject, error)
         }
       }
 
@@ -669,14 +697,18 @@ export class AbortablePromise<T> extends Promise<T> {
           return
         }
         alreadyResolved = true
-        if (state.claimSettlement()) {
-          reject(reason)
-        }
+        state.settle(reject, reason)
       }
 
-      // An executor that throws rejects through the same function it was given,
+      // Setup and an executor that throws reject through the same function,
       // so a throw after `resolve(thenable)` is ignored as a native one is.
       try {
+        state.captureReject(reject)
+        if (state.startedAborted) {
+          state.abort()
+          return
+        }
+        state.watchController()
         executor(resolveWith, rejectWith, state)
       } catch (error) {
         rejectWith(error)
@@ -695,11 +727,12 @@ export class AbortablePromise<T> extends Promise<T> {
    * Throws only when the abort reaches a promise whose own `abort()` throws
    * or is missing — a subclass's override, say, on the promise this one was
    * derived from, a delegate or a fan-in member — or when the controller
-   * passed to the constructor throws from its `abort()`. In each case this
-   * promise is rejected and its signals are released, and `abort()` is called
-   * on every promise the abort reaches; the first error is thrown after the
-   * last, the controller's before the others. A controller whose signal has
-   * aborted already is not asked to abort again.
+   * passed to the constructor throws from its `abort()`, or when removing this
+   * promise's listener from a signal throws. In each case this promise is
+   * rejected, removing each of its listeners is attempted, and `abort()` is
+   * called on every promise the abort reaches; the first error is thrown after
+   * the last, the controller's before the others and a removal's after them.
+   * A controller whose signal has aborted already is not asked to abort again.
    *
    * Called through a signal that aborts later ({@link AbortablePromise.abortOn},
    * a controller passed to the constructor, {@link AbortablePromise.peer}), the

@@ -23,7 +23,7 @@ later is required.
   `(x: number | Invalid): Result<number, Invalid> => result(x)` compile with no
   type arguments. A `Success` carries `E = never` and a `Failure` carries
   `T = never`, and both flow into any `Result<T, E>`. A plain `Error` is still
-  rejected, through
+  rejected, through calls to
   `failure`, `result` and `success`, where a narrower class is expected, and
   `Result<Result<T>>` is still not assignable to `Result<T>`. A raw `Error`
   returned without `failure()` still compiles where `T` is `object`, a union
@@ -143,6 +143,16 @@ later is required.
   overload: `result<number>(5)` is `Result<number, never>`,
   `result<number>(x)` with `x: any` is too, and
   `result<number | Invalid>(x)` is `Result<number, Invalid>`.
+- **Breaking:** passed bare as a callback rather than called, `result` and
+  `Result.from` lose the value type v0.4.0 inferred:
+  `Promise.resolve(1).then(result)` is `Promise<Result<unknown, Error>>` and
+  `[1, 2].map(result)` is `Result<unknown, Error>[]`, where v0.4.0 inferred
+  `number` in the value arm. They are also accepted where v0.4.0 refused them:
+  `result` for any return type the callback declares
+  (`const f: (v: number) => number = result`,
+  `Promise.resolve(1).then<string>(result)`), and `Result.from` for any Box
+  type it declares. Wrap the factory, for example `(v: number) => result(v)`,
+  to get both the value type and the check back.
 - `SuccessArm` carries a third marker, `[_error]?: never`, so that no `Failure`
   can pass as a `Success`.
 - Add `NotPossiblyAnError`, the type of `success`'s guard, exported from
@@ -176,32 +186,34 @@ later is required.
   without `Error.prototype` on its chain (`Object`, `Map`, `Symbol`, `Array`,
   `Promise`, `Date`, a class that does not extend `Error`, a function
   declaration, a bound subclass of `Map`), or no object `prototype` and source
-  text that does not end `{ [native code] }` (`undefined`, an arrow function,
-  a method). Before, an entry with no object `prototype` (`undefined`, an
-  arrow function, a method) threw a `TypeError` in place of each `Error` that no
-  earlier entry matched, so a list holding one (an `undefined` from a circular
-  CommonJS import) loaded on 0.4.0 and now throws at creation. `Object` matched
-  every `Error`, so `catchOnly(Object)(new TypeError('bug'))` turned a
-  programming bug into a Failure; the other entries with a non-Error object
-  `prototype` matched nothing and rethrew every error. TypeScript already
-  rejected all of them. Still admitted: an `Error` class or an ES5-style error
-  constructor (`Legacy.prototype = Object.create(Error.prototype)`), a bound
-  subclass of `Error`, a class with a custom `Symbol.hasInstance`, a function
-  from another realm, and a function with no `prototype` of type object whose
-  source ends `{ [native code] }`, such as `Math.max`, `parseInt`, `Function`,
-  or a bound `Error`, `Object` or base class (one declared without `extends`): a
-  bound `Object` still matches every `Error`. A function from another realm is
-  not checked, and neither is an entry whose inherited `Symbol.hasInstance`
-  comes from another realm (a function of this realm whose `[[Prototype]]` is
-  another realm's `Function.prototype`): it counts as a custom one, so
-  `catchOnly(N)` with `N.prototype = Object.prototype` is admitted and turns
-  every error into a Failure. An entry is checked once, at creation, not again:
-  one changed afterwards (a reassigned `prototype`, a Proxy whose `prototype`
-  read changes) is matched by `instanceof` as it then stands, so it can match
-  errors it would have been refused for, and a programming bug becomes a
-  Failure. An entry that fails inside `instanceof` later, such as a proxy
-  revoked after the handler is created, counts as not matching: the original
-  error is rethrown unless a later entry matches.
+  text other than a native function's, `function <name>() { [native code] }`
+  (`undefined`, an arrow function, a method). Before, an entry with no object
+  `prototype` (`undefined`, an arrow function, a method) threw a `TypeError` in
+  place of each `Error` that no earlier entry matched, so a list holding one (an
+  `undefined` from a circular CommonJS import) loaded on 0.4.0 and now throws at
+  creation. `Object` matched every `Error`, so
+  `catchOnly(Object)(new TypeError('bug'))` turned a programming bug into a
+  Failure; the other entries with a non-Error object `prototype` matched nothing
+  and rethrew every error. TypeScript already rejected all of them. Still
+  admitted: an `Error` class or an ES5-style error constructor
+  (`Legacy.prototype = Object.create(Error.prototype)`), a bound subclass of
+  `Error`, a class with a custom `Symbol.hasInstance`, a function from another
+  realm, and a function with no `prototype` of type object whose source is a
+  native function's, `function <name>() { [native code] }`, such as `Math.max`,
+  `parseInt`, `Function`, or a bound `Error`, `Object` or base class (one
+  declared without `extends`): a bound `Object` still matches every `Error`. A
+  function from another realm is not checked, and neither is an entry whose
+  inherited `Symbol.hasInstance` comes from another realm (a function of this
+  realm whose `[[Prototype]]` is another realm's `Function.prototype`): it
+  counts as a custom one, so `catchOnly(N)` with
+  `N.prototype = Object.prototype` is admitted and turns every error into a
+  Failure. An entry is checked once, at creation, not again: one changed
+  afterwards (a reassigned `prototype`, a Proxy whose `prototype` read changes)
+  is matched by `instanceof` as it then stands, so it can match errors it would
+  have been refused for, and a programming bug becomes a Failure. An entry that
+  fails inside `instanceof` later, such as a proxy revoked after the handler is
+  created, counts as not matching: the original error is rethrown unless a later
+  entry matches.
 - **Breaking:** `tryCatch` (and so `definePrimitiveValueObject`'s
   `errorHandler`) now throws a `TypeError` when called with a handler that is
   neither an array nor a function, or is a function that is a class (its source
@@ -211,40 +223,40 @@ later is required.
   an HTML-like comment before its `(`: see below), or whose `prototype` is
   `Error.prototype` or inherits from it (`Error`, `TypeError` and the other
   built-ins, an ES5-style error constructor, a bound subclass of `Error`), or
-  that is a built-in constructor: its source ends `{ [native code] }` and its
-  own `prototype` is an object whose own `constructor` is not an ordinary
-  function (missing, not a function, or with native or class source).
-  That covers `Map`, `Set`, `WeakMap`, `WeakSet`, `Promise`, `WeakRef`,
-  `BigInt`, `Number`, `String`, `Boolean`, `Array`, `Date`, `RegExp`, `Symbol`,
-  `Function`, `Object`, `ArrayBuffer`, the typed arrays, the `Intl`
-  constructors, `AsyncFunction` and `GeneratorFunction`, those of another realm
-  too, and a Proxy over one of them, over a class or over a generator function.
-  A function whose inspection throws is refused as well. Before, any such
-  function was accepted and called with the thrown value. `Map`, `Set`,
-  `WeakMap`, `WeakSet`, `Promise`, `WeakRef`, `ArrayBuffer` and the typed arrays
-  threw a TypeError ("Constructor Map requires 'new'") instead of the original
-  error. `BigInt` threw a `SyntaxError` for a thrown `Error` and returned a
-  bigint for a thrown integer. `Function`, `AsyncFunction`, `GeneratorFunction`
-  and `RegExp` threw a `SyntaxError` or returned a Success, depending on the
-  message (`new Error('boom')` gave a function or a regular expression, and
-  `new Error('(')` threw from all four). For a thrown `Error`, `Number`,
-  `String`, `Boolean`, `Array`, `Date` and `Symbol` returned a Success such as
-  `NaN`, a string or an array, and so did `Intl.Collator`, `Intl.NumberFormat`
-  and `Intl.DateTimeFormat` (the other `Intl` constructors threw "requires
-  'new'").
-  `Object` returned a thrown `Error` as a Failure, a working pass-through, and
-  any other thrown value as a Success: a primitive boxed, `null` or `undefined`
-  as `{}`, an object as itself. TypeScript already rejected `Map`, `Set`,
-  `WeakMap`, `WeakSet`, `Promise`, `WeakRef`, `BigInt`, `RegExp`, `Symbol`,
-  `Function`, `ArrayBuffer`, the typed arrays and the `Intl` constructors. It
-  accepted `Object` for any `T`, and `Number`, `String`, `Boolean`, `Array` and
-  `Date` for a `T` that their call returns, such as `any`. A Proxy over a plain
-  function whose `prototype` still has an ordinary function as its own
-  `constructor`, with or without an `apply` trap, a native function with no own
-  `prototype` (`parseInt`, `Math.max`), a function whose own text merely
-  mentions `[native code]`, and a handler bound with `handler.bind(ctx)` are
-  accepted. A Proxy over a plain function whose `prototype` is replaced by `{}`
-  or by `Object.create(null)`, is an ES5-style subclass's without an own
+  that is a built-in constructor: its source is a native function's,
+  `function <name>() { [native code] }`, and its own `prototype` is an object
+  whose own `constructor` is not an ordinary function (missing, not a function,
+  or with native or class source). That covers `Map`, `Set`, `WeakMap`,
+  `WeakSet`, `Promise`, `WeakRef`, `BigInt`, `Number`, `String`, `Boolean`,
+  `Array`, `Date`, `RegExp`, `Symbol`, `Function`, `Object`, `ArrayBuffer`, the
+  typed arrays, the `Intl` constructors, `AsyncFunction` and
+  `GeneratorFunction`, those of another realm too, and a Proxy over one of them,
+  over a class or over a generator function. A function whose inspection throws
+  is refused as well. Before, any such function was accepted and called with the
+  thrown value. `Map`, `Set`, `WeakMap`, `WeakSet`, `Promise`, `WeakRef`,
+  `ArrayBuffer` and the typed arrays threw a TypeError ("Constructor Map
+  requires 'new'") instead of the original error. `BigInt` threw a `SyntaxError`
+  for a thrown `Error` and returned a bigint for a thrown integer. `Function`,
+  `AsyncFunction`, `GeneratorFunction` and `RegExp` threw a `SyntaxError` or
+  returned a Success, depending on the message (`new Error('boom')` gave a
+  function or a regular expression, and `new Error('(')` threw from all four).
+  For a thrown `Error`, `Number`, `String`, `Boolean`, `Array`, `Date` and
+  `Symbol` returned a Success such as `NaN`, a string or an array, and so did
+  `Intl.Collator`, `Intl.NumberFormat` and `Intl.DateTimeFormat` (the other
+  `Intl` constructors threw "requires 'new'"). `Object` returned a thrown
+  `Error` as a Failure, a working pass-through, and any other thrown value as a
+  Success: a primitive boxed, `null` or `undefined` as `{}`, an object as
+  itself. TypeScript already rejected `Map`, `Set`, `WeakMap`, `WeakSet`,
+  `Promise`, `WeakRef`, `BigInt`, `RegExp`, `Symbol`, `Function`, `ArrayBuffer`,
+  the typed arrays and the `Intl` constructors. It accepted `Object` for any
+  `T`, and `Number`, `String`, `Boolean`, `Array` and `Date` for a `T` that
+  their call returns, such as `any`. A Proxy over a plain function whose
+  `prototype` still has an ordinary function as its own `constructor`, with or
+  without an `apply` trap, a native function with no own `prototype`
+  (`parseInt`, `Math.max`), a function whose own text merely mentions
+  `[native code]`, and a handler bound with `handler.bind(ctx)` are accepted. A
+  Proxy over a plain function whose `prototype` is replaced by `{}` or by
+  `Object.create(null)`, is an ES5-style subclass's without an own
   `constructor`, or has a `constructor` that was deleted, made an accessor or
   set to a Proxy is refused, as a Proxy over a generator function is. Not
   detected: a bound `Error`, which returns a fresh `Error` as the Failure; a
@@ -259,9 +271,9 @@ later is required.
   and accepts `Number.bind(null)` and the bound ES5-style constructor. A foreign
   `class ... extends Error` is refused. Detected wrongly: a method named `class`
   with an HTML-like comment (`<!--`, or `-->` at the start of a line or after a
-  block comment that spans lines; sloppy scripts only) before its `(` is
-  refused as a class, since only whitespace, block comments and line comments
-  are skipped there; v0.4.0 accepted it. A `<!--` directly after `class` is
+  block comment that spans lines; sloppy scripts only) before its `(` is refused
+  as a class, since only whitespace, block comments and line comments are
+  skipped there; v0.4.0 accepted it. A `<!--` directly after `class` is
   accepted.
 - `catchOnly` rethrows the original value when an entry's `Symbol.hasInstance`
   hook matches it but leaves it no longer an `Error` (a hook that calls
@@ -366,7 +378,8 @@ later is required.
   whose prototype is such a Proxy is adopted too, and is not aborted with the
   outer promise; before, `resolve` threw.
 - The `then` of a delegate, and the `constructor` of a promise delegate, are
-  each read once, as `new Promise` reads them; before they were read twice. A
+  read by the `resolve` an executor receives as often as `new Promise` reads
+  them; v0.4.0 read each once more. A
   `then` getter that throws only on its second read now makes the promise
   follow the delegate, as it does for `new Promise`.
 - A delegate is followed with the `Promise` captured when the module loads: a
@@ -433,9 +446,11 @@ later is required.
   below, is skipped, where `abort()` threw a `TypeError`.
 - Aborting the promise returned by `all`, `race`, `any` or `allSettled` aborts
   every `AbortablePromise` member whose `then` is a function on the one read
-  `AbortablePromise` makes as it takes the member. A throw from one member's
-  `abort()` no longer stops the loop: `abort()` is called on every member, then
-  the first error is thrown, except when the combined promise was aborted while
+  `AbortablePromise` makes as it takes the member, once the combinator's
+  `resolve` has read the `then` of the thenable it is handed for it.
+  A throw from one member's `abort()` no longer stops the loop: `abort()` is
+  called on every member, then the first error is thrown, except when the
+  combined promise was aborted while
   it was being made. For a subclass constructor that aborts `this`, that error
   is dropped, where `Sub.all()` threw it. An iterator that aborts the combined
   promise, which a subclass constructor can expose to it, is new with the lazy
@@ -462,6 +477,19 @@ later is required.
   thrown inside the signal's event listener and so reported as an uncaught
   exception, as before; `abortOn` with a signal that has already aborted throws
   it to the caller of `abortOn`, as before.
+- A member of `all`, `race`, `any` or `allSettled` is aborted with the
+  combined promise only once the combinator's `resolve` has read the `then`
+  of the thenable it is handed for that member; a member read after the abort
+  is aborted on that read. A subclass's `resolve` that throws before that
+  read, or never reads it, leaves the member alone. In v0.4.0 the member was
+  aborted all the same, and since nothing had subscribed to it, its rejection
+  was unhandled, which ends a Node process: for a combined promise aborted
+  while it was being made, by a subclass constructor, with a `resolve` that
+  throws, and for any abort with a `resolve` that ignores its argument. A
+  `resolve` that reads that `then` and does not call it is not detected: the
+  member is aborted, unhandled, as before. A throw from the `abort()` of a
+  member aborted on that read is dropped, since the combined promise is
+  aborted already; v0.4.0 threw it from the `abort()` of the combined promise.
 - "Is an `AbortablePromise`", asked by `of`, the four combinators and an
   executor that resolves with a thenable, now asks whether the value carries the
   private field that only this class's constructor sets, and whether
@@ -561,11 +589,30 @@ later is required.
   abort again: a promise made with one rejected with the error its `abort()`
   threw, and one aborted by another holder threw it inside the signal's
   listener, an uncaught exception.
+- When a signal's `removeEventListener` throws, `AbortablePromise` still
+  settles with its value or reason and attempts every other listener
+  removal. The first removal error is then thrown to the caller of
+  `resolve`, `reject` or `abort()`, after an error from the controller's
+  `abort()` or a linked promise's. When the promise settles by following a
+  thenable it is an unhandled rejection, and an executor that does not catch
+  it loses it. In v0.4.0 `resolve` and `reject` threw it and left the promise
+  pending and unabortable, an executor's synchronous `resolve` rejected the
+  promise with it instead, and the first throwing removal skipped the rest.
 - `abortOn(signal)` on a promise that has already fulfilled or rejected adds no
   listener to `signal`, and neither does reading `context.signal` on such a
   promise; before, each added one. `peer()` on such a promise adds none for the
   settled promise: the peer adds its own listener to the shared signal until it
   settles, where v0.4.0 added two, one of which stayed after the peer settled.
+- An `AbortablePromise` given a controller whose `signal` getter or
+  `addEventListener` throws is settled by that rejection: a later `abortOn`
+  adds no listener and a later `abort()` no longer reaches the controller. It
+  rejected with the same error before, but `abortOn` left its listener on the
+  signal and `abort()` still aborted the controller.
+- The abort listener is added with options of its own, so a `capture` or
+  `signal` on `Object.prototype` no longer changes it. With
+  `Object.prototype.capture = true` the listener stayed on the signal after the
+  promise settled; with `Object.prototype.signal` set to an aborted signal no
+  listener was added, and aborting the signal left the promise pending.
 - `PrimitiveValueObject['from']` is now `readonly` in the type, matching the
   frozen factory: assigning to it no longer typechecks.
 - Document that `definePrimitiveValueObject<Email>(construct, catchOnly(...))`
@@ -601,6 +648,9 @@ later is required.
   `BestEffort`, and `toResult` refuses a `BestEffort`-valued `T`. The root
   entry point gains the namespace `bestEffort`. See
   `docs/adr/0006-best-effort.md`.
+- Add `DomainError`, `ErrorDTO` and `JSONValue` to `/domain`: an abstract
+  `Error` base for broken domain rules, with a literal `code`, JSON-valued
+  `params` and a one-way `dto`, `{ code, params }`; no `toJSON`.
 
 ## [0.4.0] - 2026-11-14
 

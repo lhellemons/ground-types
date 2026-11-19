@@ -58,6 +58,9 @@ class ResultBox<R> {
    * arms. For a `Result` already in hand — a factory's output, say — use
    * {@link box}: handed a whole object-valued `Result`, `from` lands its
    * `Success` half in the value arm and the result comes back nested.
+   * Passed bare as a callback rather than called, it is checked only for
+   * returning a Box, not against the Box type the callback declares; wrap it
+   * (`(v) => Result.from(v)`) to get that check.
    */
   static from<V>(
     value: V,

@@ -404,11 +404,15 @@ describe('catchOnly entries with custom behaviour', () => {
     // Built with `Function` so the comment survives the transform.
     // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
     const arrow = new Function(
-      'return (e) => { /* [native code] */ return e }',
+      'return (e) => { return e // function () { [native code]\n}',
     )() as unknown
     expect(() =>
       (catchOnly as (...classes: unknown[]) => unknown)(arrow),
-    ).toThrow(/entry 0/)
+    ).toThrow(
+      new TypeError(
+        'catchOnly entry 0 is not an error class: it cannot be used with instanceof',
+      ),
+    )
   })
   it('names the failing entry in the creation error', () => {
     expect(() =>
@@ -927,13 +931,14 @@ describe('tryCatch handler dispatch', () => {
     const error = new A()
     // Built with `Function` so the comment survives the transform.
     // eslint-disable-next-line @typescript-eslint/no-implied-eval -- source text under test
-    const handler = new Function('e', 'return e /* { [native code] } */') as ((
-      e: unknown,
-    ) => A) & { prototype: object }
+    const handler = new Function(
+      'e',
+      'return e // function () { [native code]\n',
+    ) as ((e: unknown) => A) & { prototype: object }
     // Its `prototype` has no `constructor`, which only native source excuses.
     delete (handler.prototype as { constructor?: unknown }).constructor
     expect(Function.prototype.toString.call(handler)).toContain(
-      '{ [native code] }',
+      'function () { [native code]\n',
     )
     expect(tryCatch(() => throws(error), handler)()).toBe(error)
   })
@@ -1074,5 +1079,33 @@ describe('call resultify catchOnly handler', () => {
         callResultify(catchOnly(A), () => Promise.reject(value))(),
       ).rejects.toBe(value)
     }
+  })
+})
+
+describe('native-source pattern boundaries', () => {
+  it('refuses parentheses and braces in the apparent native name', () => {
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const entry = new Function(
+      'return function f() { return 1 // function () { [native code]\n}',
+    )() as never
+    ;(entry as { prototype: unknown }).prototype = undefined
+    expect(() => catchOnly(entry)).toThrow(
+      'catchOnly entry 0 is not an error class: it cannot be used with instanceof',
+    )
+  })
+  it('refuses trailing source after an apparent native representation', () => {
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call -- source text under test
+    const entry = new Function(
+      'return function /* () { [native code] } */ g() {}',
+    )() as never
+    const prototype = (entry as { prototype: unknown }).prototype
+    ;(entry as { prototype: unknown }).prototype = undefined
+    expect(() => catchOnly(entry)).toThrow(
+      'catchOnly entry 0 is not an error class: it cannot be used with instanceof',
+    )
+    ;(entry as { prototype: unknown }).prototype = prototype
+    delete (entry as { prototype: { constructor?: unknown } }).prototype
+      .constructor
+    expect(tryCatch(() => 1, entry)()).toBe(1)
   })
 })

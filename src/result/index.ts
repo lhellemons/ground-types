@@ -97,6 +97,9 @@ export type Result<T, E extends Error = Error> = Success<T, E> | Failure<T, E>
  * an `Error` (an object type, `unknown`) keeps a plain `Error` in the
  * error arm; only a primitive, `null` or `undefined` contributes none.
  * With explicit type arguments, `result<T, E>` names both arms.
+ * Passed bare as a callback rather than called, its return is not checked
+ * against the return type the callback declares, and its value type is not
+ * inferred; wrap it (`(v) => result(v)`) to get both.
  */
 export function result<V>(value: V): Result<Exclude<V, Error>, ErrorArmOf<V>>
 export function result<T, E extends Error = Error>(value: T | E): Result<T, E>
@@ -304,10 +307,11 @@ type CheckedClasses<C extends readonly unknown[]> = {
  * whose `prototype` is `Error.prototype` or inherits from it (`TypeError` and
  * the other built-in error constructors, an ES5-style error constructor, a
  * bound subclass of `Error`), or that is a built-in constructor: its source
- * ends `{ [native code] }` and its own `prototype` is an object whose own
- * `constructor` is not an ordinary function (missing, not a function, or with
- * native or class source). That covers `Map`, `Set`, `Promise`, `Number`,
- * `String`, `Date`, `Function`, `Object`, `Symbol` and the other built-ins,
+ * is a native function's, `function <name>() { [native code] }`, and its own
+ * `prototype` is an object whose own `constructor` is not an ordinary function
+ * (missing, not a function, or with native or class source). That covers
+ * `Map`, `Set`, `Promise`, `Number`, `String`, `Date`, `Function`, `Object`,
+ * `Symbol` and the other built-ins,
  * those of another realm too, and a Proxy over one of them, over a class or
  * over a generator function. A Proxy over a plain function whose `prototype`
  * still has an ordinary function as its own `constructor`, and a native
@@ -457,9 +461,18 @@ function isClassSource(source: string): boolean {
   )
 }
 
-/* Whether the source text ends `{ [native code] }`. */
+/* Whether the source text is a whole native function representation,
+   `function <name>() { [native code] }` with any whitespace: a getter's,
+   setter's, symbol-named or bound function's included. On JavaScriptCore a
+   bound function whose target's name contains a parenthesis or brace is not
+   recognised. */
 function isNativeSource(source: string): boolean {
-  return regExpExec(/\{\s*\[native code\]\s*\}\s*$/, source) !== null
+  return (
+    regExpExec(
+      /^function[^(){}]*\(\)\s*\{\s*\[native code\]\s*\}\s*$/,
+      source,
+    ) !== null
+  )
 }
 
 /* Whether `candidate` has native source and an own `prototype` data property
@@ -821,11 +834,12 @@ export function fromMaybe<T, E extends Error>(
  * nullish nor callable, or that has no custom `Symbol.hasInstance`, own or
  * inherited, and either an object `prototype` without `Error.prototype` on its
  * chain (`Object`, `Map`, `Symbol`, a class that does not extend `Error`, a
- * bound subclass of `Map`), or no object `prototype` and source text that does
- * not end `{ [native code] }` (`undefined`, an arrow function, a method). A
- * function with no object `prototype` whose source ends `{ [native code] }` is
- * admitted: `Math.max`, `parseInt`, and a bound `Error`, `Object` or base class
- * (one declared without `extends`). A bound subclass of `Error` is admitted
+ * bound subclass of `Map`), or no object `prototype` and source text other
+ * than a native function's, `function <name>() { [native code] }` (`undefined`,
+ * an arrow function, a method). A function with no object `prototype` and
+ * native source is admitted: `Math.max`, `parseInt`, and a bound `Error`,
+ * `Object` or base class (one declared without `extends`). A bound subclass of
+ * `Error` is admitted
  * through its inherited `prototype`, and a bound derived class that does not
  * extend `Error` is refused through it. A function from another realm is not
  * checked, and neither is an entry whose inherited `Symbol.hasInstance` comes

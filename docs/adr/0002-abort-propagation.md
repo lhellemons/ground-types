@@ -100,9 +100,11 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   only this class's constructor sets, and `AbortablePromise.prototype` is on its
   chain (answering false when the walk throws). The combinators abort the
   members of that kind whose `then` is a function on the one read
-  `AbortablePromise` makes as it takes the member. A member whose `then` is no
-  function was taken as a plain value, and one whose `then` getter throws was
-  taken as a member rejected with the getter's error; neither has a handler, so
+  `AbortablePromise` makes as it takes the member once the combinator's
+  `resolve` has read the `then` of the thenable it is handed for the member.
+  A member whose `then` is no function was taken as a plain value, and one whose
+  `then` getter throws was taken as a member rejected with the getter's error;
+  neither has a handler, so
   aborting it is an unhandled rejection. A `then` function that subscribes
   nothing is not detected and is aborted. The combinators call the member's
   `abort()`, so a subclass's override is honoured, as it is by `then`'s upstream
@@ -130,9 +132,17 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   `values` has been iterated. When the combined promise was aborted while it was
   being made, whether while `values` was iterated or by a subclass constructor,
   the link is registered after the abort and fires at once, for every member
-  taken, including those taken after the abort; a throw from a member's
-  `abort()` there is dropped, as it is for a delegate, since the combined
-  promise is aborted already.
+  whose thenable's `then` has been read, including those taken after the abort,
+  and a member whose thenable is first read later is aborted on that read;
+  a throw from a member's `abort()` there is dropped, as it is for a delegate,
+  since the combined promise is aborted already.
+
+  **Update, 2026-11-19:** a member counts once the thenable it is handed over as
+  has its `then` read, which native resolution does as it subscribes to it.
+  A subclass's `resolve` that throws before reading it leaves the member
+  unsubscribed, and it is not aborted, where aborting it was an unhandled
+  rejection. A `resolve` that reads the thenable's `then` and then throws is
+  not detected: the member is aborted, unhandled.
 
 - **Resolving with a promise is not settling.** The abort window closes
   when the promise actually settles, not when its executor calls
@@ -224,9 +234,9 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
   creates. Both consequences are real. The premise is not: they follow
   from observing settlement _from outside_, and `AbortState` is not
   outside. It is the bookkeeping that decides settlement —
-  `claimSettlement` and `abort` are the moments themselves — so it can
-  release from there with no handler attached and no effect on whether the
-  promise counts as handled.
+  `settle` and `abort` are the moments themselves, releasing right after native
+  settlement — so it can release from there with no handler attached and no
+  effect on whether the promise counts as handled.
 
   What the earlier ruling accepted as its cost is therefore no longer
   paid: binding many short-lived promises to one long-lived signal used to
@@ -312,3 +322,69 @@ source.then(g)`, aborting `a` aborts `source`, which rejects `b`. Linear
 - Fan-in costs three promises per member rather than one. Recorded rather
   than optimised, because the alternative is reimplementing four
   combinators whose semantics are worth inheriting exactly.
+
+### Runtime hardening boundary
+
+**Update, 2026-11-19:** the values captured when the module loads are
+`Promise`, `Promise.prototype`, `Promise.prototype.then`, `Reflect.apply`,
+`Object.create` and, through the shared prototype check in
+`src/internal/is-error.ts`, `Object.prototype.isPrototypeOf` bound to
+`Function.prototype.call`. Every abort listener is added with one frozen
+null-prototype options object built at load, so nothing on `Object.prototype`
+changes it. Everything else is read when it is used: `Array.prototype.push`,
+`splice` and array iteration, the global `AbortController` and its `abort`,
+`AbortSignal.prototype.aborted`, `EventTarget.prototype.addEventListener` and
+`removeEventListener`, the global `Promise` in `of`, `resolve` and `reject`,
+and the inherited `then`, `catch`, `finally`, `all`, `allSettled`, `race` and
+`any`. Replacing or patching one of these can leave a promise pending, keep a
+listener on a signal or lose an abort; the module assumes they keep their
+standard behaviour. Capturing them would put an `apply` indirection on every
+push, splice and listener call to defend against code that already runs in
+the same realm and can reach the promise directly.
+
+The executor's `context` is the promise's `AbortState` itself, so building a
+promise allocates no wrapper. `AbortContext` declares only `signal`, which is
+a compile-time boundary only: code holding the context (the executor, or
+anything it passes the context to) can call `settle`, `captureReject`,
+`watchSignal`, `link`, `abort` and `watchController` and read
+`sharedController` and `startedAborted`, and so can leave the promise
+pending and unabortable. Making those members `#`-private behind a
+module-scope accessor would cost no allocation either, but would restructure
+every caller of `AbortState` to close a gap only an untyped cast opens. This is
+accepted, since the executor already holds `resolve` and `reject`; pass
+`context.signal`, not `context`, to code you do not trust.
+
+**Update, 2026-11-19:** a promise is settled before its listeners are
+released. The list is emptied, every removal is attempted, and the first
+removal error is thrown once all have run: to the caller of `resolve`,
+`reject` or `abort()`, or as an unhandled rejection when the promise settles
+by following a thenable. During abort, an error from the controller or an
+upstream link comes first. A throwing removal can still leave its listener on
+the signal.
+
+**Update, 2026-11-19:** resolution reads a value's `then` to distinguish
+adoption from immediate settlement. If it is not a function, native resolution
+reads it again. A getter that first returns `undefined` and then throws
+therefore rejects rather than fulfils; one that returns a function on the
+second read is followed with the abort window already closed. Until that
+function calls back, if ever, the promise stays pending, `abort()` neither
+rejects it nor aborts a supplied controller, and aborting that controller does
+not reject it, except through an adopted AbortablePromise, below. A native
+Promise resolved directly with such a value reads
+`then` once and fulfils with it. A value that an adopted plain thenable settles
+with is read twice: once by the native promise that follows the thenable,
+once by this promise's native resolution, where a native Promise reads it
+once. Returning the value from a `then` handler has the same difference.
+A native Promise that adopts a native promise reads the terminal value twice
+too, and follows the second read as this promise does; there the closed abort
+window is the only difference. An adopted AbortablePromise itself reads the
+value twice, so either kind of adopting promise follows its pending outcome;
+the adopting AbortablePromise remains abortable while waiting for it.
+There is no public native fulfil operation that preserves an object's
+identity without reading `then`. A single read would therefore mean one of
+three things: not reading `then` before native resolution, which closes the
+abort window for every thenable not recognised as a promise, contrary to
+"Resolving with a promise is not settling"; replacing the native Promise
+storage and chaining model; or mutating the caller's object. That cost is not
+accepted for values whose `then` changes between reads. Use stable `then`
+properties.
