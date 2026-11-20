@@ -1,5 +1,5 @@
 diff --git a/src/result/index.ts b/src/result/index.ts
-index c51f7a9..76e3ec2 100644
+index c51f7a9..9da1812 100644
 --- a/src/result/index.ts
 +++ b/src/result/index.ts
 @@ -65,12 +65,24 @@ export type Success<T, E extends Error = Error> =
@@ -16,15 +16,15 @@ index c51f7a9..76e3ec2 100644
  
 +/* PROTOTYPE #101 arm B2: arm B with a branded string for the marker, which
 +   no `stack` typed `string | undefined` fits and an optional string key
-+   still fits a string-valued index signature with. */
++   still fits a string-valued index signature with. A member is marked only
++   when it still fits the marked type, so a member that declares its own
++   `stack` (public, private or protected) keeps its type. */
 +type NotAnErrorStack = string & { readonly '#notAnErrorStack': true }
-+type ExplicitStack<U> = {
-+  [K in keyof U as K extends 'stack' ? K : never]: U[K]
-+}
-+type StackMarked<U> = U extends object
-+  ? 'stack' extends keyof ExplicitStack<U>
-+    ? U
-+    : U & { readonly stack?: NotAnErrorStack }
++type StackMarked<U> = U extends object ? MarkIfItFits<U> : U
++/* A separate alias: nested in the branch above, `U` would read as
++   `U & object`, which is `never` for a branded primitive. */
++type MarkIfItFits<U> = [U] extends [U & { readonly stack?: NotAnErrorStack }]
++  ? U & { readonly stack?: NotAnErrorStack }
 +  : U
 +
  /**

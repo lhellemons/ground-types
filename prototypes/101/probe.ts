@@ -200,3 +200,49 @@ export const w2: Result<object, Invalid> = withStack // CASE: breaks: Success of
 const actual = { id: 'x', stack: 42 }
 const view: { id: string } = actual
 export const u1 = success(view).stack?.toUpperCase() // CASE: loosens: .stack read through a type that hides a real stack (throws at run time)
+
+// Review of #101 round 3: a private or protected `stack` is absent from
+// keyof, but it declares a `stack` all the same.
+class PrivateEditor {
+  private stack: number[] = []
+  constructor(readonly text: string) {}
+  depth(): number {
+    return this.stack.length
+  }
+}
+class ProtectedEditor {
+  protected stack: number[] = []
+  readonly text = ''
+}
+class HashEditor {
+  #stack: number[] = []
+  readonly text = ''
+  depth(): number {
+    return this.#stack.length
+  }
+}
+declare const pe: PrivateEditor
+declare const pre: ProtectedEditor
+declare const he: HashEditor
+export const p1 = (): Result<PrivateEditor, Invalid> => pe // CASE: breaks: private stack, returned raw
+const pSuccess = success(pe)
+type NotNever<X> = [X] extends [never] ? 'never' : 'kept'
+export const p2: NotNever<typeof pSuccess> = 'kept' // CASE: breaks: private stack, success() is not never
+declare const rpe: Result<PrivateEditor, Invalid>
+export const p3 = isSuccess(rpe) ? rpe.text : '' // CASE: breaks: private stack, read a sibling after isSuccess
+export const p4 = (): Result<ProtectedEditor, Invalid> => pre // CASE: breaks: protected stack, returned raw
+declare const rpr: Result<ProtectedEditor, Invalid>
+export const p5 = isSuccess(rpr) ? rpr.text : '' // CASE: breaks: protected stack, read a sibling after isSuccess
+export const p6 = (): Result<HashEditor, Invalid> => he // CASE: breaks: #stack, returned raw
+declare const rhe: Result<HashEditor, Invalid>
+export const p7 = isSuccess(rhe) ? rhe.text : '' // CASE: breaks: #stack, read a sibling after isSuccess
+
+// The opposite direction: a Success whose value omits `stack` into a Result
+// whose value declares an optional `stack` the marker cannot fit.
+const noStack = success({ id: 'x' })
+type OptStack = { id: string; stack?: number[] }
+type RoOptStack = { id: string; readonly stack?: number[] }
+type NeverStack = { id: string; stack?: never }
+export const o1: Result<OptStack, Invalid> = noStack // CASE: breaks: Success of { id } into Result<{ id; stack?: number[] }>
+export const o2: Result<RoOptStack, Invalid> = noStack // CASE: breaks: Success of { id } into Result<{ id; readonly stack?: number[] }>
+export const o3: Result<NeverStack, Invalid> = noStack // CASE: breaks: Success of { id } into Result<{ id; stack?: never }>

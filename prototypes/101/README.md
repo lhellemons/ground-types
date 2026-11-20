@@ -17,7 +17,7 @@ consumer declaration-emit test.
 | File           | What                                                                                                                                      |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `arm-a.patch`  | `readonly stack?: never` added to `SuccessMarkers`: every `SuccessArm` carries it                                                         |
-| `arm-b.patch`  | the marker only on object members of `T` with no literal `stack` key; an index signature alone, template-literal included, does not count |
+| `arm-b.patch`  | the marker only on object members of `T` that still fit the marked type; a declared `stack` (public, private or protected) keeps its type |
 | `arm-b2.patch` | arm B with the marker typed as a branded string (`string & { '#notAnErrorStack': true }`) in place of `never`                             |
 | `probe.ts`     | the cases: raw `Error` returns the marker should close, and `stack`-carrying types it may break                                           |
 | `example.ts`   | a standalone model of the four shapes side by side, for reading; it typechecks as written                                                 |
@@ -42,11 +42,18 @@ for every arm.
 and the unions `number | { name?: string }`, `number | Record<string, any>`.
 Arm A closes all of them and `{ stack?: string }`; arms B and B2 close all
 but `{ stack?: string }`, and any other `T` that declares `stack`
-(`{ message?: string; stack?: string }`). Only a literal `stack` key
-counts as declaring one: an index signature alone does not, a
-template-literal one that `'stack'` matches (``[k: `sta${string}`]``)
-included, so B and B2 still close `Record<string, any>` and
-``{ [k: string]: any; [k: `sta${string}`]: any }``.
+(`{ message?: string; stack?: string }`). B and B2 mark a member only when
+it still fits the marked type, so a member that declares its own `stack`
+keeps its type, whether that `stack` is public, private or protected
+(`keyof` does not see a private or protected one). An index signature
+alone does not count as declaring one, a template-literal one that
+`'stack'` matches (``[k: `sta${string}`]``) included, so B and B2 still
+close `Record<string, any>` and
+``{ [k: string]: any; [k: `sta${string}`]: any }``. The fit test sits in
+an alias of its own: nested in the object check, `U` reads as
+`U & object`, which is `never` for a branded primitive such as
+`Branded<string, 'Id'>`, and `collect`'s results collapse (36 more suite
+diagnostics).
 
 No arm closes `any`, `void`, an `Error` hidden in a value's static type
 (`const v: { code: string } = new Other()`), or an `Error` subclass that
@@ -68,7 +75,10 @@ optional `stack?: string` keeps the object but its `stack` becomes
 record with `stack?: string`. A class named `Stack` is unaffected, and so is
 generic code over `T extends { stack }` (the constraint stays deferred).
 Arms B and B2 break none of these, nor an indexed type that declares
-`stack` (`{ [key: string]: unknown; id: string; stack: number[] }`).
+`stack` (`{ [key: string]: unknown; id: string; stack: number[] }`), nor a
+class with a private or protected `stack`. Under A, a private `stack`
+makes `success(instance)` silently `never` and a protected one breaks raw
+returns. A JavaScript `#stack` is unaffected on every arm.
 
 **What arms A and B break.** A `Success` of an object no longer fits a
 string-valued index signature: `stack?: never` is an optional member whose
@@ -103,12 +113,22 @@ but only because the `Success` is already `never`):
     const widened: Result<{ id: string }, Invalid> = value
     const loose: Result<object, Invalid> = value
 
+**What B2 breaks in the opposite direction.** A `Success` whose value omits
+`stack` no longer fits a `Result` whose value declares an optional `stack`
+that cannot hold the branded string, a readonly one included. Through a
+variable, these are TS2322 under B2 only:
+
+    const noStack = success({ id: 'x' })
+    const t: Result<{ id: string; stack?: number[] }, Invalid> = noStack
+    const u: Result<{ id: string; readonly stack?: number[] }, Invalid> = noStack
+
 **An unsound read under B2.** The `.stack` it adds is typed as the brand or
 `undefined`, but `success` adds no property and checks none, so a value
 whose static type hides a real `stack` reads wrong. This compiles under B2
 and throws at run time; on `main` and under A and B it is TS2339:
 
-    const view: { id: string } = { id: 'x', stack: 42 }
+    const actual = { id: 'x', stack: 42 }
+    const view: { id: string } = actual
     success(view).stack?.toUpperCase()
 
 **The suite.** Arms A and B fail two type tests, 16 diagnostics: the
@@ -116,7 +136,7 @@ fifteen residual pins in `never-defaults.test-d.ts` ("a raw Error
 returned without failure() still compiles into the residual types"), and
 the `URLSearchParams` pin in `api-surface.test-d.ts` ("a Success of an
 object literal type fits an index signature"). Arm B2 fails only the
-first (1226 of 1227, on `main` with #158 merged). Every other test
+first (1231 of 1232, on current `main`). Every other test
 passes, the Box pins and the consumer declaration-emit test among them.
 The probe's exported values emit declarations on every arm; the only
 TS4023 is the spread of a `Success`, which fails on `main` too (the open
@@ -125,5 +145,9 @@ case the declaration-emit test pins).
 **Unchanged by every arm.** Raw returns of a generic `T` and `success()`
 of one fail on `main` already; `failure()` into any `Result` is untouched.
 
-**Not measured.** A consumer with `exactOptionalPropertyTypes`, and
-compile time.
+**Under `exactOptionalPropertyTypes`** (TypeScript 5.4.5, 5.9.3 and
+7.0.2): the narrowed-`stack` subclass cannot be declared (TS2415), on
+`main` and B2 alike, and a raw `Error` into `Result<object, Invalid>`
+stays closed under B2 (TS2375).
+
+**Not measured.** Compile time.

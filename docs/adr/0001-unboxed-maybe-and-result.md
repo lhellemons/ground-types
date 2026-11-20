@@ -1105,11 +1105,14 @@ measured three shapes of it.
   and `success(trace)` compiles silently to `never`. Rejected.
 - **The same marker only on the object members of `T` that do not
   explicitly declare `stack`** (a conditional type in `SuccessArm` that
-  looks for a literal `stack` key; an index signature alone, a
-  template-literal one such as ``[k: `sta${string}`]`` included, does
-  not count as declaring one) breaks none of those types, an indexed type
-  that declares `stack` among them, and closes every object case in the
-  list that declares no `stack`. It leaves open a `T` that declares
+  marks a member only when the member still fits the marked type; a
+  member that declares its own `stack`, public, private or protected, does
+  not fit and keeps its type, while an index signature alone, a
+  template-literal one such as ``[k: `sta${string}`]`` included, does not
+  count as declaring one) breaks none of those types, an indexed type that
+  declares `stack` and a class with a private or protected `stack` among
+  them, and closes every object case in the list that declares no
+  `stack`. It leaves open a `T` that declares
   `stack` and that a plain `Error` fits (`{ stack?: string }`). A `Success`
   of an object no longer fits a string-valued index signature, since an
   optional member whose only value is `undefined` does not:
@@ -1122,16 +1125,16 @@ measured three shapes of it.
   signature: against one, TypeScript drops the `undefined` of an optional
   member unless `undefined` is all it holds.
 
-**Decision: the branded-string marker, on the object members of `T` that
-do not explicitly declare a `stack` member (an index signature alone does
-not count as declaring one).** A follow-up ticket implements it; this
-amendment changes no type. With it, a plain `Error` returned without
-`failure()` is rejected at every object `T` the residual list names that
-declares no `stack`, and the residual becomes: a `T` that declares a
-`stack` member a plain `Error` fits (`{ stack?: string }`,
-`{ message?: string; stack?: string }`); `any`, and a returned expression
-typed `any`; `void`; an `Error` subclass that narrows `stack` to
-`undefined` or `never`
+**Decision: the branded-string marker, on the object members of `T` that do
+not explicitly declare a `stack` member (an index signature alone does not
+count as declaring one; a private or protected `stack` does).** A follow-up
+ticket implements it; this amendment changes no type. With it, a plain
+`Error` returned without `failure()` is rejected at every object `T` the
+residual list names that declares no `stack`, and the residual becomes: a
+`T` that declares a `stack` member a plain `Error` fits
+(`{ stack?: string }`, `{ message?: string; stack?: string }`); `any`, and a
+returned expression typed `any`; `void`; an `Error` subclass that narrows
+`stack` to `undefined` or `never`
 (`class Quiet extends Error { override stack = undefined }`), returned into
 any `T` a plain `Error` fits today, which the brand's optional `undefined`
 admits; and an `Error` hidden in a value's static type
@@ -1143,7 +1146,11 @@ on every arm: `Quiet` returned into `object`, `{ name?: string }` or
 `Record<string, any>` compiles under each, and so does a subclass with a
 `code` member into `Result<{ code: string }, Invalid>`, whose `isFailure`
 is true at run time. A plain `Error` cast to `Error & { code: string }`,
-which compiles on `main`, is rejected by every arm.
+which compiles on `main`, is rejected by every arm. Under
+`exactOptionalPropertyTypes` (measured on 5.4.5, 5.9.3 and 7.0.2) such a
+subclass cannot be declared, on `main` and under the marker alike
+(TS2415), and a raw `Error` into `Result<object, Invalid>` stays closed
+(TS2375).
 
 Costs, measured on the prototype:
 
@@ -1163,21 +1170,26 @@ Costs, measured on the prototype:
   longer widens to a `Result` whose value type omits `stack`: assigning
   `success({ id: 'x', stack: [1] })` through a variable to
   `Result<{ id: string }, Invalid>` or `Result<object, Invalid>` now fails
-  with TS2322.
+  with TS2322. B2 also breaks assignment in the opposite direction: a
+  `Success` whose value omits `stack` no longer fits a `Result` whose
+  value declares an optional `stack` that cannot hold the branded string.
+  Assigning `success({ id: 'x' })` through a variable to
+  `Result<{ id: string; stack?: number[] }, Invalid>` fails with TS2322,
+  including a readonly optional `stack`.
 - Object members that receive the marker gain a readable `.stack`, typed as
   the brand or `undefined`; members that declare their own `stack` keep its
   type. This read is unsound when the value's static type hides a real
   `stack` property: the marker promises the brand or `undefined`, but the
   property can hold anything. `success` adds no property and checks none.
-  For `const view: { id: string } = { id: 'x', stack: 42 }`,
+  For `const actual = { id: 'x', stack: 42 }` and
+  `const view: { id: string } = actual`,
   `success(view).stack?.toUpperCase()` compiles and throws at run time; on
   `main` it is TS2339.
 - `SuccessArm` gains a conditional type over each member of `T`, one more
   thing to read in its definition.
-- Breaking, for the CHANGELOG: the index-signature cost, the `'stack' in`
-  narrowing, the lost widening of a `Success` whose value declares a
-  `stack`, and a raw `Error` returned into the residual list's types, which
-  compiled on 0.4.0.
+- Breaking, for the CHANGELOG: index-signature assignment, `'stack' in`
+  narrowing, assignments between Results when only one value type declares
+  `stack`, raw `Error` returns into the newly closed residual types.
 
 In the suite, the prototype fails only the test that pins the residual,
 "a raw Error returned without failure() still compiles into the residual
@@ -1187,5 +1199,8 @@ residual. Every other test passes, the Box pins and the consumer
 declaration-emit test among them, and #99's index-signature pin. The brand's
 key is a string, so a consumer's declaration emit can write it out; whether
 the follow-up also gives it an exported name, as #99 did for the symbol
-markers, is the follow-up's call. Not measured: a consumer with
-`exactOptionalPropertyTypes`, and compile time.
+markers, is the follow-up's call. The fit test sits in an alias of its
+own: nested in the object check, `U` reads as `U & object` there, which
+is `never` for a branded primitive such as `Branded<string, 'Id'>`, and
+`collect`'s results collapse (36 more diagnostics in the prototype). Not
+measured: compile time.

@@ -31,7 +31,9 @@ ln -s "$ROOT/node_modules" node_modules
 cp prototypes/101/probe.ts src/result/proto101.ts
 # Declaration emit on, so a marker that cannot be named shows as TS4xxx.
 # TypeScript 5.4 reports the tsconfig's noUncheckedSideEffectImports (5.6+)
-# as TS5023 and checks on; run.sh drops that one line from the count.
+# as TS5023 and checks on; run.sh drops that one diagnostic from the count,
+# and stops on any other diagnostic without a location (a configuration
+# error means nothing was measured).
 cat >tsconfig.proto.json <<'JSON'
 { "extends": "./tsconfig.json",
   "compilerOptions": { "noEmit": false, "emitDeclarationOnly": true, "outDir": "proto-out", "declarationMap": false } }
@@ -42,9 +44,12 @@ node -e '
 const fs=require("fs");const out=process.argv[1];
 const lines=fs.readFileSync("src/result/proto101.ts","utf8").split("\n");
 const hit=new Map();const other=[];
-for(const m of out.matchAll(/^(\S+?)\((\d+),\d+\): error (TS\d+)/gm)){
+const known=(code,msg)=>code==="TS5023"&&msg.includes("noUncheckedSideEffectImports");
+for(const m of out.matchAll(/^error (TS\d+): (.*)$/gm))
+  if(!known(m[1],m[2])){console.error(`configuration error, no measurement: ${m[1]}: ${m[2]}`);process.exit(2)}
+for(const m of out.matchAll(/^(\S+?)\((\d+),\d+\): error (TS\d+): (.*)$/gm)){
   if(m[1].endsWith("proto101.ts")){const l=+m[2];hit.set(l,(hit.get(l)||[]).concat(m[3]))}
-  else if(m[3]!=="TS5023")other.push(`${m[1]}:${m[2]} ${m[3]}`)}
+  else if(!known(m[3],m[4]))other.push(`${m[1]}:${m[2]} ${m[3]}`)}
 lines.forEach((t,i)=>{const c=t.match(/CASE: (.*)$/);if(!c)return;
   const h=hit.get(i+1);console.log(`${h?"ERROR":"ok   "}  ${c[1]}${h?"  ["+[...new Set(h)].join(",")+"]":""}`)});
 console.log(`-- diagnostics outside the probe: ${other.length}`);other.forEach(o=>console.log("   "+o));' "$OUT"
