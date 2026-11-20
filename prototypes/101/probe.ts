@@ -246,3 +246,36 @@ type NeverStack = { id: string; stack?: never }
 export const o1: Result<OptStack, Invalid> = noStack // CASE: breaks: Success of { id } into Result<{ id; stack?: number[] }>
 export const o2: Result<RoOptStack, Invalid> = noStack // CASE: breaks: Success of { id } into Result<{ id; readonly stack?: number[] }>
 export const o3: Result<NeverStack, Invalid> = noStack // CASE: breaks: Success of { id } into Result<{ id; stack?: never }>
+
+// Review of #101 round 4.
+// Object.values and Object.entries of a Success of a plain object.
+type Counts = { a: number; b: number }
+declare const sc: Success<Counts, Invalid>
+export const v1 = Object.values(sc).reduce((x, y) => x + y, 0) // CASE: breaks: Object.values of a Success, summed
+export const v2 = Math.max(...Object.values(sc)) // CASE: breaks: Object.values of a Success, spread into Math.max
+export const v3 = Object.entries(sc).map(([, n]) => n.toFixed()) // CASE: breaks: Object.entries of a Success, value used as number
+
+// Index-signature members already read `.stack` through the index.
+declare const sAny: Success<Record<string, any>, Invalid>
+declare const sNum: Success<Record<string, number>, Invalid>
+export const x4 = sAny.stack.length // CASE: breaks: .stack of Success<Record<string, any>> (any on main)
+export const x5 = sNum.stack + 1 // CASE: breaks: .stack of Success<Record<string, number>> (number on main)
+
+// The narrowed-stack subclass enters targets weak-type detection rejected.
+export const q4 = (): Result<{ id?: string }, Invalid> => new Quiet() // CASE: closes: Quiet into { id?: string } (TS2322 on main)
+export const q5 = (): Result<{}, Invalid> => new Quiet() // CASE: closes: Quiet into {} (TS2322 on main)
+
+// Generic wrappers over result().
+export function lift<T>(value: T): Result<T, Error> {
+  return result(value) // CASE: breaks: generic lift returns result(value) as Result<T, Error>
+}
+export function liftExplicit<T>(value: T): Result<T, Error> {
+  return result<T, Error>(value) // CASE: breaks: generic lift with explicit result<T, Error>(value)
+}
+type Arm<T> = Success<Exclude<T, Error>, Error>
+export function widenArm<T>(s: Arm<T>): Success<T, Error> {
+  return s // CASE: breaks: Success<Exclude<T, Error>> widened to Success<T>
+}
+
+// A declared `stack?: any` fits the marker, so it is marked and closes.
+export const y1 = (): Result<{ stack?: any }, Invalid> => raw // CASE: closes: { stack?: any } (open on main)

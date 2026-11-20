@@ -228,6 +228,52 @@ const countsNow: Record<string, number> = nNow // fine today
 // @ts-expect-error — B2: the marker is a string, not a number
 const countsB2: Record<string, number> = nB2
 
+/* ── 5. More of B2's costs (review round 4) ──────────────────────────────── */
+
+// Object.values and Object.entries of a Success include the brand.
+type Counts = { a: number; b: number }
+declare const cNow: SuccessNow<Counts, never>
+declare const cB2: SuccessB2<Counts, never>
+const sumNow = Object.values(cNow).reduce((x, y) => x + y, 0) // fine
+// @ts-expect-error — B2: the values are `number | NotAnErrorStack`
+const sumB2 = Object.values(cB2).reduce((x, y) => x + y, 0)
+
+// An index-signature member already read `.stack`; its type changes.
+declare const recNow: SuccessNow<Record<string, number>, never>
+declare const recB2: SuccessB2<Record<string, number>, never>
+const plusNow = recNow.stack + 1 // fine: `number`
+// @ts-expect-error — B2: `number | NotAnErrorStack | undefined`
+const plusB2 = recB2.stack + 1
+
+// The narrowed-`stack` subclass now enters targets weak-type detection
+// rejected: TS2322 today, compiles under B2, and `Invalid`'s members are
+// missing at run time.
+// @ts-expect-error — today: Quiet shares no member with `{ id?: string }`
+const weakNow = (): ResultNow<{ id?: string }, Invalid> => new Quiet()
+const weakB2 = (): ResultB2<{ id?: string }, Invalid> => new Quiet()
+
+// Generic code: `Success<Exclude<T, Error>>` no longer widens to
+// `Success<T>`, so a wrapper returning `result(value)` with inferred type
+// arguments fails under B2.
+function genericNow<T>(
+  s: SuccessNow<Exclude<T, Error>, Error>,
+): SuccessNow<T, Error> {
+  return s // fine
+}
+function genericB2<T>(
+  s: SuccessB2<Exclude<T, Error>, Error>,
+): SuccessB2<T, Error> {
+  // @ts-expect-error — B2: the conditional marker does not widen
+  return s
+}
+
+// A declared `stack?: any` fits the marker, so it is marked and closes.
+const anyNow = (): ResultNow<{ stack?: any }, Invalid> => raw // compiles
+// @ts-expect-error — B2 closes it
+const anyB2 = (): ResultB2<{ stack?: any }, Invalid> => raw
+
+void [sumNow, sumB2, plusNow, plusB2, weakNow, weakB2]
+void [genericNow, genericB2, anyNow, anyB2]
 void [now1, now2, now3, a1, a2, a3, b1, b2, b3, b2Template]
 void [open1, open2, open3, open4, closed3]
 void [nowTrace, aTrace, bTrace, b2Indexed, idA, lenA, bOpen]

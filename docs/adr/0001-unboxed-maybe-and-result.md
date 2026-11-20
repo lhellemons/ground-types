@@ -443,11 +443,8 @@ change from `Success<number, Error>` to `Success<number, never>` and from
 `Failure<unknown, Invalid>` to `Failure<never, Invalid>`, plus the Box
 `from` expectations the overload moves. **Update, 2026-11-15:** a
 `stack?: never` marker on the marked arm would close every structural case
-above for a plain `Error` and any subclass that keeps `stack?: string`, and
-leave `any` and `void`, at the cost of every `T` with a `stack` member; an
-`Error` subclass that narrows its own `stack` (`override stack = undefined`)
-still passes as a `Success` (found in the review of #94 and measured in
-#101); ticket #101 holds that decision, and no type changed for it (ticket
+above and leave `any` and `void`, at the cost of every `T` with a `stack`
+member; ticket #101 holds that decision, and no type changed for it (ticket
 #94).
 **Update, 2026-11-19:** passed bare as a callback rather than called,
 `result` and `Result.from` lose the value type 0.4.0 inferred
@@ -458,8 +455,12 @@ factory restores both. No signature found closes this and keeps the
 direct-call inference above (#151).
 **Update, 2026-11-19:** decided in the 2026-11-19 amendment below
 (#101): a branded-string `stack` marker on the object members of `T` that
-do not explicitly declare a `stack` member. Until the follow-up ships it,
-the residual above stands as written.
+do not explicitly declare a `stack` member. The 2026-11-15 note above holds
+for a plain `Error` and any subclass that keeps `stack?: string`: an `Error`
+subclass that narrows its own `stack` (`override stack = undefined`) still
+passes as a `Success` under every shape of the marker (found in the review
+of #94, measured in #101). Until the follow-up ships it, the residual above
+stands as written.
 
 **Decision: reverse the 2026-08-04 amendment.** The phantom is kept, and
 the annotation is no longer accepted as a sharp edge: the constructors
@@ -1132,25 +1133,35 @@ ticket implements it; this amendment changes no type. With it, a plain
 `Error` returned without `failure()` is rejected at every object `T` the
 residual list names that declares no `stack`, and the residual becomes: a
 `T` that declares a `stack` member a plain `Error` fits
-(`{ stack?: string }`, `{ message?: string; stack?: string }`); `any`, and a
-returned expression typed `any`; `void`; an `Error` subclass that narrows
-`stack` to `undefined` or `never`
-(`class Quiet extends Error { override stack = undefined }`), returned into
-any `T` a plain `Error` fits today, which the brand's optional `undefined`
-admits; and an `Error` hidden in a value's static type
+(`{ stack?: string }`, `{ message?: string; stack?: string }`); a declared
+`stack?: any` is the exception, since `any` fits the marker: it is marked,
+keeps `any`, and a raw `Error` into it is rejected; `any`, and a returned
+expression typed `any`; `void`; an `Error` subclass that narrows `stack` to
+`undefined` or `never`
+(`class Quiet extends Error { override stack = undefined }`), admitted
+wherever its other members fit the target, since the brand's optional
+`undefined` admits its `stack`; the marker also opens to it targets that
+weak-type detection rejected before, `{}` and `{ id?: string }` among them;
+and an `Error` hidden in a value's static type
 (`const v: { code: string } = new Other()`), which no marker on the target
 can see.
 
-The narrowed-`stack` subclass was found in the review of #94 and measured
-on every arm: `Quiet` returned into `object`, `{ name?: string }` or
+The narrowed-`stack` subclass was found in the review of #94 and measured on
+every arm: `Quiet` returned into `object`, `{ name?: string }` or
 `Record<string, any>` compiles under each, and so does a subclass with a
-`code` member into `Result<{ code: string }, Invalid>`, whose `isFailure`
-is true at run time. A plain `Error` cast to `Error & { code: string }`,
-which compiles on `main`, is rejected by every arm. Under
-`exactOptionalPropertyTypes` (measured on 5.4.5, 5.9.3 and 7.0.2) such a
-subclass cannot be declared, on `main` and under the marker alike
-(TS2415), and a raw `Error` into `Result<object, Invalid>` stays closed
-(TS2375).
+`code` member into `Result<{ code: string }, Invalid>`, whose `isFailure` is
+true at run time. Under every arm, `Quiet` returned into
+`Result<{ id?: string }, Invalid>` or `Result<{}, Invalid>` compiles where
+`main` rejects it (TS2322): the marker gives those targets a member that
+`Quiet` shares, so weak-type detection no longer applies, and reading
+`Invalid`'s own members off the `Failure` throws at run time. A plain
+`Error` cast to `Error & { code: string }`, which compiles on `main`, is
+rejected by every arm. Under `exactOptionalPropertyTypes` (measured on
+5.4.5, 5.9.3 and 7.0.2), the `override stack = undefined` subclass cannot be
+declared, on `main` and under the marker alike (TS2415), and a raw `Error`
+into `Result<object, Invalid>` stays closed (TS2375); a subclass that writes
+`declare stack: never` stays legal there and is admitted on `main` and under
+the marker alike.
 
 Costs, measured on the prototype:
 
@@ -1178,18 +1189,36 @@ Costs, measured on the prototype:
   including a readonly optional `stack`.
 - Object members that receive the marker gain a readable `.stack`, typed as
   the brand or `undefined`; members that declare their own `stack` keep its
-  type. This read is unsound when the value's static type hides a real
-  `stack` property: the marker promises the brand or `undefined`, but the
-  property can hold anything. `success` adds no property and checks none.
-  For `const actual = { id: 'x', stack: 42 }` and
+  type. A member with an index signature already read `.stack` through the
+  index, and its type changes: on `Success<Record<string, any>>`,
+  `.stack.length` is TS18048 (it was `any`), and on
+  `Success<Record<string, number>>`, `.stack + 1` is TS18048 (it was
+  `number`, now `number | NotAnErrorStack | undefined`). The added read is
+  unsound when the value's static type hides a real `stack` property: the
+  marker promises the brand or `undefined`, but the property can hold
+  anything. `success` adds no property and checks none. For
+  `const actual = { id: 'x', stack: 42 }` and
   `const view: { id: string } = actual`,
   `success(view).stack?.toUpperCase()` compiles and throws at run time; on
   `main` it is TS2339.
+- `Object.values` and `Object.entries` of a `Success` of a plain object
+  include the brand: for `r: Result<{ a: number; b: number }, Invalid>`
+  narrowed by `isSuccess`, `Object.values(r).reduce((x, y) => x + y, 0)` is
+  TS2365 and `Math.max(...Object.values(r))` is TS2345 (the values are
+  `number | NotAnErrorStack`); both compile on `main`.
+- Generic code over `result` loses a widening: in
+  `function lift<T>(value: T): Result<T, Error> { return result(value) }`,
+  the return is TS2322 under B and B2 and compiles on `main`, because
+  `Success<Exclude<T, Error>>` no longer widens to `Success<T>` (TS2322).
+  Explicit type arguments, `result<T, Error>(value)`, still compile.
 - `SuccessArm` gains a conditional type over each member of `T`, one more
   thing to read in its definition.
 - Breaking, for the CHANGELOG: index-signature assignment, `'stack' in`
   narrowing, assignments between Results when only one value type declares
-  `stack`, raw `Error` returns into the newly closed residual types.
+  `stack`, `Object.values` and `Object.entries` of a `Success`, the type of
+  `.stack` on index-signature members, generic result wrappers relying on
+  inferred type arguments, raw `Error` returns into the newly closed
+  residual types.
 
 In the suite, the prototype fails only the test that pins the residual,
 "a raw Error returned without failure() still compiles into the residual

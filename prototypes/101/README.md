@@ -57,13 +57,19 @@ diagnostics).
 
 No arm closes `any`, `void`, an `Error` hidden in a value's static type
 (`const v: { code: string } = new Other()`), or an `Error` subclass that
-narrows its own `stack` to `undefined` (from the review of ticket 94).
-Every marker is optional, so it accepts `undefined`:
-`class Quiet extends Error { override stack = undefined }` returned into
-`object`, `{ name?: string }` or `Record<string, any>` compiles on every
-arm, and so does such a subclass with a `code` member into
-`{ code: string }`. A plain `Error` cast to `Error & { code: string }` is
-rejected by every arm.
+narrows its own `stack` to `undefined` (from the review of ticket 94). Every
+marker is optional, so it accepts `undefined`:
+`class Quiet extends Error { override stack = undefined }` is admitted
+wherever its other members fit the target. It compiles into `object`,
+`{ name?: string }` or `Record<string, any>` on every arm, and so does such
+a subclass with a `code` member into `{ code: string }`. The marker also
+opens to it targets that weak-type detection rejected before: `Quiet` into
+`Result<{ id?: string }, Invalid>` or `Result<{}, Invalid>` is TS2322 on
+`main` and compiles on every arm, since the marker gives the target a member
+`Quiet` shares. A plain `Error` cast to `Error & { code: string }` is
+rejected by every arm. A declared `stack?: any` fits the marker, so B and B2
+mark it (it keeps `any`) and a raw `Error` into
+`Result<{ stack?: any }, Invalid>`, open on `main`, is closed.
 
 **What arm A breaks.** A required `stack` member makes the whole arm
 `never`: TypeScript reduces `{ id; stack: Frame[] } & { stack?: never }`
@@ -103,6 +109,33 @@ and string-literal unions. These are TS2322:
 fit. `'stack' in r` no longer narrows a `Result` of an object to its
 `Failure` (`'stack' in r ? r.kind : …` is TS2339). Members that receive
 the marker gain a readable `.stack` (TS2339 on `main`).
+
+**What every arm breaks, on index-signature members.** They already read
+`.stack` through the index, and its type changes. These are TS18048:
+
+    declare const sAny: Success<Record<string, any>, Invalid>
+    sAny.stack.length // any on main
+    declare const sNum: Success<Record<string, number>, Invalid>
+    sNum.stack + 1 // number on main
+
+**What B2 breaks: `Object.values` and `Object.entries`.** The values of a
+`Success` of a plain object include the brand (`number | NotAnErrorStack`).
+These are TS2365, TS2345 and TS2339 under B2, and compile on `main`, A and
+B:
+
+    declare const sc: Success<{ a: number; b: number }, Invalid>
+    Object.values(sc).reduce((x, y) => x + y, 0)
+    Math.max(...Object.values(sc))
+    Object.entries(sc).map(([, n]) => n.toFixed())
+
+**What B and B2 break in generic code.** `Success<Exclude<T, Error>>` no
+longer widens to `Success<T>`, so a wrapper that returns `result(value)`
+with inferred type arguments is TS2322; explicit
+`result<T, Error>(value)` still compiles:
+
+    function lift<T>(value: T): Result<T, Error> {
+      return result(value)
+    }
 
 **What arms B and B2 break.** A `Success` whose value declares a `stack`
 the marker does not fit no longer widens to a `Result` whose value type
@@ -145,9 +178,10 @@ case the declaration-emit test pins).
 **Unchanged by every arm.** Raw returns of a generic `T` and `success()`
 of one fail on `main` already; `failure()` into any `Result` is untouched.
 
-**Under `exactOptionalPropertyTypes`** (TypeScript 5.4.5, 5.9.3 and
-7.0.2): the narrowed-`stack` subclass cannot be declared (TS2415), on
-`main` and B2 alike, and a raw `Error` into `Result<object, Invalid>`
-stays closed under B2 (TS2375).
+**Under `exactOptionalPropertyTypes`** (TypeScript 5.4.5, 5.9.3 and 7.0.2):
+the `override stack = undefined` subclass cannot be declared (TS2415), on
+`main` and B2 alike, and a raw `Error` into `Result<object, Invalid>` stays
+closed under B2 (TS2375). A subclass that writes `declare stack: never`
+stays legal and is admitted, on `main` and B2 alike.
 
 **Not measured.** Compile time.

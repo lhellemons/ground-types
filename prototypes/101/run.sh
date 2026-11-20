@@ -55,7 +55,7 @@ lines.forEach((t,i)=>{const c=t.match(/CASE: (.*)$/);if(!c)return;
 console.log(`-- diagnostics outside the probe: ${other.length}`);other.forEach(o=>console.log("   "+o));' "$OUT"
 if [ "$SUITE" = --suite ]; then
   rm src/result/proto101.ts
-  SUMMARY=$(node_modules/.bin/vitest run 2>&1 | grep -E "^ +(×|FAIL)|Test Files|Tests |Type Errors" || true)
+  SUMMARY=$(node_modules/.bin/vitest run --no-cache 2>&1 | grep -E "^ +(×|FAIL)|Test Files|Tests |Type Errors" || true)
   if [ -z "$SUMMARY" ]; then
     echo "suite: no vitest summary (did vitest run?)" >&2
   else
