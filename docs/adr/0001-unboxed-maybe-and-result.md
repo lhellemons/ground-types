@@ -1177,48 +1177,80 @@ Costs, measured on the prototype:
   `Failure`: for `r: Result<{ q: number }, Invalid>`,
   `'stack' in r ? r.kind : …` compiles on `main` and is TS2339 with the
   marker.
-- A `Success` whose value declares a `stack` the brand does not fit no
-  longer widens to a `Result` whose value type omits `stack`: assigning
-  `success({ id: 'x', stack: [1] })` through a variable to
-  `Result<{ id: string }, Invalid>` or `Result<object, Invalid>` now fails
-  with TS2322. B2 also breaks assignment in the opposite direction: a
-  `Success` whose value omits `stack` no longer fits a `Result` whose
-  value declares an optional `stack` that cannot hold the branded string.
+- Any value whose type declares a `stack` the brand does not fit, a plain
+  `stack: string` or `stack?: string` included (log records, serialised
+  errors), no longer fits a `Result` whose value type omits `stack`, under B
+  and B2: for `rec: { level: string; stack: string }`, returning `rec` or
+  `success(rec)` as `Result<{ level: string }, Invalid>`, assigning a
+  `Result<Rec, Invalid>` to `Result<{ level: string }, Invalid>` (arrays and
+  Promises of them included), and returning the literal
+  `({ a: 1, stack: 'trace' })` as `Result<{ a: number }, Invalid>` are all
+  TS2322 (TS2345 as an argument) and compile on `main`. A compiles most of
+  them only because its `Success` of such a value is already `never`.
+  Likewise assigning `success({ id: 'x', stack: [1] })` through a variable
+  to `Result<{ id: string }, Invalid>` or `Result<object, Invalid>` now
+  fails with TS2322. B2 also breaks assignment in the opposite direction: a
+  `Success` whose value omits `stack` no longer fits a `Result` whose value
+  declares an optional `stack` that cannot hold the branded string.
   Assigning `success({ id: 'x' })` through a variable to
   `Result<{ id: string; stack?: number[] }, Invalid>` fails with TS2322,
   including a readonly optional `stack`.
 - Object members that receive the marker gain a readable `.stack`, typed as
   the brand or `undefined`; members that declare their own `stack` keep its
   type. A member with an index signature already read `.stack` through the
-  index, and its type changes: on `Success<Record<string, any>>`,
-  `.stack.length` is TS18048 (it was `any`), and on
-  `Success<Record<string, number>>`, `.stack + 1` is TS18048 (it was
-  `number`, now `number | NotAnErrorStack | undefined`). The added read is
-  unsound when the value's static type hides a real `stack` property: the
-  marker promises the brand or `undefined`, but the property can hold
-  anything. `success` adds no property and checks none. For
-  `const actual = { id: 'x', stack: 42 }` and
+  index, and the marker replaces that type rather than adding to it: on
+  `Success<Record<string, number>>`, `.stack` is
+  `NotAnErrorStack | undefined`, so `.stack + 1` is TS18048 (it was
+  `number`) and `typeof counts.stack === 'number'` narrows to `never`; on
+  `Success<Record<string, any>>` and `Success<Record<string, string>>`,
+  `.stack.length` is TS18048 (it was `any`, and `string`). The added read is
+  unsound in two ways, under B2. First, when the value's static type hides a
+  real `stack` property: the marker promises the brand or `undefined`, but
+  the property can hold anything, and `success` adds no property and checks
+  none. For `const actual = { id: 'x', stack: 42 }` and
   `const view: { id: string } = actual`,
   `success(view).stack?.toUpperCase()` compiles and throws at run time; on
-  `main` it is TS2339.
+  `main` it is TS2339. Second, with no cast and no hiding view, when an
+  index signature holds a `stack`:
+  `const r = result<Record<string, number>, Invalid>({ stack: 42 })`, then
+  `if (isSuccess(r)) r.stack?.toUpperCase()` compiles and throws at run
+  time; on `main` it is TS2339.
+- A `Success` passes where an error-like weak type is expected:
+  `declare function logE(e: { stack?: string }): void` accepts
+  `logE(success({ a: 1 }))`, which is TS2559 on `main`, and so does a
+  `{ name?: string; stack?: string }` parameter, so an un-narrowed `Result`
+  handed to an error handler by mistake is no longer caught. `r.stack` on an
+  un-narrowed `Result` union becomes readable (TS2339 on `main`). And
+  `keyof` of a `Success` gains the string key `'stack'`: for
+  `const user = success({ id: 'x' })`,
+  `const columns: Record<Extract<keyof typeof user, string>, string> = { id: 'text' }`
+  is TS2741, and mapped types over `keyof` of a `Success` change the same
+  way. These hold on every arm.
 - `Object.values` and `Object.entries` of a `Success` of a plain object
   include the brand: for `r: Result<{ a: number; b: number }, Invalid>`
   narrowed by `isSuccess`, `Object.values(r).reduce((x, y) => x + y, 0)` is
   TS2365 and `Math.max(...Object.values(r))` is TS2345 (the values are
   `number | NotAnErrorStack`); both compile on `main`.
-- Generic code over `result` loses a widening: in
+- Generic code loses a widening, under B and B2: in
   `function lift<T>(value: T): Result<T, Error> { return result(value) }`,
-  the return is TS2322 under B and B2 and compiles on `main`, because
+  the return is TS2322 and compiles on `main`, because
   `Success<Exclude<T, Error>>` no longer widens to `Success<T>` (TS2322).
-  Explicit type arguments, `result<T, Error>(value)`, still compile.
+  Explicit type arguments, `result<T, Error>(value)`, still compile. The
+  same holds without any constructor call, where explicit type arguments
+  cannot help:
+  `function partial<T>(r: Result<T>): Result<Partial<T>> { return r }` is
+  TS2322, and so is the `Success` version; both compile on `main` and A.
 - `SuccessArm` gains a conditional type over each member of `T`, one more
   thing to read in its definition.
 - Breaking, for the CHANGELOG: index-signature assignment, `'stack' in`
   narrowing, assignments between Results when only one value type declares
-  `stack`, `Object.values` and `Object.entries` of a `Success`, the type of
-  `.stack` on index-signature members, generic result wrappers relying on
-  inferred type arguments, raw `Error` returns into the newly closed
-  residual types.
+  `stack` (any `stack` the brand does not fit, a plain string one included),
+  `Object.values` and `Object.entries` of a `Success`, the type of `.stack`
+  on index-signature members, a `Success` passing as an error-like weak
+  type, string-key projections and mapped types over `Success`, generic
+  Result and Success widening (inferred `result` wrappers and widening to
+  `Partial<T>` included), raw `Error` returns into the newly closed residual
+  types.
 
 In the suite, the prototype fails only the test that pins the residual,
 "a raw Error returned without failure() still compiles into the residual
@@ -1231,5 +1263,6 @@ the follow-up also gives it an exported name, as #99 did for the symbol
 markers, is the follow-up's call. The fit test sits in an alias of its
 own: nested in the object check, `U` reads as `U & object` there, which
 is `never` for a branded primitive such as `Branded<string, 'Id'>`, and
-`collect`'s results collapse (36 more diagnostics in the prototype). Not
+`collect`'s results collapse (about 36 more diagnostics: 36 in vitest's
+type check, 37 with `tsc --noEmit`). Not
 measured: compile time.

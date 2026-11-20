@@ -111,12 +111,31 @@ fit. `'stack' in r` no longer narrows a `Result` of an object to its
 the marker gain a readable `.stack` (TS2339 on `main`).
 
 **What every arm breaks, on index-signature members.** They already read
-`.stack` through the index, and its type changes. These are TS18048:
+`.stack` through the index, and the marker replaces that type rather than
+adding to it: on `Success<Record<string, number>>` it is
+`NotAnErrorStack | undefined`. These are TS18048, and the `typeof` check
+narrows to `never`:
 
     declare const sAny: Success<Record<string, any>, Invalid>
     sAny.stack.length // any on main
+    declare const sStr: Success<Record<string, string>, Invalid>
+    sStr.stack.length // string on main
     declare const sNum: Success<Record<string, number>, Invalid>
     sNum.stack + 1 // number on main
+    typeof sNum.stack === 'number' // narrows to never
+
+**What every arm breaks: error-like parameters and `keyof`.** A `Success`
+passes where an error-like weak type is expected, so an un-narrowed
+`Result` handed to an error handler by mistake is no longer caught, and
+`.stack` on an un-narrowed `Result` becomes readable. `keyof` of a
+`Success` gains `'stack'`, so string-key projections and mapped types over
+it change:
+
+    declare function logE(e: { stack?: string }): void
+    logE(success({ a: 1 })) // TS2559 on main; compiles on every arm
+    const user = success({ id: 'x' })
+    type Columns = Record<Extract<keyof typeof user, string>, string>
+    const columns: Columns = { id: 'text' } // TS2741 on every arm
 
 **What B2 breaks: `Object.values` and `Object.entries`.** The values of a
 `Success` of a plain object include the brand (`number | NotAnErrorStack`).
@@ -131,19 +150,31 @@ B:
 **What B and B2 break in generic code.** `Success<Exclude<T, Error>>` no
 longer widens to `Success<T>`, so a wrapper that returns `result(value)`
 with inferred type arguments is TS2322; explicit
-`result<T, Error>(value)` still compiles:
+`result<T, Error>(value)` still compiles. Widening without any constructor
+call fails too, where explicit type arguments cannot help; it compiles on
+`main` and A:
 
     function lift<T>(value: T): Result<T, Error> {
       return result(value)
     }
+    function partial<T>(r: Result<T>): Result<Partial<T>> {
+      return r
+    }
 
-**What arms B and B2 break.** A `Success` whose value declares a `stack`
-the marker does not fit no longer widens to a `Result` whose value type
-omits `stack`. Through a variable, these are TS2322 (under A they compile,
-but only because the `Success` is already `never`):
+**What arms B and B2 break: lost widening.** Any value whose type declares
+a `stack` the marker does not fit, a plain `stack: string` or
+`stack?: string` included (log records, serialised errors), no longer
+fits a `Result` whose value type omits `stack`. These are TS2322 (TS2345
+as an argument). A compiles most of them only because its `Success` of
+such a value is already `never`:
 
+    declare const rec: { level: string; stack: string }
+    const raw = (): Result<{ level: string }, Invalid> => rec
+    const via = (): Result<{ level: string }, Invalid> => success(rec)
+    declare const r: Result<typeof rec, Invalid>
+    const widened: Result<{ level: string }, Invalid> = r // arrays, Promises too
+    const lit = (): Result<{ a: number }, Invalid> => ({ a: 1, stack: 'trace' })
     const value = success({ id: 'x', stack: [1] })
-    const widened: Result<{ id: string }, Invalid> = value
     const loose: Result<object, Invalid> = value
 
 **What B2 breaks in the opposite direction.** A `Success` whose value omits
@@ -155,14 +186,18 @@ variable, these are TS2322 under B2 only:
     const t: Result<{ id: string; stack?: number[] }, Invalid> = noStack
     const u: Result<{ id: string; readonly stack?: number[] }, Invalid> = noStack
 
-**An unsound read under B2.** The `.stack` it adds is typed as the brand or
-`undefined`, but `success` adds no property and checks none, so a value
-whose static type hides a real `stack` reads wrong. This compiles under B2
-and throws at run time; on `main` and under A and B it is TS2339:
+**Two unsound reads under B2.** The `.stack` it adds is typed as the
+brand or `undefined`, but `success` adds no property and checks none. Both
+of these compile under B2 and throw at run time; on `main` they are
+TS2339. The first hides the member behind a view; the second needs no
+cast and no view, since an index signature can hold a `stack`:
 
     const actual = { id: 'x', stack: 42 }
     const view: { id: string } = actual
     success(view).stack?.toUpperCase()
+
+    const counts = result<Record<string, number>, Invalid>({ stack: 42 })
+    if (isSuccess(counts)) counts.stack?.toUpperCase()
 
 **The suite.** Arms A and B fail two type tests, 16 diagnostics: the
 fifteen residual pins in `never-defaults.test-d.ts` ("a raw Error

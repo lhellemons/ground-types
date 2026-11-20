@@ -242,7 +242,7 @@ const sumB2 = Object.values(cB2).reduce((x, y) => x + y, 0)
 declare const recNow: SuccessNow<Record<string, number>, never>
 declare const recB2: SuccessB2<Record<string, number>, never>
 const plusNow = recNow.stack + 1 // fine: `number`
-// @ts-expect-error — B2: `number | NotAnErrorStack | undefined`
+// @ts-expect-error — B2: the marker replaces it: `NotAnErrorStack | undefined`
 const plusB2 = recB2.stack + 1
 
 // The narrowed-`stack` subclass now enters targets weak-type detection
@@ -274,6 +274,47 @@ const anyB2 = (): ResultB2<{ stack?: any }, Invalid> => raw
 
 void [sumNow, sumB2, plusNow, plusB2, weakNow, weakB2]
 void [genericNow, genericB2, anyNow, anyB2]
+/* ── 6. Still more (review round 5) ──────────────────────────────────────── */
+
+// Lost widening for any declared `stack` the brand does not fit, a plain
+// string one included (a log record, a serialised error).
+type LogLine = { level: string; stack: string }
+declare const line: LogLine
+const lineNow = (): ResultNow<{ level: string }, Invalid> => line // fine
+// @ts-expect-error — B2: `string` does not fit the brand
+const lineB2 = (): ResultB2<{ level: string }, Invalid> => line
+
+// A Success passes where an error-like weak type is expected.
+declare const logE: (e: { stack?: string }) => void
+declare const okNow: SuccessNow<{ a: number }, never>
+declare const okB2: SuccessB2<{ a: number }, never>
+// @ts-expect-error — today: a Success shares no member with the parameter
+logE(okNow)
+logE(okB2) // B2: compiles, the mistake is no longer caught
+
+// `keyof` of a Success gains 'stack'.
+type ColumnsOf<S> = Record<Extract<keyof S, string>, string>
+const colsNow: ColumnsOf<typeof okNow> = { a: 'int' } // fine
+// @ts-expect-error — B2: a 'stack' column is now required
+const colsB2: ColumnsOf<typeof okB2> = { a: 'int' }
+
+// Generic widening without any constructor call.
+function partialNow<T>(s: SuccessNow<T, Error>): SuccessNow<Partial<T>, Error> {
+  return s // fine
+}
+function partialB2<T>(s: SuccessB2<T, Error>): SuccessB2<Partial<T>, Error> {
+  // @ts-expect-error — B2: the conditional marker does not widen
+  return s
+}
+
+// A second unsound read, with no cast and no view: an index signature can
+// hold a real `stack`, and the marker types it as the brand. This compiles
+// under B2 and throws at run time.
+const held: Record<string, number> = { stack: 42 }
+declare const asSuccessB2: <T>(value: T) => SuccessB2<T, never>
+const heldRead = () => asSuccessB2(held).stack?.toUpperCase()
+
+void [lineNow, lineB2, colsNow, colsB2, partialNow, partialB2, heldRead]
 void [now1, now2, now3, a1, a2, a3, b1, b2, b3, b2Template]
 void [open1, open2, open3, open4, closed3]
 void [nowTrace, aTrace, bTrace, b2Indexed, idA, lenA, bOpen]

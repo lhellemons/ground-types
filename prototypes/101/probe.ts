@@ -279,3 +279,53 @@ export function widenArm<T>(s: Arm<T>): Success<T, Error> {
 
 // A declared `stack?: any` fits the marker, so it is marked and closes.
 export const y1 = (): Result<{ stack?: any }, Invalid> => raw // CASE: closes: { stack?: any } (open on main)
+
+// Review of #101 round 5.
+// Lost widening for any declared `stack` the brand does not fit.
+type Rec = { level: string; stack: string }
+type Level = { level: string }
+declare const rec: Rec
+declare const rRec: Result<Rec, Invalid>
+declare const takeLevel: (r: Result<Level, Invalid>) => void
+export const lw1 = (): Result<Level, Invalid> => rec // CASE: breaks: { level; stack: string } returned raw into Result<{ level }>
+export const lw2 = (): Result<Level, Invalid> => success(rec) // CASE: breaks: success({ level; stack: string }) into Result<{ level }>
+export const lw3: Result<Level, Invalid> = rRec // CASE: breaks: Result<{ level; stack }> assigned to Result<{ level }>
+export const lw4 = takeLevel(rRec) // CASE: breaks: Result<{ level; stack }> passed as Result<{ level }>
+declare const recs: Result<Rec, Invalid>[]
+export const lw5: Result<Level, Invalid>[] = recs // CASE: breaks: array of Result<{ level; stack }> to array of Result<{ level }>
+declare const pRec: Promise<Result<Rec, Invalid>>
+export const lw6: Promise<Result<Level, Invalid>> = pRec // CASE: breaks: Promise of Result<{ level; stack }> to Promise of Result<{ level }>
+type A1 = Result<{ a: number }, Invalid>
+export const lw7 = (): A1 => ({ a: 1, stack: 'trace' }) // CASE: breaks: literal with stack: 'trace' returned raw
+
+// A Success passes where an error-like weak type is expected.
+declare const logE: (e: { stack?: string }) => void
+declare const logNamed: (e: { name?: string; stack?: string }) => void
+export const e1 = logE(success({ a: 1 })) // CASE: loosens: success({ a }) passed as { stack?: string } (TS2559 on main)
+export const e2 = logNamed(success({ a: 1 })) // CASE: loosens: success({ a }) passed as { name?; stack? } (TS2559 on main)
+declare const ru: Result<{ a: number }, Invalid>
+export const e3 = ru.stack // CASE: loosens: .stack on an un-narrowed Result (TS2339 on main)
+
+// keyof of a Success gains 'stack'.
+const user = success({ id: 'x' })
+type Columns = Record<Extract<keyof typeof user, string>, string>
+export const k1: Columns = { id: 'text' } // CASE: breaks: Record over keyof Success needs a 'stack' column
+
+// Generic widening without a constructor call.
+export function partial<T>(r: Result<T, Error>): Result<Partial<T>, Error> {
+  return r // CASE: breaks: generic Result<T> widened to Result<Partial<T>>
+}
+type SP<T> = Success<Partial<T>, Error>
+export function partialS<T>(s: Success<T, Error>): SP<T> {
+  return s // CASE: breaks: generic Success<T> widened to Success<Partial<T>>
+}
+
+// The indexed `.stack` is replaced, not unioned, and the read is unsound.
+const counts = result<Record<string, number>, Invalid>({ stack: 42 })
+const ok = isSuccess(counts)
+export const ix1 = ok ? counts.stack?.toUpperCase() : '' // CASE: loosens: Record<string, number> holding stack: 42 reads as a string (throws)
+declare const sCounts: Success<Record<string, number>, Invalid>
+const isNum = typeof sCounts.stack === 'number'
+export const ix2 = isNum ? sCounts.stack.toFixed() : '' // CASE: breaks: typeof .stack === 'number' narrows to never
+declare const sStr: Success<Record<string, string>, Invalid>
+export const ix3 = sStr.stack.length // CASE: breaks: .stack of Success<Record<string, string>> (string on main)
