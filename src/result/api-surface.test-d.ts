@@ -395,6 +395,24 @@ class NineSignatures extends Error {
     super()
   }
 }
+class TenSignaturesSameParameters extends Error {
+  private constructor(
+    readonly detail: {
+      (a: 1): 1
+      (a: 1): 2
+      (a: 1): 3
+      (a: 4): 4
+      (a: 5): 5
+      (a: 6): 6
+      (a: 7): 7
+      (a: 8): 8
+      (a: 9): 9
+      (a: 10): 10
+    },
+  ) {
+    super()
+  }
+}
 class EightSignatures extends Error {
   private constructor(
     readonly detail: {
@@ -454,6 +472,38 @@ class EightReturns1<T> extends Error {
     super()
   }
 }
+class EightReturns2<T> extends Error {
+  private constructor(
+    readonly detail: {
+      (a: 1): 1
+      (a: 2): T
+      (a: 3): 3
+      (a: 4): 4
+      (a: 5): 5
+      (a: 6): 6
+      (a: 7): 7
+      (a: 8): 8
+    },
+  ) {
+    super()
+  }
+}
+class EightReturns3<T> extends Error {
+  private constructor(
+    readonly detail: {
+      (a: 1): 1
+      (a: 2): 2
+      (a: 3): T
+      (a: 4): 4
+      (a: 5): 5
+      (a: 6): 6
+      (a: 7): 7
+      (a: 8): 8
+    },
+  ) {
+    super()
+  }
+}
 class EightReturns4<T> extends Error {
   private constructor(
     readonly detail: {
@@ -464,6 +514,54 @@ class EightReturns4<T> extends Error {
       (a: 5): 5
       (a: 6): 6
       (a: 7): 7
+      (a: 8): 8
+    },
+  ) {
+    super()
+  }
+}
+class EightReturns5<T> extends Error {
+  private constructor(
+    readonly detail: {
+      (a: 1): 1
+      (a: 2): 2
+      (a: 3): 3
+      (a: 4): 4
+      (a: 5): T
+      (a: 6): 6
+      (a: 7): 7
+      (a: 8): 8
+    },
+  ) {
+    super()
+  }
+}
+class EightReturns6<T> extends Error {
+  private constructor(
+    readonly detail: {
+      (a: 1): 1
+      (a: 2): 2
+      (a: 3): 3
+      (a: 4): 4
+      (a: 5): 5
+      (a: 6): T
+      (a: 7): 7
+      (a: 8): 8
+    },
+  ) {
+    super()
+  }
+}
+class EightReturns7<T> extends Error {
+  private constructor(
+    readonly detail: {
+      (a: 1): 1
+      (a: 2): 2
+      (a: 3): 3
+      (a: 4): 4
+      (a: 5): 5
+      (a: 6): 6
+      (a: 7): T
       (a: 8): 8
     },
   ) {
@@ -481,23 +579,6 @@ class EightReturns8<T> extends Error {
       (a: 6): 6
       (a: 7): 7
       (a: 8): T
-    },
-  ) {
-    super()
-  }
-}
-class NineEarlierReturn<T> extends Error {
-  private constructor(
-    readonly detail: {
-      (a: 1): 1
-      (a: 2): 2
-      (a: 3): 3
-      (a: 4): T
-      (a: 5): 5
-      (a: 6): 6
-      (a: 7): 7
-      (a: 8): 8
-      (a: 9): 9
     },
   ) {
     super()
@@ -645,22 +726,42 @@ describe('a generic error class', () => {
     catchOnly(GenericReadonlyRest)
     // @ts-expect-error The same check applies to the class list
     tryCatch(() => 1, [GenericReadonlyRest])
-    // @ts-expect-error A checked signature returns any
+    // @ts-expect-error Signature 1 returns any
     catchOnly(EightReturns1)
     // @ts-expect-error The same check applies to the class list
     tryCatch(() => 1, [EightReturns1])
-    // @ts-expect-error A checked signature returns any
+    // @ts-expect-error Signature 2 returns any
+    catchOnly(EightReturns2)
+    // @ts-expect-error The same check applies to the class list
+    tryCatch(() => 1, [EightReturns2])
+    // @ts-expect-error Signature 3 returns any
+    catchOnly(EightReturns3)
+    // @ts-expect-error The same check applies to the class list
+    tryCatch(() => 1, [EightReturns3])
+    // @ts-expect-error Signature 4 returns any
     catchOnly(EightReturns4)
     // @ts-expect-error The same check applies to the class list
     tryCatch(() => 1, [EightReturns4])
-    // @ts-expect-error A checked signature returns any
+    // @ts-expect-error Signature 5 returns any
+    catchOnly(EightReturns5)
+    // @ts-expect-error The same check applies to the class list
+    tryCatch(() => 1, [EightReturns5])
+    // @ts-expect-error Signature 6 returns any
+    catchOnly(EightReturns6)
+    // @ts-expect-error The same check applies to the class list
+    tryCatch(() => 1, [EightReturns6])
+    // @ts-expect-error Signature 7 returns any
+    catchOnly(EightReturns7)
+    // @ts-expect-error The same check applies to the class list
+    tryCatch(() => 1, [EightReturns7])
+    // @ts-expect-error Signature 8 returns any
     catchOnly(EightReturns8)
     // @ts-expect-error The same check applies to the class list
     tryCatch(() => 1, [EightReturns8])
-    // @ts-expect-error A checked signature returns any
-    catchOnly(NineEarlierReturn)
+    // @ts-expect-error The first two inspected returns differ
+    catchOnly(TenSignaturesSameParameters)
     // @ts-expect-error The same check applies to the class list
-    tryCatch(() => 1, [NineEarlierReturn])
+    tryCatch(() => 1, [TenSignaturesSameParameters])
   })
   it('accepts concrete generic methods, platform fields and eight call signatures', () => {
     expectTypeOf(catchOnly(GenericMethod)).returns.toEqualTypeOf<
