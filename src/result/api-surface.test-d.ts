@@ -395,6 +395,24 @@ class NineSignatures extends Error {
     super()
   }
 }
+class TenSignaturesSameParameters extends Error {
+  private constructor(
+    readonly detail: {
+      (a: 1): 1
+      (a: 1): 2
+      (a: 1): 3
+      (a: 4): 4
+      (a: 5): 5
+      (a: 6): 6
+      (a: 7): 7
+      (a: 8): 8
+      (a: 9): 9
+      (a: 10): 10
+    },
+  ) {
+    super()
+  }
+}
 class EightSignatures extends Error {
   private constructor(
     readonly detail: {
@@ -708,7 +726,7 @@ describe('a generic error class', () => {
     catchOnly(GenericReadonlyRest)
     // @ts-expect-error The same check applies to the class list
     tryCatch(() => 1, [GenericReadonlyRest])
-    // @ts-expect-error A checked signature returns any
+    // @ts-expect-error Signature 1 returns any
     catchOnly(EightReturns1)
     // @ts-expect-error The same check applies to the class list
     tryCatch(() => 1, [EightReturns1])
@@ -720,6 +738,10 @@ describe('a generic error class', () => {
     catchOnly(EightReturns3)
     // @ts-expect-error The same check applies to the class list
     tryCatch(() => 1, [EightReturns3])
+    // @ts-expect-error Signature 4 returns any
+    catchOnly(EightReturns4)
+    // @ts-expect-error The same check applies to the class list
+    tryCatch(() => 1, [EightReturns4])
     // @ts-expect-error Signature 5 returns any
     catchOnly(EightReturns5)
     // @ts-expect-error The same check applies to the class list
@@ -732,14 +754,14 @@ describe('a generic error class', () => {
     catchOnly(EightReturns7)
     // @ts-expect-error The same check applies to the class list
     tryCatch(() => 1, [EightReturns7])
-    // @ts-expect-error A checked signature returns any
-    catchOnly(EightReturns4)
-    // @ts-expect-error The same check applies to the class list
-    tryCatch(() => 1, [EightReturns4])
-    // @ts-expect-error A checked signature returns any
+    // @ts-expect-error Signature 8 returns any
     catchOnly(EightReturns8)
     // @ts-expect-error The same check applies to the class list
     tryCatch(() => 1, [EightReturns8])
+    // @ts-expect-error The first two inspected returns differ
+    catchOnly(TenSignaturesSameParameters)
+    // @ts-expect-error The same check applies to the class list
+    tryCatch(() => 1, [TenSignaturesSameParameters])
   })
   it('accepts concrete generic methods, platform fields and eight call signatures', () => {
     expectTypeOf(catchOnly(GenericMethod)).returns.toEqualTypeOf<
