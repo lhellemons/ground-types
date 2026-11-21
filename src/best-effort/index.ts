@@ -127,13 +127,11 @@ export function andThen<A, U, D2, T extends A, D>(
 export function gather<T, D>(
   parts: readonly BestEffort<T, D>[],
 ): BestEffort<readonly T[], D> {
-  const diagnostics: D[] = []
-  const values = parts.map((part) => {
-    const value = part.value
-    for (const diagnostic of part.diagnostics) diagnostics.push(diagnostic)
-    return value
-  })
-  return bestEffort(values, diagnostics)
+  const boxes = parts.map((part) => part)
+  return bestEffort(
+    boxes.map((box) => box.value),
+    boxes.flatMap((box) => [...box.diagnostics]),
+  )
 }
 
 /**
