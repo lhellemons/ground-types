@@ -411,6 +411,98 @@ class EightSignatures extends Error {
     super()
   }
 }
+class ReadonlyRest<T> extends Error {
+  private constructor(readonly detail: { (...a: readonly string[]): T }) {
+    super()
+  }
+}
+class ReadonlyRestOverload<T> extends Error {
+  private constructor(
+    readonly detail: { (...a: readonly string[]): T; (z: 9): 9 },
+  ) {
+    super()
+  }
+}
+class ReadonlyRestMethod<T> extends Error {
+  private constructor() {
+    super()
+  }
+  m(...a: readonly string[]): T {
+    throw a
+  }
+}
+class GenericReadonlyRest<T> extends Error {
+  private constructor(
+    readonly detail: { <U extends readonly unknown[]>(...a: U): T },
+  ) {
+    super()
+  }
+}
+class EightReturns1<T> extends Error {
+  private constructor(
+    readonly detail: {
+      (a: 1): T
+      (a: 2): 2
+      (a: 3): 3
+      (a: 4): 4
+      (a: 5): 5
+      (a: 6): 6
+      (a: 7): 7
+      (a: 8): 8
+    },
+  ) {
+    super()
+  }
+}
+class EightReturns4<T> extends Error {
+  private constructor(
+    readonly detail: {
+      (a: 1): 1
+      (a: 2): 2
+      (a: 3): 3
+      (a: 4): T
+      (a: 5): 5
+      (a: 6): 6
+      (a: 7): 7
+      (a: 8): 8
+    },
+  ) {
+    super()
+  }
+}
+class EightReturns8<T> extends Error {
+  private constructor(
+    readonly detail: {
+      (a: 1): 1
+      (a: 2): 2
+      (a: 3): 3
+      (a: 4): 4
+      (a: 5): 5
+      (a: 6): 6
+      (a: 7): 7
+      (a: 8): T
+    },
+  ) {
+    super()
+  }
+}
+class NineEarlierReturn<T> extends Error {
+  private constructor(
+    readonly detail: {
+      (a: 1): 1
+      (a: 2): 2
+      (a: 3): 3
+      (a: 4): T
+      (a: 5): 5
+      (a: 6): 6
+      (a: 7): 7
+      (a: 8): 8
+      (a: 9): 9
+    },
+  ) {
+    super()
+  }
+}
 class PrivateAnyField extends Error {
   // `any` is the type under test.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -535,6 +627,40 @@ describe('a generic error class', () => {
     catchOnly(PrivateNestedGeneric)
     // @ts-expect-error One refused class refuses the list
     catchOnly(Selected, PrivateGeneric)
+  })
+  it('refuses any in readonly rest returns and across the overload window', () => {
+    // @ts-expect-error A checked signature returns any
+    catchOnly(ReadonlyRest)
+    // @ts-expect-error The same check applies to the class list
+    tryCatch(() => 1, [ReadonlyRest])
+    // @ts-expect-error A checked signature returns any
+    catchOnly(ReadonlyRestOverload)
+    // @ts-expect-error The same check applies to the class list
+    tryCatch(() => 1, [ReadonlyRestOverload])
+    // @ts-expect-error A checked signature returns any
+    catchOnly(ReadonlyRestMethod)
+    // @ts-expect-error The same check applies to the class list
+    tryCatch(() => 1, [ReadonlyRestMethod])
+    // @ts-expect-error A checked signature returns any
+    catchOnly(GenericReadonlyRest)
+    // @ts-expect-error The same check applies to the class list
+    tryCatch(() => 1, [GenericReadonlyRest])
+    // @ts-expect-error A checked signature returns any
+    catchOnly(EightReturns1)
+    // @ts-expect-error The same check applies to the class list
+    tryCatch(() => 1, [EightReturns1])
+    // @ts-expect-error A checked signature returns any
+    catchOnly(EightReturns4)
+    // @ts-expect-error The same check applies to the class list
+    tryCatch(() => 1, [EightReturns4])
+    // @ts-expect-error A checked signature returns any
+    catchOnly(EightReturns8)
+    // @ts-expect-error The same check applies to the class list
+    tryCatch(() => 1, [EightReturns8])
+    // @ts-expect-error A checked signature returns any
+    catchOnly(NineEarlierReturn)
+    // @ts-expect-error The same check applies to the class list
+    tryCatch(() => 1, [NineEarlierReturn])
   })
   it('accepts concrete generic methods, platform fields and eight call signatures', () => {
     expectTypeOf(catchOnly(GenericMethod)).returns.toEqualTypeOf<

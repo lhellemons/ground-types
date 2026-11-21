@@ -170,15 +170,17 @@ later is required.
   parent. To use one, pass it as a constructor type that fixes its instance
   type, such as
   `DomainFailure as unknown as abstract new () => DomainFailure<unknown>`.
-  A callable with more than eight call signatures is refused. The check does
-  not look inside a `Promise`, a `Set`, a function's parameters, a construct
+  Beyond eight call signatures, adjacent signatures that read the same can
+  leave earlier returns unchecked; otherwise the callable is refused. Generic
+  returns whose constraints hold `any` can also cause a concrete class to be
+  refused. The check does not look inside a `Promise`, a `Set`, a function's
+  parameters, a construct
   signature, an array property with a built-in name (such as `length` or
   `map`), or a non-public member (`private`, `protected` or `#`), or deeper
   than four levels, so a type parameter used only there still reads as `any`.
   Arrow functions, methods (also when given an `Error` `prototype`), plain
-  objects and
-  constructors of non-`Error` instances are rejected at compile time. Calls that
-  compiled before keep their inferred error type.
+  objects and constructors of non-`Error` instances are rejected at compile
+  time. Calls that compiled before keep their inferred error type.
 - **Breaking:** `catchOnly` (and so the `tryCatch` shorthand) now throws a
   `TypeError` when the handler is created, if the class list is empty or holds
   an entry that is not a function, or whose inspection throws (a revoked proxy,
