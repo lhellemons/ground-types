@@ -33,6 +33,77 @@ const caught = (run: () => unknown): unknown => {
 const FALSY = [undefined, null, 0, '', false] as const
 
 describe('the kit', () => {
+  it('gather reads each entry once, keeping its value and diagnostics together', () => {
+    let reads = 0
+    let valueReads = 0
+    let diagnosticsReads = 0
+    const first = {
+      get value() {
+        valueReads += 1
+        return 1
+      },
+      get diagnostics() {
+        diagnosticsReads += 1
+        return ['important diagnostic']
+      },
+    }
+    const parts = [bestEffort(0), bestEffort(3, ['last'])]
+    Object.defineProperty(parts, 0, {
+      get() {
+        reads += 1
+        return reads === 1 ? first : bestEffort(2)
+      },
+    })
+    const gathered = gather(parts)
+    expect(gathered).toEqual({
+      value: [1, 3],
+      diagnostics: ['important diagnostic', 'last'],
+    })
+    expect(reads).toBe(1)
+    expect(valueReads).toBe(1)
+    expect(diagnosticsReads).toBe(1)
+    expect(toResult(toList, gathered)).toBeInstanceOf(ListError)
+  })
+  it('gather keeps every diagnostic with an inherited array index setter', () => {
+    const parts = [bestEffort(1, ['a']), bestEffort(2, ['b'])]
+    const original = Object.getOwnPropertyDescriptor(Array.prototype, '0')
+    let gathered: BestEffort<readonly number[], string> | undefined
+    try {
+      Object.defineProperty(Array.prototype, '0', {
+        configurable: true,
+        set() {},
+        get() {
+          return undefined
+        },
+      })
+      gathered = gather(parts)
+    } finally {
+      if (original) Object.defineProperty(Array.prototype, '0', original)
+      else Reflect.deleteProperty(Array.prototype, '0')
+    }
+    expect(gathered).toEqual({ value: [1, 2], diagnostics: ['a', 'b'] })
+  })
+  it.each(['applied', 'curried'] as const)(
+    'toResult reads diagnostics once (%s), retaining the list by identity',
+    (form) => {
+      const diagnostics = ['important diagnostic']
+      let reads = 0
+      const box = {
+        value: 1,
+        get diagnostics() {
+          reads += 1
+          if (reads > 1) throw new Error('second read')
+          return diagnostics
+        },
+      }
+      const result =
+        form === 'applied' ? toResult(toList, box) : toResult(toList)(box)
+      expect(result).toBeInstanceOf(ListError)
+      if (!(result instanceof ListError)) throw new Error('expected Failure')
+      expect(result.list).toBe(diagnostics)
+      expect(reads).toBe(1)
+    },
+  )
   it('bestEffort copies and freezes: a later push to the source list is not seen, the box and its list are frozen', () => {
     const diagnostics = ['d']
     const be = bestEffort(1, diagnostics)
