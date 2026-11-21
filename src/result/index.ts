@@ -226,40 +226,77 @@ type InstanceOfClass<K> = K extends abstract new (...args: never[]) => infer I
     ? P
     : never
 
+/** Whether two types have the same inferred shape. */
+type Same<A, B> =
+  (<G>() => G extends A ? 1 : 2) extends <G>() => G extends B ? 1 : 2
+    ? true
+    : false
+
 /**
- * Whether `T` is `any` or holds `any` in a property, an index signature, an
- * array element or a function's return, within four levels of nesting. It does
- * not look inside a non-public member (`private`, `protected` or `#`). Resolves
- * to `true`, `false` or `boolean`; test it with `true extends`.
+ * Whether a callable has `any` in a call signature's return (see
+ * {@link HasAny}). Inspects the last nine inferred returns and resolves to
+ * `true` when the first two inferred argument/return pairs differ. Beyond
+ * eight signatures, adjacent pairs that read the same can hide earlier ones.
+ */
+type CallableHasAny<T, Depth extends unknown[]> = T extends {
+  (...args: infer A0 extends readonly unknown[]): infer R0
+  (...args: infer A1 extends readonly unknown[]): infer R1
+  (...args: never[]): infer R2
+  (...args: never[]): infer R3
+  (...args: never[]): infer R4
+  (...args: never[]): infer R5
+  (...args: never[]): infer R6
+  (...args: never[]): infer R7
+  (...args: never[]): infer R8
+}
+  ? true extends HasAny<R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8, Depth>
+    ? true
+    : Same<[A0, R0], [A1, R1]> extends true
+      ? false
+      : true
+  : false
+
+/** Public property keys other than array built-in names. */
+type NamedKeys<T> = Exclude<
+  keyof T,
+  T extends readonly unknown[] ? keyof unknown[] : never
+>
+
+/**
+ * Whether `T` is `any` or holds `any` in a public property, index signature,
+ * array element or call signature's return, within four levels of nesting.
+ * Also resolves to `true` when callable inspection exceeds its signature
+ * limit (see {@link CallableHasAny}).
+ * Does not read construct signatures, array built-in names or non-public
+ * members. Resolves to `true`, `false` or `boolean`; test with `true extends`.
  */
 type HasAny<T, Depth extends unknown[] = []> = 0 extends 1 & T
   ? true
   : Depth['length'] extends 4
     ? false
-    : T extends readonly (infer Item)[]
-      ? HasAny<Item, [...Depth, 0]>
-      : T extends (...args: never[]) => infer Return
-        ? HasAny<Return, [...Depth, 0]>
-        : T extends object
-          ? true extends {
-              [P in keyof T]-?: HasAny<T[P], [...Depth, 0]>
-            }[keyof T]
-            ? true
-            : false
-          : false
+    : T extends object
+      ? | (T extends readonly (infer Item)[]
+            ? HasAny<Item, [...Depth, 0]>
+            : T extends (...args: never[]) => unknown
+              ? CallableHasAny<T, [...Depth, 0]>
+              : false)
+        | {
+            [P in NamedKeys<T>]-?: HasAny<T[P], [...Depth, 0]>
+          }[NamedKeys<T>]
+      : false
 
 /**
  * What a class `K` with no public construct signature is read as: refused
  * when it is callable, or when its `prototype`, where the instance type is
  * read from, holds `any` (see {@link HasAny}), as a generic class's does for
- * each type parameter; otherwise `K`. A refused class maps to a type that
- * says why.
+ * each type parameter, or contains a callable exceeding the signature
+ * check; otherwise `K`. A refused class maps to a type that says why.
  */
 type CheckedPrototypeClass<K> = K extends (...args: never[]) => unknown
   ? never
   : true extends HasAny<InstanceOfClass<K>>
     ? {
-        readonly 'This class has no public constructor and its prototype holds any, so its instance type cannot be read. Pass it as a constructor type that fixes its instance type: X as unknown as abstract new () => X, with the type arguments of X where it has them': K
+        readonly 'This class has no public constructor and its prototype holds any or a callable exceeding the signature check, so its instance type cannot be read. Pass it as a constructor type that fixes its instance type: X as unknown as abstract new () => X, with the type arguments of X where it has them': K
       }
     : K
 
@@ -825,10 +862,15 @@ export function fromMaybe<T, E extends Error>(
  * even when it has an `Error` `prototype`, and a class with no public
  * constructor is refused when its `prototype` holds `any`, which a generic
  * class's does for each type parameter. The check does not look inside a
- * `Promise`, a `Set`, a function's parameters or a non-public member
+ * `Promise`, a `Set`, a function's parameters, a construct signature, an
+ * array property with a built-in name or a non-public member
  * (`private`, `protected` or `#`), or deeper than four levels, so a type
- * parameter used only there still reads as `any`. An empty list throws a
- * `TypeError` when the handler is created, and so does an entry that is not a
+ * parameter used only there still reads as `any`. Beyond eight call
+ * signatures, adjacent signatures that read the same can leave earlier
+ * returns unchecked; otherwise the callable is refused. Generic returns
+ * whose constraints hold `any` can also cause a concrete class to be refused.
+ * An empty list throws a `TypeError` when the handler is created, and so does
+ * an entry that is not a
  * function, or whose inspection throws (a revoked proxy, a throwing
  * `Symbol.hasInstance` getter), or whose `Symbol.hasInstance` is neither
  * nullish nor callable, or that has no custom `Symbol.hasInstance`, own or
