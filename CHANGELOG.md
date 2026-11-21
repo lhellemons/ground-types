@@ -170,13 +170,13 @@ later is required.
   parent. To use one, pass it as a constructor type that fixes its instance
   type, such as
   `DomainFailure as unknown as abstract new () => DomainFailure<unknown>`.
-  Beyond eight call signatures, adjacent signatures that read the same can
-  leave earlier returns unchecked; otherwise the callable is refused. Generic
-  returns whose constraints hold `any` can also cause a concrete class to be
-  refused. The check does not look inside a `Promise`, a `Set`, a function's
-  parameters, a construct
-  signature, an array property with a built-in name (such as `length` or
-  `map`), or a non-public member (`private`, `protected` or `#`), or deeper
+  A callable with more than eight call signatures is refused when its first
+  two inspected signatures differ; when they read the same, returns before
+  the last nine go unchecked. Generic returns whose constraints hold `any`
+  can also cause a concrete class to be refused. The check does not look
+  inside a `Promise`, a `Set`, a function's parameters, a construct signature,
+  an array property with a built-in name (such as `length` or `map`), or a
+  non-public member (`private`, `protected` or `#`), or deeper
   than four levels, so a type parameter used only there still reads as `any`.
   Arrow functions, methods (also when given an `Error` `prototype`), plain
   objects and constructors of non-`Error` instances are rejected at compile

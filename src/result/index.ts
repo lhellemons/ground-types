@@ -265,8 +265,8 @@ type NamedKeys<T> = Exclude<
 /**
  * Whether `T` is `any` or holds `any` in a public property, index signature,
  * array element or call signature's return, within four levels of nesting.
- * Also resolves to `true` when callable inspection exceeds its signature
- * limit (see {@link CallableHasAny}).
+ * Also resolves to `true` for a callable with more than eight call signatures
+ * that cannot all be checked (see {@link CallableHasAny}).
  * Does not read construct signatures, array built-in names or non-public
  * members. Resolves to `true`, `false` or `boolean`; test with `true extends`.
  */
@@ -289,14 +289,15 @@ type HasAny<T, Depth extends unknown[] = []> = 0 extends 1 & T
  * What a class `K` with no public construct signature is read as: refused
  * when it is callable, or when its `prototype`, where the instance type is
  * read from, holds `any` (see {@link HasAny}), as a generic class's does for
- * each type parameter, or contains a callable exceeding the signature
- * check; otherwise `K`. A refused class maps to a type that says why.
+ * each type parameter, or contains a callable with more than eight call
+ * signatures that cannot all be checked; otherwise `K`. A refused class maps
+ * to a type that says why.
  */
 type CheckedPrototypeClass<K> = K extends (...args: never[]) => unknown
   ? never
   : true extends HasAny<InstanceOfClass<K>>
     ? {
-        readonly 'This class has no public constructor and its prototype holds any or a callable exceeding the signature check, so its instance type cannot be read. Pass it as a constructor type that fixes its instance type: X as unknown as abstract new () => X, with the type arguments of X where it has them': K
+        readonly 'This class has no public constructor and its prototype holds any or a callable with more than eight call signatures that cannot all be checked, so its instance type cannot be read. Pass it as a constructor type that fixes its instance type: X as unknown as abstract new () => X, with the type arguments of X where it has them': K
       }
     : K
 
@@ -865,23 +866,24 @@ export function fromMaybe<T, E extends Error>(
  * `Promise`, a `Set`, a function's parameters, a construct signature, an
  * array property with a built-in name or a non-public member
  * (`private`, `protected` or `#`), or deeper than four levels, so a type
- * parameter used only there still reads as `any`. Beyond eight call
- * signatures, adjacent signatures that read the same can leave earlier
- * returns unchecked; otherwise the callable is refused. Generic returns
- * whose constraints hold `any` can also cause a concrete class to be refused.
+ * parameter used only there still reads as `any`. A callable with more than
+ * eight call signatures is refused when its first two inspected signatures
+ * differ; when they read the same, returns before the last nine go unchecked.
+ * Generic returns whose constraints hold `any` can also cause a concrete
+ * class to be refused.
  * An empty list throws a `TypeError` when the handler is created, and so does
- * an entry that is not a
- * function, or whose inspection throws (a revoked proxy, a throwing
- * `Symbol.hasInstance` getter), or whose `Symbol.hasInstance` is neither
- * nullish nor callable, or that has no custom `Symbol.hasInstance`, own or
- * inherited, and either an object `prototype` without `Error.prototype` on its
- * chain (`Object`, `Map`, `Symbol`, a class that does not extend `Error`, a
- * bound subclass of `Map`), or no object `prototype` and source text other
- * than a native function's, `function <name>() { [native code] }` (`undefined`,
- * an arrow function, a method). A function with no object `prototype` and
- * native source is admitted: `Math.max`, `parseInt`, and a bound `Error`,
- * `Object` or base class (one declared without `extends`). A bound subclass of
- * `Error` is admitted
+ * an entry that is not a function, or whose inspection throws (a revoked
+ * proxy, a throwing `Symbol.hasInstance` getter), or whose
+ * `Symbol.hasInstance` is neither nullish nor callable, or that has no custom
+ * `Symbol.hasInstance`, own or inherited, and either an object `prototype`
+ * without `Error.prototype` on its chain (`Object`, `Map`, `Symbol`, a class
+ * that does not extend `Error`, a bound subclass of `Map`), or no object
+ * `prototype` and source text other than a native function's,
+ * `function <name>() { [native code] }` (`undefined`, an arrow function, a
+ * method). A function with no object `prototype` and native source is
+ * admitted:
+ * `Math.max`, `parseInt`, and a bound `Error`, `Object` or base class (one
+ * declared without `extends`). A bound subclass of `Error` is admitted
  * through its inherited `prototype`, and a bound derived class that does not
  * extend `Error` is refused through it. A function from another realm is not
  * checked, and neither is an entry whose inherited `Symbol.hasInstance` comes
