@@ -344,6 +344,73 @@ class ConcreteDetails extends Error {
     super()
   }
 }
+class GenericMethod extends Error {
+  private constructor(readonly detail: string) {
+    super()
+  }
+  map<U>(f: (d: string) => U): U {
+    return f(this.detail)
+  }
+}
+class ConcretePlatformFields extends Error {
+  private constructor(
+    readonly bytes: Uint8Array,
+    readonly errorClass: typeof RangeError,
+  ) {
+    super()
+  }
+}
+class SetSub<T> extends Set<string> {
+  label!: T
+}
+class PrivateSetSub<T> extends Error {
+  private constructor(readonly detail: SetSub<T>) {
+    super()
+  }
+}
+class PrivatePromiseExtra<T> extends Error {
+  private constructor(readonly detail: Promise<string> & { extra: T }) {
+    super()
+  }
+}
+class PrivateSetExtra<T> extends Error {
+  private constructor(readonly detail: Set<string> & { extra: T }) {
+    super()
+  }
+}
+class NineSignatures extends Error {
+  private constructor(
+    readonly detail: {
+      (a: 1): 1
+      (a: 2): 2
+      (a: 3): 3
+      (a: 4): 4
+      (a: 5): 5
+      (a: 6): 6
+      (a: 7): 7
+      (a: 8): 8
+      (a: 9): 9
+    },
+  ) {
+    super()
+  }
+}
+class EightSignatures extends Error {
+  private constructor(
+    readonly detail: {
+      (a: 1): 1
+      (a: 2): 2
+      (a: 3): 3
+      (a: 4): 4
+      (a: 5): 5
+      (a: 6): 6
+      (a: 7): 7
+      (a: 8): 8
+    },
+  ) {
+    super()
+  }
+}
 class PrivateAnyField extends Error {
   // `any` is the type under test.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -469,7 +536,45 @@ describe('a generic error class', () => {
     // @ts-expect-error One refused class refuses the list
     catchOnly(Selected, PrivateGeneric)
   })
-  it('checks array and callable properties and earlier overload returns', () => {
+  it('accepts concrete generic methods, platform fields and eight call signatures', () => {
+    expectTypeOf(catchOnly(GenericMethod)).returns.toEqualTypeOf<
+      Failure<never, GenericMethod>
+    >()
+    expectTypeOf(tryCatch(() => 1, [GenericMethod])()).toEqualTypeOf<
+      Result<number, GenericMethod>
+    >()
+    expectTypeOf(catchOnly(ConcretePlatformFields)).returns.toEqualTypeOf<
+      Failure<never, ConcretePlatformFields>
+    >()
+    expectTypeOf(tryCatch(() => 1, [ConcretePlatformFields])()).toEqualTypeOf<
+      Result<number, ConcretePlatformFields>
+    >()
+    expectTypeOf(catchOnly(EightSignatures)).returns.toEqualTypeOf<
+      Failure<never, EightSignatures>
+    >()
+    expectTypeOf(tryCatch(() => 1, [EightSignatures])()).toEqualTypeOf<
+      Result<number, EightSignatures>
+    >()
+  })
+  it('refuses any in named Set and Promise properties and more than eight call signatures', () => {
+    // @ts-expect-error The Set subclass property holds any
+    catchOnly(PrivateSetSub)
+    // @ts-expect-error The Set subclass property holds any
+    tryCatch(() => 1, [PrivateSetSub])
+    // @ts-expect-error The Promise property holds any
+    catchOnly(PrivatePromiseExtra)
+    // @ts-expect-error The Promise property holds any
+    tryCatch(() => 1, [PrivatePromiseExtra])
+    // @ts-expect-error The Set property holds any
+    catchOnly(PrivateSetExtra)
+    // @ts-expect-error The Set property holds any
+    tryCatch(() => 1, [PrivateSetExtra])
+    // @ts-expect-error More than eight call signatures
+    catchOnly(NineSignatures)
+    // @ts-expect-error More than eight call signatures
+    tryCatch(() => 1, [NineSignatures])
+  })
+  it('refuses any in array or callable properties or an earlier overload return', () => {
     // @ts-expect-error The named array property holds any
     catchOnly(ArrayDetail)
     // @ts-expect-error The named array property holds any

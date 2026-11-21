@@ -226,18 +226,20 @@ type InstanceOfClass<K> = K extends abstract new (...args: never[]) => infer I
     ? P
     : never
 
+/** Whether two types have the same inferred shape. */
+type Same<A, B> =
+  (<G>() => G extends A ? 1 : 2) extends <G>() => G extends B ? 1 : 2
+    ? true
+    : false
+
 /**
- * Checks overload returns by rotating the last signature into `Seen` until
- * all signatures are covered. Refuses a callable if sixteen rotations do not
- * suffice, rather than silently accepting an unchecked return.
+ * Whether a callable has `any` in a call signature's return (see
+ * {@link HasAny}). A callable with more than eight call signatures resolves
+ * to `true`.
  */
-type CallableHasAny<
-  T,
-  Depth extends unknown[],
-  Seen = unknown,
-  Steps extends unknown[] = [],
-> = T extends {
-  (...args: never[]): infer R1
+type CallableHasAny<T, Depth extends unknown[]> = T extends {
+  (...args: infer A0): infer R0
+  (...args: infer A1): infer R1
   (...args: never[]): infer R2
   (...args: never[]): infer R3
   (...args: never[]): infer R4
@@ -246,69 +248,53 @@ type CallableHasAny<
   (...args: never[]): infer R7
   (...args: never[]): infer R8
 }
-  ? true extends HasAny<R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8, Depth>
+  ? true extends HasAny<R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8, Depth>
     ? true
-    : Seen & Pick<T, keyof T> extends T
+    : Same<[A0, R0], [A1, R1]> extends true
       ? false
-      : Steps['length'] extends 16
-        ? true
-        : T extends (...args: infer Args) => infer Return
-          ? CallableHasAny<
-              Seen & T,
-              Depth,
-              Seen & ((...args: Args) => Return),
-              [...Steps, 0]
-            >
-          : false
+      : true
   : false
 
+/** Public property keys other than array built-in names. */
+type NamedKeys<T> = Exclude<
+  keyof T,
+  T extends readonly unknown[] ? keyof unknown[] : never
+>
+
 /**
- * Whether `T` holds `any` in a public property, array element or callable
- * return, within four levels. Array built-ins are covered by the element
- * check; additional named properties are checked separately. Non-public
- * members are invisible. Test the result with `true extends`.
+ * Whether `T` is `any` or holds `any` in a public property, index signature,
+ * array element or call signature's return, within four levels of nesting.
+ * Also resolves to `true` for a callable with more than eight call signatures.
+ * Does not read construct signatures, array built-in names or non-public
+ * members. Resolves to `true`, `false` or `boolean`; test with `true extends`.
  */
 type HasAny<T, Depth extends unknown[] = []> = 0 extends 1 & T
   ? true
   : Depth['length'] extends 4
     ? false
-    : T extends Promise<unknown> | Set<unknown>
-      ? false
-      : T extends object
-        ? | (T extends readonly (infer Item)[]
-              ? HasAny<Item, [...Depth, 0]>
-              : T extends (...args: never[]) => unknown
-                ? CallableHasAny<T, [...Depth, 0]>
-                : false)
-          | {
-              [
-                P in Exclude<
-                  keyof T,
-                  T extends readonly unknown[]
-                    ? keyof (readonly unknown[]) | keyof unknown[]
-                    : never
-                >
-              ]-?: HasAny<T[P], [...Depth, 0]>
-            }[Exclude<
-              keyof T,
-              T extends readonly unknown[]
-                ? keyof (readonly unknown[]) | keyof unknown[]
-                : never
-            >]
-        : false
+    : T extends object
+      ? | (T extends readonly (infer Item)[]
+            ? HasAny<Item, [...Depth, 0]>
+            : T extends (...args: never[]) => unknown
+              ? CallableHasAny<T, [...Depth, 0]>
+              : false)
+        | {
+            [P in NamedKeys<T>]-?: HasAny<T[P], [...Depth, 0]>
+          }[NamedKeys<T>]
+      : false
 
 /**
  * What a class `K` with no public construct signature is read as: refused
  * when it is callable, or when its `prototype`, where the instance type is
  * read from, holds `any` (see {@link HasAny}), as a generic class's does for
- * each type parameter; otherwise `K`. A refused class maps to a type that
- * says why.
+ * each type parameter, or contains a callable with more than eight call
+ * signatures; otherwise `K`. A refused class maps to a type that says why.
  */
 type CheckedPrototypeClass<K> = K extends (...args: never[]) => unknown
   ? never
   : true extends HasAny<InstanceOfClass<K>>
     ? {
-        readonly 'This class has no public constructor and its prototype holds any, so its instance type cannot be read. Pass it as a constructor type that fixes its instance type: X as unknown as abstract new () => X, with the type arguments of X where it has them': K
+        readonly 'This class has no public constructor and its prototype holds any or a callable with more than eight call signatures, so its instance type cannot be read. Pass it as a constructor type that fixes its instance type: X as unknown as abstract new () => X, with the type arguments of X where it has them': K
       }
     : K
 
@@ -874,9 +860,11 @@ export function fromMaybe<T, E extends Error>(
  * even when it has an `Error` `prototype`, and a class with no public
  * constructor is refused when its `prototype` holds `any`, which a generic
  * class's does for each type parameter. The check does not look inside a
- * `Promise`, a `Set`, a function's parameters or a non-public member
+ * `Promise`, a `Set`, a function's parameters, a construct signature, an
+ * array property with a built-in name or a non-public member
  * (`private`, `protected` or `#`), or deeper than four levels, so a type
- * parameter used only there still reads as `any`. An empty list throws a
+ * parameter used only there still reads as `any`. A callable with more than
+ * eight call signatures is refused. An empty list throws a
  * `TypeError` when the handler is created, and so does an entry that is not a
  * function, or whose inspection throws (a revoked proxy, a throwing
  * `Symbol.hasInstance` getter), or whose `Symbol.hasInstance` is neither
