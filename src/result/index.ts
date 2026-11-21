@@ -227,26 +227,75 @@ type InstanceOfClass<K> = K extends abstract new (...args: never[]) => infer I
     : never
 
 /**
- * Whether `T` is `any` or holds `any` in a property, an index signature, an
- * array element or a function's return, within four levels of nesting. It does
- * not look inside a non-public member (`private`, `protected` or `#`). Resolves
- * to `true`, `false` or `boolean`; test it with `true extends`.
+ * Checks overload returns by rotating the last signature into `Seen` until
+ * all signatures are covered. Refuses a callable if sixteen rotations do not
+ * suffice, rather than silently accepting an unchecked return.
+ */
+type CallableHasAny<
+  T,
+  Depth extends unknown[],
+  Seen = unknown,
+  Steps extends unknown[] = [],
+> = T extends {
+  (...args: never[]): infer R1
+  (...args: never[]): infer R2
+  (...args: never[]): infer R3
+  (...args: never[]): infer R4
+  (...args: never[]): infer R5
+  (...args: never[]): infer R6
+  (...args: never[]): infer R7
+  (...args: never[]): infer R8
+}
+  ? true extends HasAny<R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8, Depth>
+    ? true
+    : Seen & Pick<T, keyof T> extends T
+      ? false
+      : Steps['length'] extends 16
+        ? true
+        : T extends (...args: infer Args) => infer Return
+          ? CallableHasAny<
+              Seen & T,
+              Depth,
+              Seen & ((...args: Args) => Return),
+              [...Steps, 0]
+            >
+          : false
+  : false
+
+/**
+ * Whether `T` holds `any` in a public property, array element or callable
+ * return, within four levels. Array built-ins are covered by the element
+ * check; additional named properties are checked separately. Non-public
+ * members are invisible. Test the result with `true extends`.
  */
 type HasAny<T, Depth extends unknown[] = []> = 0 extends 1 & T
   ? true
   : Depth['length'] extends 4
     ? false
-    : T extends readonly (infer Item)[]
-      ? HasAny<Item, [...Depth, 0]>
-      : T extends (...args: never[]) => infer Return
-        ? HasAny<Return, [...Depth, 0]>
-        : T extends object
-          ? true extends {
-              [P in keyof T]-?: HasAny<T[P], [...Depth, 0]>
-            }[keyof T]
-            ? true
-            : false
-          : false
+    : T extends Promise<unknown> | Set<unknown>
+      ? false
+      : T extends object
+        ? | (T extends readonly (infer Item)[]
+              ? HasAny<Item, [...Depth, 0]>
+              : T extends (...args: never[]) => unknown
+                ? CallableHasAny<T, [...Depth, 0]>
+                : false)
+          | {
+              [
+                P in Exclude<
+                  keyof T,
+                  T extends readonly unknown[]
+                    ? keyof (readonly unknown[]) | keyof unknown[]
+                    : never
+                >
+              ]-?: HasAny<T[P], [...Depth, 0]>
+            }[Exclude<
+              keyof T,
+              T extends readonly unknown[]
+                ? keyof (readonly unknown[]) | keyof unknown[]
+                : never
+            >]
+        : false
 
 /**
  * What a class `K` with no public construct signature is read as: refused

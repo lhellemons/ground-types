@@ -320,6 +320,30 @@ class PrivateNestedGeneric<T> extends Error {
     super()
   }
 }
+class ArrayDetail<T> extends Error {
+  private constructor(readonly detail: string[] & { extra: T }) {
+    super()
+  }
+}
+class CallableDetail<T> extends Error {
+  private constructor(readonly detail: (() => string) & { extra: T }) {
+    super()
+  }
+}
+class OverloadedDetail<T> extends Error {
+  private constructor(readonly detail: { (): T; (format: string): string }) {
+    super()
+  }
+}
+class ConcreteDetails extends Error {
+  private constructor(
+    readonly array: string[] & { extra: number },
+    readonly callable: (() => string) & { extra: number },
+    readonly overloaded: { (): number; (format: string): string },
+  ) {
+    super()
+  }
+}
 class PrivateAnyField extends Error {
   // `any` is the type under test.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -444,6 +468,26 @@ describe('a generic error class', () => {
     catchOnly(PrivateNestedGeneric)
     // @ts-expect-error One refused class refuses the list
     catchOnly(Selected, PrivateGeneric)
+  })
+  it('checks array and callable properties and earlier overload returns', () => {
+    // @ts-expect-error The named array property holds any
+    catchOnly(ArrayDetail)
+    // @ts-expect-error The named array property holds any
+    tryCatch(() => 1, [ArrayDetail])
+    // @ts-expect-error The named callable property holds any
+    catchOnly(CallableDetail)
+    // @ts-expect-error The named callable property holds any
+    tryCatch(() => 1, [CallableDetail])
+    // @ts-expect-error The earlier overload returns any
+    catchOnly(OverloadedDetail)
+    // @ts-expect-error The earlier overload returns any
+    tryCatch(() => 1, [OverloadedDetail])
+    expectTypeOf(catchOnly(ConcreteDetails)).returns.toEqualTypeOf<
+      Failure<never, ConcreteDetails>
+    >()
+    expectTypeOf(tryCatch(() => 1, [ConcreteDetails])()).toEqualTypeOf<
+      Result<number, ConcreteDetails>
+    >()
   })
   it('refuses a private constructor with no type parameter whose prototype holds any', () => {
     // @ts-expect-error The `any` field is read through the prototype

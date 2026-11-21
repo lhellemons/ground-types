@@ -163,13 +163,15 @@ later is required.
   with a private or protected constructor, such as a domain error with a static
   factory. Such a class is read from its `prototype`, and is refused at compile
   time when its instance type holds `any` in a property, an index signature, an
-  array element or a function's return, within four levels of nesting: a
+  array element, an array or callable's additional named property, or a
+  callable's overload return, within four levels of nesting: a
   generic class does for each type parameter (`detail: T` reads as `any`), and
   so does a class with an `any` field, an `AbortSignal` field or an
   `AggregateError` parent. To use one, pass it as a constructor type that fixes
   its instance type, such as
   `DomainFailure as unknown as abstract new () => DomainFailure<unknown>`. The
-  check does not look inside a `Promise`, a `Set`, a function's parameters or a
+  Overload inspection refuses a callable if sixteen signature rotations do not
+  cover its signatures. The check does not look inside a `Promise`, a `Set`, a function's parameters or a
   non-public member (`private`, `protected` or `#`), or deeper than four levels,
   so a type parameter used only there still reads as `any`. Arrow functions,
   methods (also when given an `Error` `prototype`), plain objects and
