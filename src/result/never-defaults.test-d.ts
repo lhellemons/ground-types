@@ -571,7 +571,7 @@ describe('result callback known limits', () => {
     void [f, wrapped]
   })
 
-  it('accepts a bare number callback declared to return a number (Breaking)', () => {
+  it('accepts a bare callback for any declared return type (Breaking)', () => {
     const f: (v: number) => number = result
     const stringReturn: (v: number) => string = result
     // @ts-expect-error - the wrapper checks the incompatible string return
