@@ -147,10 +147,12 @@ it change:
     type Columns = Record<Extract<keyof typeof user, string>, string>
     const columns: Columns = { id: 'text' } // TS2741 on every arm
 
-**What B2 breaks: `Object.values` and `Object.entries`.** The values of a
-`Success` of a plain object include the brand (`number | NotAnErrorStack`).
-These are TS2365, TS2345 and TS2339 under B2, and compile on `main`, A and
-B:
+**What every arm changes: `Object.values` and `Object.entries`.** The values
+of a `Success` of a plain object include the brand under B2
+(`number | NotAnErrorStack`): these are TS2365, TS2345 and TS2339 there, and
+compile on `main`. Under A and B they compile, but the values are `any`
+(`Object.values(sc)` is `any[]`), so a wrong method on them compiles too
+(`Object.values(sc).map((v) => v.toUpperCase())` is TS2339 on `main` and B2):
 
     declare const sc: Success<{ a: number; b: number }, Invalid>
     Object.values(sc).reduce((x, y) => x + y, 0)

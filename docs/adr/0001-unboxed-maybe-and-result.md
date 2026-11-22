@@ -463,9 +463,9 @@ the marker sees an `Error` hidden in a value's static type
 (`const v: { code: string } = new Other()`), and an `Error` subclass that
 narrows its own `stack` (`override stack = undefined`) would still pass as a
 `Success` under every shape (found in the review of #94, measured in #101).
-The cost that note gives for its `stack?: never` marker (arm A below), "every
-`T` with a `stack` member", is too narrow: the measured costs are wider and
-differ per arm (see the costs in the 2026-11-22 amendment below).
+That note gives the cost of its `stack?: never` marker (arm A in the
+2026-11-22 amendment below) as "every `T` with a `stack` member"; the measured
+costs, listed there, are wider and differ per arm.
 
 **Decision: reverse the 2026-08-04 amendment.** The phantom is kept, and
 the annotation is no longer accepted as a sharp edge: the constructors
@@ -1215,13 +1215,13 @@ Costs of the marker, measured on the prototype and known to be incomplete:
 - Object members that receive the marker gain a readable `.stack`, typed
   `undefined` under arms A and B and as the brand or `undefined` under arm B2;
   under arms B and B2, members that declare their own `stack` keep its type,
-  while under arm A a declared `stack?: string` reads `undefined` and a
-  required one makes the arm `never` (above). A member with an index
-  signature already read `.stack` through the index, and the marker replaces
-  that type rather than adding to it: on `Success<Record<string, number>>`,
-  `.stack` is `NotAnErrorStack | undefined` under arm B2 (`undefined` under arms
-  A and B), so `.stack + 1` is TS18048 (it was `number`) and
-  `typeof counts.stack === 'number'` narrows to `never`; on
+  while under arm A a declared `stack?: string` reads `undefined` and a required
+  one that cannot hold `undefined` makes the whole `SuccessArm` `never` (above).
+  A member with an index signature already read `.stack` through the index, and
+  the marker replaces that type rather than adding to it: on
+  `Success<Record<string, number>>`, `.stack` is `NotAnErrorStack | undefined`
+  under arm B2 (`undefined` under arms A and B), so `.stack + 1` is TS18048 (it
+  was `number`) and `typeof counts.stack === 'number'` narrows to `never`; on
   `Success<Record<string, any>>` and `Success<Record<string, string>>`,
   `.stack.length` is TS18048 (it was `any`, and `string`). The added read is
   unsound in two ways, under arm B2. First, when the value's static type hides a
@@ -1245,12 +1245,15 @@ Costs of the marker, measured on the prototype and known to be incomplete:
   `const columns: Record<Extract<keyof typeof user, string>, string> = { id: 'text' }`
   is TS2741, and mapped types over `keyof` of a `Success` change the same
   way. These hold on every arm.
-- Under arm B2 only, `Object.values` and `Object.entries` of a `Success` of a
-  plain object include the brand: for
+- `Object.values` and `Object.entries` of a `Success` of a plain object
+  change type on every arm. Under arm B2 the values include the brand: for
   `r: Result<{ a: number; b: number }, Invalid>` narrowed by `isSuccess`,
   `Object.values(r).reduce((x, y) => x + y, 0)` is TS2365 and
   `Math.max(...Object.values(r))` is TS2345 (the values are
-  `number | NotAnErrorStack`); both compile on `main` and under arms A and B.
+  `number | NotAnErrorStack`); both compile on `main`. Under arms A and B they
+  compile, but the values are `any` (`Object.values(r)` is `any[]`), so
+  `Object.values(r).map((v) => v.toUpperCase())` compiles and throws at run
+  time; on `main` it is TS2339.
 - Generic code loses a widening, under arms B and B2: in
   `function lift<T>(value: T): Result<T, Error> { return result(value) }`,
   the return is TS2322 and compiles on `main`, because
