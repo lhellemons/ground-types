@@ -163,18 +163,26 @@ later is required.
   with a private or protected constructor, such as a domain error with a static
   factory. Such a class is read from its `prototype`, and is refused at compile
   time when its instance type holds `any` in a property, an index signature, an
-  array element or a function's return, within four levels of nesting: a
-  generic class does for each type parameter (`detail: T` reads as `any`), and
-  so does a class with an `any` field, an `AbortSignal` field or an
-  `AggregateError` parent. To use one, pass it as a constructor type that fixes
-  its instance type, such as
-  `DomainFailure as unknown as abstract new () => DomainFailure<unknown>`. The
-  check does not look inside a `Promise`, a `Set`, a function's parameters or a
-  non-public member (`private`, `protected` or `#`), or deeper than four levels,
-  so a type parameter used only there still reads as `any`. Arrow functions,
-  methods (also when given an `Error` `prototype`), plain objects and
-  constructors of non-`Error` instances are rejected at compile time. Calls that
-  compiled before keep their inferred error type.
+  array element, a named property of an array or a callable, or the return of
+  any of a callable's call signatures, within four levels of nesting: a generic
+  class does for each type parameter (`detail: T` reads as `any`), and so does
+  a class with an `any` field, an `AbortSignal` field or an `AggregateError`
+  parent. To use one, pass it as a constructor type that fixes its instance
+  type, such as
+  `DomainFailure as unknown as abstract new () => DomainFailure<unknown>`.
+  A class holding a callable with more than eight call signatures is refused
+  unless the first two of its last nine signatures take the same parameters and
+  return the same type (a `this` parameter is not compared, and a type parameter
+  reads as its constraint); when they do, returns before the last nine go
+  unchecked. Generic returns whose constraints hold `any` can also cause a
+  concrete class to be refused. The check does not look inside a `Promise`, a
+  `Set`, a function's parameters, a construct signature, an array property with
+  a built-in name (such as `length` or `map`), or a non-public member
+  (`private`, `protected` or `#`), or deeper than four levels, so a type
+  parameter used only there still reads as `any`.
+  Arrow functions, methods (also when given an `Error` `prototype`), plain
+  objects and constructors of non-`Error` instances are rejected at compile
+  time. Calls that compiled before keep their inferred error type.
 - **Breaking:** `catchOnly` (and so the `tryCatch` shorthand) now throws a
   `TypeError` when the handler is created, if the class list is empty or holds
   an entry that is not a function, or whose inspection throws (a revoked proxy,

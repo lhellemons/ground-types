@@ -127,9 +127,10 @@ export function andThen<A, U, D2, T extends A, D>(
 export function gather<T, D>(
   parts: readonly BestEffort<T, D>[],
 ): BestEffort<readonly T[], D> {
+  const boxes = parts.map((part) => part)
   return bestEffort(
-    parts.map((part) => part.value),
-    parts.flatMap((part) => [...part.diagnostics]),
+    boxes.map((box) => box.value),
+    boxes.flatMap((box) => [...box.diagnostics]),
   )
 }
 
@@ -215,10 +216,12 @@ export function toResult<T, D, E extends Error>(
   ...value: [] | [BestEffort<T, D>]
 ): CurryableMapper<BestEffort<T, D>, Result<T, E>> {
   return curry(
-    (value: BestEffort<T, D>): Result<T, E> =>
-      value.diagnostics.length > 0
-        ? failure(toError(value.diagnostics))
-        : (value.value as Result<T, E>),
+    (value: BestEffort<T, D>): Result<T, E> => {
+      const diagnostics = value.diagnostics
+      return diagnostics.length > 0
+        ? failure(toError(diagnostics))
+        : (value.value as Result<T, E>)
+    },
     ...value,
   )
 }
