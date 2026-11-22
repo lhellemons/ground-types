@@ -1,0 +1,331 @@
+/* PROTOTYPE #101 — copied into src/result/ by run.sh and typechecked there.
+   Every line tagged `CASE:` is a probe; run.sh reports, per arm and per
+   TypeScript version, which tagged lines raise a diagnostic.
+   "closes:" cases are a raw Error returned where a Result is expected: a
+   diagnostic means the arm rejects it (good).
+   "breaks:" cases are legitimate code: a diagnostic means the arm breaks
+   it (the cost). */
+/* eslint-disable */
+import { failure, isSuccess, result, success } from './index.js'
+import type { Result, Success } from './index.js'
+
+class Invalid extends Error {
+  readonly kind = 'Invalid' as const
+}
+class Other extends Error {
+  readonly code = 'other'
+}
+const raw = new Error('x')
+const other = new Other('x')
+
+// ---- what the marker closes: a raw Error returned without failure() ----
+export const c1 = (): Result<object, Invalid> => raw // CASE: closes: object
+export const c2 = (): Result<{ name: string }, Invalid> => raw // CASE: closes: { name: string }
+export const c3 = (): Result<number | object, Invalid> => raw // CASE: closes: number | object
+export const c4 = (): Result<{ name?: string }, Invalid> => raw // CASE: closes: { name?: string }
+export const c5 = (): Result<
+  Partial<{ name: string; port: number }>,
+  Invalid
+> => raw // CASE: closes: Partial<{ name; port }>
+export const c6 = (): Result<{ message?: string; id?: number }, Invalid> => raw // CASE: closes: { message?; id? }
+export const c7 = (): Result<Object, Invalid> => raw // CASE: closes: Object
+export const c8 = (): Result<Record<string, any>, Invalid> => raw // CASE: closes: Record<string, any>
+export const c9 = (): Result<{ [k: string]: any }, Invalid> => raw // CASE: closes: { [k: string]: any }
+export const c10 = (): Result<Readonly<Record<string, any>>, Invalid> => raw // CASE: closes: Readonly<Record<string, any>>
+export const c11 = (): Result<{ id?: string } & object, Invalid> => raw // CASE: closes: { id?: string } & object
+export const c12 = (): Result<{ stack?: string }, Invalid> => raw // CASE: closes: { stack?: string }
+export const c13 = (): Result<{ cause?: unknown }, Invalid> => raw // CASE: closes: { cause?: unknown }
+export const c14 = (): Result<{ code: string }, Invalid> => other // CASE: closes: wrong subclass into { code: string }
+export const c15 = (): Result<number | { name?: string }, Invalid> => raw // CASE: closes: number | { name?: string }
+export const c16 = (): Result<number | Record<string, any>, Invalid> => raw // CASE: closes: number | Record<string, any>
+export const c17 = (): Result<any, Invalid> => raw // CASE: closes: any (expected to stay open)
+export const c18 = (fn: () => void): Result<void, Invalid> => fn() // CASE: closes: void (expected to stay open)
+const hidden: { code: string } = other
+export const c19 = (): Result<{ code: string }, Invalid> => success(hidden) // CASE: closes: Error hidden in a value's static type (expected to stay open)
+
+// ---- what it breaks: value types with a `stack` member ----
+
+// A call stack: a parsed trace a debugger or a log viewer returns.
+interface Frame {
+  readonly fn: string
+  readonly line: number
+}
+interface Trace {
+  readonly id: string
+  readonly stack: readonly Frame[]
+}
+declare const trace: Trace
+export const b1 = (): Result<Trace, Invalid> => trace // CASE: breaks: call stack, returned raw
+export const b2 = (): Result<Trace, Invalid> => success(trace) // CASE: breaks: call stack, through success()
+declare const rt: Result<Trace, Invalid>
+export const b3 = isSuccess(rt) ? rt.stack.length : 0 // CASE: breaks: call stack, read after isSuccess
+export const b4 = isSuccess(rt) ? rt.id : '' // CASE: breaks: call stack, read a sibling member
+
+// An undo stack: an editor state a reducer hands back.
+interface Command {
+  readonly name: string
+}
+class Editor {
+  constructor(
+    readonly text: string,
+    readonly stack: readonly Command[],
+  ) {}
+}
+declare const editor: Editor
+export const b5 = (): Result<Editor, Invalid> => editor // CASE: breaks: undo stack (class), returned raw
+export const b6 = (): Result<Editor, Invalid> => success(editor) // CASE: breaks: undo stack (class), through success()
+declare const re: Result<Editor, Invalid>
+export const b7 = isSuccess(re) ? re.stack.at(-1) : undefined // CASE: breaks: undo stack (class), read after isSuccess
+export const b8 = isSuccess(re) ? re.stack.at(-1)?.name : undefined // CASE: breaks: undo stack, member of an element
+
+// A data structure named `stack`: a parser's state.
+class Stack<T> {
+  readonly items: T[] = []
+  push(t: T): void {
+    this.items.push(t)
+  }
+}
+interface ParserState {
+  readonly pos: number
+  readonly stack: Stack<string>
+}
+declare const ps: ParserState
+export const b9 = (): Result<ParserState, Invalid> => ps // CASE: breaks: parser state with a Stack, returned raw
+declare const rp: Result<ParserState, Invalid>
+export const b10 = isSuccess(rp) ? rp.stack.push('x') : undefined // CASE: breaks: parser state, call a method on stack
+// The class itself is fine: it has no `stack` member.
+declare const st: Stack<number>
+export const b11 = (): Result<Stack<number>, Invalid> => st // CASE: breaks: a Stack class itself, returned raw
+
+// An optional `stack`, as a serialised error or a log record carries one.
+interface LogRecord {
+  readonly level: 'info' | 'warn'
+  readonly message: string
+  readonly stack?: string
+}
+declare const lr: LogRecord
+export const b12 = (): Result<LogRecord, Invalid> => lr // CASE: breaks: optional stack?: string, returned raw
+export const b13 = (): Result<LogRecord, Invalid> => success(lr) // CASE: breaks: optional stack?: string, through success()
+declare const rl: Result<LogRecord, Invalid>
+export const b14 = isSuccess(rl) ? rl.stack?.length : undefined // CASE: breaks: optional stack, read after isSuccess
+
+// A generic over `{ stack }`.
+export function top<T extends { readonly stack: readonly unknown[] }>(
+  r: Result<T, Invalid>,
+) {
+  return isSuccess(r) ? r.stack[0] : undefined // CASE: breaks: generic T extends { stack }, read after isSuccess
+}
+
+// Through result() and a union.
+declare const traceOrInvalid: Trace | Invalid
+export const b15 = result<Trace, Invalid>(traceOrInvalid) // CASE: breaks: call stack, through result()
+
+// ---- the other cost: a Success of an object no longer fits a string-valued index signature ----
+export const b16 = new URLSearchParams(success({ a: '1' })) // CASE: breaks: success({ a }) into Record<string, string>
+const meta: Record<string, string | number> = success({ a: '1' }) // CASE: breaks: success({ a }) into Record<string, string | number>
+export const b17 = meta
+declare const sx: Success<{ a: string }, Invalid>
+export const b18: Record<string, unknown> = sx // CASE: breaks: Success into Record<string, unknown> (expected fine)
+export const b19 = { ...sx } // CASE: breaks: spread a Success, exported (fails on main too: the open spread case of the declaration-emit test)
+
+// Failure is untouched.
+export const f1 = (): Result<Trace, Invalid> => failure(new Invalid()) // CASE: breaks: failure() into Result<Trace>
+
+// Generic code over a T the arm cannot see into.
+export const g1 = <T extends { id: string }>(t: T): Result<T, Invalid> => t // CASE: breaks: generic T returned raw (fails on main too)
+export const g2 = <T extends { id: string }>(t: T): Result<T, Invalid> =>
+  success(t) // CASE: breaks: generic T through success() (fails on main too: the guard)
+export const g3 = <T extends { id: string }>(r: Result<T, Invalid>) =>
+  isSuccess(r) ? r.id : '' // CASE: breaks: generic T, read after isSuccess
+
+// Index signatures with a non-string value type: the branded-string marker (b2)
+// fits only string-valued ones.
+export const i1: Record<string, number> = success({ n: 1 }) // CASE: breaks: success({ n: 1 }) into Record<string, number>
+export const i2: Record<string, boolean> = success({ ok: true }) // CASE: breaks: success({ ok: true }) into Record<string, boolean>
+export const i3: { [k: string]: string | undefined } = success({ a: '1' }) // CASE: breaks: success({ a }) into { [k]: string | undefined }
+// The marker adds a member: `.stack` on a Success with no `stack` is TS2339 on main.
+declare const sq: Success<{ q: string }, Invalid>
+export const i4 = sq.stack // CASE: loosens: `.stack` readable on a Success of { q } (TS2339 on main)
+
+// An Error subclass that narrows its own `stack` to `undefined` fits every
+// marker shape's optional `stack` (from the review of ticket 94, PR 100).
+class Stackless extends Error {
+  readonly code = 'other'
+  override stack = undefined
+}
+export const s1 = (): Result<{ code: string }, Invalid> => new Stackless() // CASE: closes: Error subclass with stack narrowed to undefined, into { code: string } (expected to stay open)
+export const s2 = (): Result<{ code: string }, Invalid> =>
+  new Error() as Error & { code: string } // CASE: closes: plain Error cast to Error & { code }
+
+// Review of #101 round 1: the same narrowing into other residual types.
+class Quiet extends Error {
+  override stack = undefined
+}
+export const q1 = (): Result<object, Invalid> => new Quiet() // CASE: closes: Quiet into object (expected to stay open)
+export const q2 = (): Result<{ name?: string }, Invalid> => new Quiet() // CASE: closes: Quiet into { name?: string } (expected to stay open)
+export const q3 = (): Result<Record<string, any>, Invalid> => new Quiet() // CASE: closes: Quiet into Record<string, any> (expected to stay open)
+
+// An indexed type that explicitly declares `stack`: B and B2 exempt it.
+type IndexedTrace = { [key: string]: unknown; id: string; stack: number[] }
+declare const it: IndexedTrace
+export const x1 = (): Result<IndexedTrace, Invalid> => it // CASE: breaks: indexed type declaring stack, returned raw
+declare const rit: Result<IndexedTrace, Invalid>
+export const x2 = isSuccess(rit) ? rit.stack.length : 0 // CASE: breaks: indexed type declaring stack, read after isSuccess
+export const x3 = (): Result<Record<string, any>, Invalid> => raw // CASE: closes: Record<string, any> (again, beside the indexed Trace)
+
+// A string-literal-valued index signature.
+const answer = success({ answer: 'yes' as const })
+export const l1: Record<string, 'yes' | 'no'> = answer // CASE: breaks: success({ answer: 'yes' }) into Record<string, 'yes' | 'no'>
+
+// `'stack' in r` as a narrowing to the Failure.
+declare const rin: Result<{ q: number }, Invalid>
+export const n1 = 'stack' in rin ? rin.kind : undefined // CASE: breaks: 'stack' in r narrows to the Failure
+type MessageStack = { message?: string; stack?: string }
+export const m1 = (): Result<MessageStack, Invalid> => raw // CASE: closes: { message?; stack? } (open on B and B2: declares stack)
+
+// Review of #101 round 2: a template-literal index signature that `stack`
+// matches is not a declared `stack`.
+type TemplateIndexed = { [k: string]: any; [k: `sta${string}`]: any }
+export const t1 = (): Result<TemplateIndexed, Invalid> => raw // CASE: closes: template-literal index matching 'stack'
+type TemplateWithStack = { [k: `sta${string}`]: unknown; stack: number[] }
+declare const tws: TemplateWithStack
+export const t2 = (): Result<TemplateWithStack, Invalid> => tws // CASE: breaks: template index that also declares stack, returned raw
+
+// Widening a Success whose value declares a `stack` the brand does not fit.
+const withStack = success({ id: 'x', stack: [1] })
+export const w1: Result<{ id: string }, Invalid> = withStack // CASE: breaks: Success of { id; stack } widened to Result<{ id }>
+export const w2: Result<object, Invalid> = withStack // CASE: breaks: Success of { id; stack } widened to Result<object>
+
+// An unsound read: the static type hides a real `stack`.
+const actual = { id: 'x', stack: 42 }
+const view: { id: string } = actual
+export const u1 = success(view).stack?.toUpperCase() // CASE: loosens: .stack read through a type that hides a real stack (throws at run time)
+
+// Review of #101 round 3: a private or protected `stack` is absent from
+// keyof, but it declares a `stack` all the same.
+class PrivateEditor {
+  private stack: number[] = []
+  constructor(readonly text: string) {}
+  depth(): number {
+    return this.stack.length
+  }
+}
+class ProtectedEditor {
+  protected stack: number[] = []
+  readonly text = ''
+}
+class HashEditor {
+  #stack: number[] = []
+  readonly text = ''
+  depth(): number {
+    return this.#stack.length
+  }
+}
+declare const pe: PrivateEditor
+declare const pre: ProtectedEditor
+declare const he: HashEditor
+export const p1 = (): Result<PrivateEditor, Invalid> => pe // CASE: breaks: private stack, returned raw
+const pSuccess = success(pe)
+type NotNever<X> = [X] extends [never] ? 'never' : 'kept'
+export const p2: NotNever<typeof pSuccess> = 'kept' // CASE: breaks: private stack, success() is not never
+declare const rpe: Result<PrivateEditor, Invalid>
+export const p3 = isSuccess(rpe) ? rpe.text : '' // CASE: breaks: private stack, read a sibling after isSuccess
+export const p4 = (): Result<ProtectedEditor, Invalid> => pre // CASE: breaks: protected stack, returned raw
+declare const rpr: Result<ProtectedEditor, Invalid>
+export const p5 = isSuccess(rpr) ? rpr.text : '' // CASE: breaks: protected stack, read a sibling after isSuccess
+export const p6 = (): Result<HashEditor, Invalid> => he // CASE: breaks: #stack, returned raw
+declare const rhe: Result<HashEditor, Invalid>
+export const p7 = isSuccess(rhe) ? rhe.text : '' // CASE: breaks: #stack, read a sibling after isSuccess
+
+// The opposite direction: a Success whose value omits `stack` into a Result
+// whose value declares an optional `stack` the marker cannot fit.
+const noStack = success({ id: 'x' })
+type OptStack = { id: string; stack?: number[] }
+type RoOptStack = { id: string; readonly stack?: number[] }
+type NeverStack = { id: string; stack?: never }
+export const o1: Result<OptStack, Invalid> = noStack // CASE: breaks: Success of { id } into Result<{ id; stack?: number[] }>
+export const o2: Result<RoOptStack, Invalid> = noStack // CASE: breaks: Success of { id } into Result<{ id; readonly stack?: number[] }>
+export const o3: Result<NeverStack, Invalid> = noStack // CASE: breaks: Success of { id } into Result<{ id; stack?: never }>
+
+// Review of #101 round 4.
+// Object.values and Object.entries of a Success of a plain object.
+type Counts = { a: number; b: number }
+declare const sc: Success<Counts, Invalid>
+export const v1 = Object.values(sc).reduce((x, y) => x + y, 0) // CASE: breaks: Object.values of a Success, summed
+export const v2 = Math.max(...Object.values(sc)) // CASE: breaks: Object.values of a Success, spread into Math.max
+export const v3 = Object.entries(sc).map(([, n]) => n.toFixed()) // CASE: breaks: Object.entries of a Success, value used as number
+
+// Index-signature members already read `.stack` through the index.
+declare const sAny: Success<Record<string, any>, Invalid>
+declare const sNum: Success<Record<string, number>, Invalid>
+export const x4 = sAny.stack.length // CASE: breaks: .stack of Success<Record<string, any>> (any on main)
+export const x5 = sNum.stack + 1 // CASE: breaks: .stack of Success<Record<string, number>> (number on main)
+
+// The narrowed-stack subclass enters targets weak-type detection rejected.
+export const q4 = (): Result<{ id?: string }, Invalid> => new Quiet() // CASE: closes: Quiet into { id?: string } (TS2322 on main)
+export const q5 = (): Result<{}, Invalid> => new Quiet() // CASE: closes: Quiet into {} (TS2322 on main)
+
+// Generic wrappers over result().
+export function lift<T>(value: T): Result<T, Error> {
+  return result(value) // CASE: breaks: generic lift returns result(value) as Result<T, Error>
+}
+export function liftExplicit<T>(value: T): Result<T, Error> {
+  return result<T, Error>(value) // CASE: breaks: generic lift with explicit result<T, Error>(value)
+}
+type Arm<T> = Success<Exclude<T, Error>, Error>
+export function widenArm<T>(s: Arm<T>): Success<T, Error> {
+  return s // CASE: breaks: Success<Exclude<T, Error>> widened to Success<T>
+}
+
+// A declared `stack?: any` fits the marker, so it is marked and closes.
+export const y1 = (): Result<{ stack?: any }, Invalid> => raw // CASE: closes: { stack?: any } (open on main)
+
+// Review of #101 round 5.
+// Lost widening for any declared `stack` the brand does not fit.
+type Rec = { level: string; stack: string }
+type Level = { level: string }
+declare const rec: Rec
+declare const rRec: Result<Rec, Invalid>
+declare const takeLevel: (r: Result<Level, Invalid>) => void
+export const lw1 = (): Result<Level, Invalid> => rec // CASE: breaks: { level; stack: string } returned raw into Result<{ level }>
+export const lw2 = (): Result<Level, Invalid> => success(rec) // CASE: breaks: success({ level; stack: string }) into Result<{ level }>
+export const lw3: Result<Level, Invalid> = rRec // CASE: breaks: Result<{ level; stack }> assigned to Result<{ level }>
+export const lw4 = takeLevel(rRec) // CASE: breaks: Result<{ level; stack }> passed as Result<{ level }>
+declare const recs: Result<Rec, Invalid>[]
+export const lw5: Result<Level, Invalid>[] = recs // CASE: breaks: array of Result<{ level; stack }> to array of Result<{ level }>
+declare const pRec: Promise<Result<Rec, Invalid>>
+export const lw6: Promise<Result<Level, Invalid>> = pRec // CASE: breaks: Promise of Result<{ level; stack }> to Promise of Result<{ level }>
+type A1 = Result<{ a: number }, Invalid>
+export const lw7 = (): A1 => ({ a: 1, stack: 'trace' }) // CASE: breaks: literal with stack: 'trace' returned raw
+
+// A Success passes where an error-like weak type is expected.
+declare const logE: (e: { stack?: string }) => void
+declare const logNamed: (e: { name?: string; stack?: string }) => void
+export const e1 = logE(success({ a: 1 })) // CASE: loosens: success({ a }) passed as { stack?: string } (TS2559 on main)
+export const e2 = logNamed(success({ a: 1 })) // CASE: loosens: success({ a }) passed as { name?; stack? } (TS2559 on main)
+declare const ru: Result<{ a: number }, Invalid>
+export const e3 = ru.stack // CASE: loosens: .stack on an un-narrowed Result (TS2339 on main)
+
+// keyof of a Success gains 'stack'.
+const user = success({ id: 'x' })
+type Columns = Record<Extract<keyof typeof user, string>, string>
+export const k1: Columns = { id: 'text' } // CASE: breaks: Record over keyof Success needs a 'stack' column
+
+// Generic widening without a constructor call.
+export function partial<T>(r: Result<T, Error>): Result<Partial<T>, Error> {
+  return r // CASE: breaks: generic Result<T> widened to Result<Partial<T>>
+}
+type SP<T> = Success<Partial<T>, Error>
+export function partialS<T>(s: Success<T, Error>): SP<T> {
+  return s // CASE: breaks: generic Success<T> widened to Success<Partial<T>>
+}
+
+// The indexed `.stack` is replaced, not unioned, and the read is unsound.
+const counts = result<Record<string, number>, Invalid>({ stack: 42 })
+const ok = isSuccess(counts)
+export const ix1 = ok ? counts.stack?.toUpperCase() : '' // CASE: loosens: Record<string, number> holding stack: 42 reads as a string (throws)
+declare const sCounts: Success<Record<string, number>, Invalid>
+const isNum = typeof sCounts.stack === 'number'
+export const ix2 = isNum ? sCounts.stack.toFixed() : '' // CASE: breaks: typeof .stack === 'number' narrows to never
+declare const sStr: Success<Record<string, string>, Invalid>
+export const ix3 = sStr.stack.length // CASE: breaks: .stack of Success<Record<string, string>> (string on main)

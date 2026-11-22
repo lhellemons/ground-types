@@ -1,0 +1,12 @@
+diff --git a/src/result/index.ts b/src/result/index.ts
+index cf20521..9e3afce 100644
+--- a/src/result/index.ts
++++ b/src/result/index.ts
+@@ -38,6 +38,7 @@ export type SuccessMarkers<T, E extends Error> = {
+   readonly [_phantom]?: E
+   readonly [_value]?: T
+   readonly [_error]?: never
++  readonly stack?: never
+ }
+ 
+ /**
