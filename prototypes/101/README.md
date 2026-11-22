@@ -14,6 +14,11 @@ a diagnostic, then the diagnostics outside the probe. `--suite` also runs
 vitest with the project's TypeScript: the type tests, the Box pins and the
 consumer declaration-emit test.
 
+The arm patches apply to `src/result/index.ts` as of `main` at ebe4841 and
+stop applying once that file moves. `--suite` lets vitest write its cache
+through the `node_modules` symlink into the invoking checkout, as
+`prototypes/57` says of its own run.
+
 | File           | What                                                                                                                                      |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `arm-a.patch`  | `readonly stack?: never` added to `SuccessMarkers`: every `SuccessArm` carries it                                                         |
