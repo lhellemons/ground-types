@@ -23,23 +23,23 @@ later is required.
   `(x: number | Invalid): Result<number, Invalid> => result(x)` compile with no
   type arguments. A `Success` carries `E = never` and a `Failure` carries
   `T = never`, and both flow into any `Result<T, E>`. A plain `Error` is still
-  rejected, through calls to
-  `failure`, `result` and `success`, where a narrower class is expected, and
-  `Result<Result<T>>` is still not assignable to `Result<T>`. A raw `Error`
-  returned without `failure()` still compiles where `T` is `object`, a union
-  with `object`, an object type whose required members a plain `Error` has
-  (`{ name: string }`), an all-optional object with a key `Error` has, typed
-  so that `Error`'s member fits (`name`, `message`, `stack`, `cause`:
-  `{ name?: string }`, `Partial<{ name: string; port: number }>`), `Object`,
-  an `any`-indexed object (`Record<string, any>`, `{ [k: string]: any }`), an
-  intersection with `object` (`{ id?: string } & object`), `any` (as `T` or
-  as the returned expression), a raw `Error` subclass that fits a member type
-  (an `Other` into `Result<{ code: string }, Invalid>`) or a union with any
-  of these (`number | { name?: string }`), as before. `unknown`, `{}`,
+  rejected, through calls to `failure`, `result` and `success`, where a narrower
+  class is expected, and `Result<Result<T>>` is still not assignable to
+  `Result<T>`. A raw `Error` returned without `failure()` still compiles where
+  `T` is `object`, a union with `object`, an object type whose required members
+  a plain `Error` has (`{ name: string }`), an all-optional object with a key
+  `Error` has, typed so that `Error`'s member fits (`name`, `message`, `stack`,
+  `cause`: `{ name?: string }`, `Partial<{ name: string; port: number }>`),
+  `Object`, an `any`-indexed object (`Record<string, any>`,
+  `{ [k: string]: any }`), an intersection with `object`
+  (`{ id?: string } & object`), `any` (as `T` or as the returned expression), a
+  raw `Error` subclass that fits a member type (an `Other` into
+  `Result<{ code: string }, Invalid>`) or a union with any of these
+  (`number | { name?: string }`), as before. `unknown`, `{}`,
   `Record<string, unknown>` and an all-optional object with no such key
-  (`{ id?: string }`, `{ name?: number }`) reject it. A `void`-typed
-  expression also compiles where `T` admits `void`, since the `void` arm
-  below: `(f: () => void): Result<void, Invalid> => f()`.
+  (`{ id?: string }`, `{ name?: number }`) reject it. A `void`-typed expression
+  also compiles where `T` admits `void`, since the `void` arm below:
+  `(f: () => void): Result<void, Invalid> => f()`.
 - **Breaking:** `Success<undefined>` and `Success<null>` no longer reduce to
   `never`, and `Success<void>`, which did not reduce to `never`, is no longer
   `void` with an error phantom: each is the bare `undefined`, `null` or
@@ -149,7 +149,7 @@ later is required.
   `[1, 2].map(result)` is `Result<unknown, Error>[]`, where v0.4.0 inferred
   `number` in the value arm. They are also accepted where v0.4.0 refused them:
   `result` for any return type the callback declares
-  (`const f: (v: number) => number = result`,
+  (`const f: (v: number) => string = result`,
   `Promise.resolve(1).then<string>(result)`), and `Result.from` for any Box
   type it declares. Wrap the factory, for example `(v: number) => result(v)`,
   to get both the value type and the check back.
