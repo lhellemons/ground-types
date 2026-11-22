@@ -458,14 +458,14 @@ direct-call inference above (#151).
 **Update, 2026-11-22:** decided in the 2026-11-22 amendment below (#101): no
 `stack` marker; the residual above stands as written. The 2026-11-15 note
 above holds for a plain `Error` and any subclass that keeps
-`stack?: string`, where the returned expression's type shows it. Its cost
-for arm A, "every `T` with a `stack` member", is far narrower than the
-measured costs, which are wider and differ per arm: see the costs in the
-2026-11-22 amendment below. No shape of the marker sees an `Error` hidden in
-a value's static type
+`stack?: string`, where the returned expression's type shows it: no shape of
+the marker sees an `Error` hidden in a value's static type
 (`const v: { code: string } = new Other()`), and an `Error` subclass that
 narrows its own `stack` (`override stack = undefined`) would still pass as a
 `Success` under every shape (found in the review of #94, measured in #101).
+The cost that note gives for its `stack?: never` marker (arm A below), "every
+`T` with a `stack` member", is too narrow: the measured costs are wider and
+differ per arm (see the costs in the 2026-11-22 amendment below).
 
 **Decision: reverse the 2026-08-04 amendment.** The phantom is kept, and
 the annotation is no longer accepted as a sharp edge: the constructors
@@ -1137,9 +1137,9 @@ as written, and no type changes.** Arm B2 was chosen on 2026-11-19 and the
 choice reopened on 2026-11-22, after five review rounds of the prototype had
 each found new costs (below), with more likely. Forgetting `failure()` is one
 narrow mistake, and at run time `isSuccess` and `isFailure` still classify the
-raw `Error` correctly; only its static `E` is wrong. Every shape of the marker
-trades it for a wide breaking surface that has kept growing, and the branded
-shape adds two new ways to read a value at the wrong type. The test that pins
+raw `Error` correctly; only its static `E` is wrong. Every arm of the marker
+trades it for a wide breaking surface that has kept growing, and arm B2 adds
+two new ways to read a value at the wrong type. The test that pins
 the residual, "a raw Error returned without failure() still compiles into the
 residual types" in `src/result/never-defaults.test-d.ts`, stays as it is.
 
@@ -1185,9 +1185,9 @@ Costs of the marker, measured on the prototype and known to be incomplete:
   as `'yes' | 'no'`.
   `const counts: Record<string, number> = success({ n: 1 })` and
   `const m: Record<string, 'yes' | 'no'> = success({ answer: 'yes' as const })`
-  fail with TS2322 under every shape of the marker.
+  fail with TS2322 under every arm of the marker.
   `Record<string, unknown>` and `{ [k: string]: string | undefined }` still
-  fit under every shape, `Record<string, string>` under arm B2 only
+  fit under every arm, `Record<string, string>` under arm B2 only
   (arms A and B break it, above).
 - `'stack' in r` no longer narrows a `Result` of an object to its
   `Failure`: for `r: Result<{ q: number }, Invalid>`,
@@ -1214,7 +1214,9 @@ Costs of the marker, measured on the prototype and known to be incomplete:
   including a readonly optional `stack`.
 - Object members that receive the marker gain a readable `.stack`, typed
   `undefined` under arms A and B and as the brand or `undefined` under arm B2;
-  members that declare their own `stack` keep its type. A member with an index
+  under arms B and B2, members that declare their own `stack` keep its type,
+  while under arm A a declared `stack?: string` reads `undefined` and a
+  required one makes the arm `never` (above). A member with an index
   signature already read `.stack` through the index, and the marker replaces
   that type rather than adding to it: on `Success<Record<string, number>>`,
   `.stack` is `NotAnErrorStack | undefined` under arm B2 (`undefined` under arms
