@@ -1,4 +1,4 @@
-# PROTOTYPE #101 — a `stack?: never` marker on `SuccessArm`
+# PROTOTYPE #101 — a `stack` marker on `SuccessArm`, measured and declined
 
 Throwaway probe for
 [#101](https://github.com/lhellemons/ground-types/issues/101). Nothing
@@ -24,8 +24,11 @@ consumer declaration-emit test.
 
 ## Decision
 
-The owner chose **arm B2** (2026-11-19); see ADR 0001's amendment of that
-date. A follow-up ticket implements it.
+**No marker; the residual stays** (2026-11-22); see ADR 0001's amendment
+of that date. The owner chose arm B2 on 2026-11-19 and reopened the choice
+after five review rounds each found new costs. The measurements below are
+the record of why, and the list of costs is known to be incomplete. No type
+changes.
 
 ## Measured
 
@@ -204,7 +207,7 @@ fifteen residual pins in `never-defaults.test-d.ts` ("a raw Error
 returned without failure() still compiles into the residual types"), and
 the `URLSearchParams` pin in `api-surface.test-d.ts` ("a Success of an
 object literal type fits an index signature"). Arm B2 fails only the
-first (1231 of 1232, on current `main`). Every other test
+first (1239 of 1240, on `main` at ebe4841). Every other test
 passes, the Box pins and the consumer declaration-emit test among them.
 The probe's exported values emit declarations on every arm; the only
 TS4023 is the spread of a `Success`, which fails on `main` too (the open

@@ -453,14 +453,12 @@ and are accepted where a callback declares a different return type
 (`result`) or Box type (`Result.from`), which 0.4.0 refused; wrapping the
 factory restores both. No signature found closes this and keeps the
 direct-call inference above (#151).
-**Update, 2026-11-19:** decided in the 2026-11-19 amendment below
-(#101): a branded-string `stack` marker on the object members of `T` that
-do not explicitly declare a `stack` member. The 2026-11-15 note above holds
-for a plain `Error` and any subclass that keeps `stack?: string`: an `Error`
-subclass that narrows its own `stack` (`override stack = undefined`) still
-passes as a `Success` under every shape of the marker (found in the review
-of #94, measured in #101). Until the follow-up ships it, the residual above
-stands as written.
+**Update, 2026-11-22:** decided in the 2026-11-22 amendment below (#101): no
+`stack` marker; the residual above stands as written. The 2026-11-15 note
+above holds for a plain `Error` and any subclass that keeps
+`stack?: string`: an `Error` subclass that narrows its own `stack`
+(`override stack = undefined`) would still pass as a `Success` under every
+shape of the marker (found in the review of #94, measured in #101).
 
 **Decision: reverse the 2026-08-04 amendment.** The phantom is kept, and
 the annotation is no longer accepted as a sharp edge: the constructors
@@ -1085,14 +1083,15 @@ Costs: two more type names on `/result`; the object spread of a `Success` or a
 `Failure` still needs an explicit type in a consumer that emits declarations.
 Not measured: a consumer with `exactOptionalPropertyTypes`.
 
-### 2026-11-19 — A branded `stack` marker narrows the raw-`Error` residual (#101)
+### 2026-11-22 — No `stack` marker: the raw-`Error` residual stays (#101)
 
 The 2026-11-14 amendment records a residual: a raw `Error` returned without
 `failure()` compiles where `T` is an object type a plain `Error` fits
 (`Result<object, Invalid>`, `Result<{ name?: string }, Invalid>`,
 `Result<Record<string, any>, Invalid>` and the rest listed there), and says
-no type closes it without a cost. A `stack` marker on the marked arm narrows
-it, because a plain `Error`'s `stack` is `string | undefined`. A prototype
+no type closes it without a cost. A `stack` marker on the marked arm would
+narrow it, because a plain `Error`'s `stack` is `string | undefined`. A
+prototype
 (`prototypes/101/`, `run.sh` against `HEAD` with each arm's patch, on
 TypeScript 5.4.5, 5.9.3 and 7.0.2, with identical results on all three)
 measured three shapes of it.
@@ -1119,30 +1118,40 @@ measured three shapes of it.
   optional member whose only value is `undefined` does not:
   `new URLSearchParams(success({ a: '1' }))` fails, the call the 2026-11-16
   amendment (#99) chose a design to keep compiling. Rejected for that.
-- **That conditional with the marker typed as a branded string**
-  (`readonly stack?: string & { readonly '#notAnErrorStack': true }` in the
+- **That conditional with the marker typed as a branded string** (B2,
+  `readonly stack?: string & { readonly '#notAnErrorStack': true }` in the
   prototype) closes the same cases, as a `stack` typed `string | undefined`
   does not fit it, and keeps a `Success` fitting a string-valued index
   signature: against one, TypeScript drops the `undefined` of an optional
-  member unless `undefined` is all it holds.
+  member unless `undefined` is all it holds. Chosen, then declined: see the
+  decision below.
 
-**Decision: the branded-string marker, on the object members of `T` that do
-not explicitly declare a `stack` member (an index signature alone does not
-count as declaring one; a private or protected `stack` does).** A follow-up
-ticket implements it; this amendment changes no type. With it, a plain
-`Error` returned without `failure()` is rejected at every object `T` the
-residual list names that declares no `stack`, and the residual becomes: a
-`T` that declares a `stack` member a plain `Error` fits
-(`{ stack?: string }`, `{ message?: string; stack?: string }`); a declared
-`stack?: any` is the exception, since `any` fits the marker: it is marked,
-keeps `any`, and a raw `Error` into it is rejected; `any`, and a returned
+**Decision: no `stack` marker; the residual of the 2026-11-14 amendment
+stands as written, and no type changes.** B2 was chosen on 2026-11-19 and
+the choice reopened on 2026-11-22, after five review rounds of the prototype
+had each found new costs (below), with more likely. Forgetting `failure()`
+is one narrow mistake, and at run time `isSuccess` and `isFailure` still
+classify the raw `Error` correctly; only its static `E` is wrong. Every
+shape of the marker trades it for a wide breaking surface that has kept
+growing, and the branded shape adds two new ways to read a value at the
+wrong type. The test that pins the residual, "a raw Error returned without
+failure() still compiles into the residual types" in
+`src/result/never-defaults.test-d.ts`, stays as it is.
+
+Had B2 shipped, a plain `Error` returned without `failure()` would have been
+rejected at every object `T` the residual list names that declares no
+`stack` (an index signature alone does not count as declaring one; a private
+or protected `stack` does), and the residual would have become: a `T` that
+declares a `stack` member a plain `Error` fits (`{ stack?: string }`,
+`{ message?: string; stack?: string }`), except a declared `stack?: any`,
+which fits the marker and would have closed; `any`, and a returned
 expression typed `any`; `void`; an `Error` subclass that narrows `stack` to
 `undefined` or `never`
 (`class Quiet extends Error { override stack = undefined }`), admitted
 wherever its other members fit the target, since the brand's optional
-`undefined` admits its `stack`; the marker also opens to it targets that
-weak-type detection rejected before, `{}` and `{ id?: string }` among them;
-and an `Error` hidden in a value's static type
+`undefined` admits its `stack`, and also into targets that weak-type
+detection rejects today, `{}` and `{ id?: string }` among them; and an
+`Error` hidden in a value's static type
 (`const v: { code: string } = new Other()`), which no marker on the target
 can see.
 
@@ -1163,7 +1172,7 @@ into `Result<object, Invalid>` stays closed (TS2375); a subclass that writes
 `declare stack: never` stays legal there and is admitted on `main` and under
 the marker alike.
 
-Costs, measured on the prototype:
+Costs of the marker, measured on the prototype and known to be incomplete:
 
 - The added marker breaks assignment to an index signature whose value type
   does not accept the branded string: number, boolean, and string-literal
@@ -1242,7 +1251,7 @@ Costs, measured on the prototype:
   TS2322, and so is the `Success` version; both compile on `main` and A.
 - `SuccessArm` gains a conditional type over each member of `T`, one more
   thing to read in its definition.
-- Breaking, for the CHANGELOG: index-signature assignment, `'stack' in`
+- Breaking, had it shipped: index-signature assignment, `'stack' in`
   narrowing, assignments between Results when only one value type declares
   `stack` (any `stack` the brand does not fit, a plain string one included),
   `Object.values` and `Object.entries` of a `Success`, the type of `.stack`
@@ -1252,17 +1261,12 @@ Costs, measured on the prototype:
   `Partial<T>` included), raw `Error` returns into the newly closed residual
   types.
 
-In the suite, the prototype fails only the test that pins the residual,
-"a raw Error returned without failure() still compiles into the residual
-types" in `src/result/never-defaults.test-d.ts` (15 diagnostics, one per
-closed case), which the follow-up turns into the closed list plus the new
-residual. Every other test passes, the Box pins and the consumer
-declaration-emit test among them, and #99's index-signature pin. The brand's
-key is a string, so a consumer's declaration emit can write it out; whether
-the follow-up also gives it an exported name, as #99 did for the symbol
-markers, is the follow-up's call. The fit test sits in an alias of its
-own: nested in the object check, `U` reads as `U & object` there, which
-is `never` for a branded primitive such as `Branded<string, 'Id'>`, and
-`collect`'s results collapse (about 36 more diagnostics: 36 in vitest's
-type check, 37 with `tsc --noEmit`). Not
-measured: compile time.
+In the suite, the prototype fails only the test that pins the residual (15
+diagnostics, one per closed case). Every other test passes, the Box pins and
+the consumer declaration-emit test among them, and #99's index-signature
+pin. The fit test sits in an alias of its own: nested in the object check,
+`U` reads as `U & object` there, which is `never` for a branded primitive
+such as `Branded<string, 'Id'>`, and `collect`'s results collapse (about 36
+more diagnostics: 36 in vitest's type check, 37 with `tsc --noEmit`). Not
+measured: compile time. The prototype stays in `prototypes/101/` as the
+record of these measurements.
