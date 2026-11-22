@@ -109,7 +109,7 @@ and string-literal unions. These are TS2322:
     const m: Record<string, 'yes' | 'no'> = success({ answer: 'yes' as const })
 
 `Record<string, unknown>` and `{ [k: string]: string | undefined }` still
-fit. `'stack' in r` no longer narrows a `Result` of an object to its
+fit under every arm; `Record<string, string>` under B2 only (above). `'stack' in r` no longer narrows a `Result` of an object to its
 `Failure` (`'stack' in r ? r.kind : …` is TS2339). Members that receive
 the marker gain a readable `.stack` (TS2339 on `main`).
 
@@ -168,7 +168,7 @@ call fails too, where explicit type arguments cannot help; it compiles on
 a `stack` the marker does not fit, a plain `stack: string` or
 `stack?: string` included (log records, serialised errors), no longer
 fits a `Result` whose value type omits `stack`. These are TS2322 (TS2345
-as an argument). A compiles most of them only because its `Success` of
+as an argument; the literal is TS2353 under B, an excess property). A compiles most of them only because its `Success` of
 such a value is already `never`:
 
     declare const rec: { level: string; stack: string }
@@ -218,8 +218,8 @@ of one fail on `main` already; `failure()` into any `Result` is untouched.
 
 **Under `exactOptionalPropertyTypes`** (TypeScript 5.4.5, 5.9.3 and 7.0.2):
 the `override stack = undefined` subclass cannot be declared (TS2415), on
-`main` and B2 alike, and a raw `Error` into `Result<object, Invalid>` stays
-closed under B2 (TS2375). A subclass that writes `declare stack: never`
+`main` and B2 alike, and a raw `Error` into `Result<object, Invalid>`, open
+on `main`, is closed under B2 (TS2375). A subclass that writes `declare stack: never`
 stays legal and is admitted, on `main` and B2 alike.
 
 **Not measured.** Compile time.

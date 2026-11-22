@@ -456,9 +456,11 @@ direct-call inference above (#151).
 **Update, 2026-11-22:** decided in the 2026-11-22 amendment below (#101): no
 `stack` marker; the residual above stands as written. The 2026-11-15 note
 above holds for a plain `Error` and any subclass that keeps
-`stack?: string`: an `Error` subclass that narrows its own `stack`
-(`override stack = undefined`) would still pass as a `Success` under every
-shape of the marker (found in the review of #94, measured in #101).
+`stack?: string`, where the returned expression's type shows it: no shape of
+the marker sees an `Error` hidden in a value's static type
+(`const v: { code: string } = new Other()`), and an `Error` subclass that
+narrows its own `stack` (`override stack = undefined`) would still pass as a
+`Success` under every shape (found in the review of #94, measured in #101).
 
 **Decision: reverse the 2026-08-04 amendment.** The phantom is kept, and
 the annotation is no longer accepted as a sharp edge: the constructors
@@ -1091,9 +1093,8 @@ The 2026-11-14 amendment records a residual: a raw `Error` returned without
 `Result<Record<string, any>, Invalid>` and the rest listed there), and says
 no type closes it without a cost. A `stack` marker on the marked arm would
 narrow it, because a plain `Error`'s `stack` is `string | undefined`. A
-prototype
-(`prototypes/101/`, `run.sh` against `HEAD` with each arm's patch, on
-TypeScript 5.4.5, 5.9.3 and 7.0.2, with identical results on all three)
+prototype (`prototypes/101/`, `run.sh` against `HEAD` with each arm's patch,
+on TypeScript 5.4.5, 5.9.3 and 7.0.2, with identical results on all three)
 measured three shapes of it.
 
 - **`readonly stack?: never` on every `SuccessArm`** closes every object
@@ -1162,15 +1163,16 @@ every arm: `Quiet` returned into `object`, `{ name?: string }` or
 true at run time. Under every arm, `Quiet` returned into
 `Result<{ id?: string }, Invalid>` or `Result<{}, Invalid>` compiles where
 `main` rejects it (TS2322): the marker gives those targets a member that
-`Quiet` shares, so weak-type detection no longer applies, and reading
-`Invalid`'s own members off the `Failure` throws at run time. A plain
-`Error` cast to `Error & { code: string }`, which compiles on `main`, is
-rejected by every arm. Under `exactOptionalPropertyTypes` (measured on
-5.4.5, 5.9.3 and 7.0.2), the `override stack = undefined` subclass cannot be
-declared, on `main` and under the marker alike (TS2415), and a raw `Error`
-into `Result<object, Invalid>` stays closed (TS2375); a subclass that writes
-`declare stack: never` stays legal there and is admitted on `main` and under
-the marker alike.
+`Quiet` shares, so weak-type detection no longer applies, and `Invalid`'s
+own members, read off the `Failure`, are `undefined` at run time (calling
+one throws). A plain `Error` cast to `Error & { code: string }`, which
+compiles on `main`, is rejected by every arm. Under
+`exactOptionalPropertyTypes` (measured on 5.4.5, 5.9.3 and 7.0.2), the
+`override stack = undefined` subclass cannot be declared, on `main` and
+under the marker alike (TS2415), and a raw `Error` into
+`Result<object, Invalid>`, open on `main`, is closed by the marker (TS2375);
+a subclass that writes `declare stack: never` stays legal there and is
+admitted on `main` and under the marker alike.
 
 Costs of the marker, measured on the prototype and known to be incomplete:
 
@@ -1179,9 +1181,10 @@ Costs of the marker, measured on the prototype and known to be incomplete:
   unions such as `'yes' | 'no'`.
   `const counts: Record<string, number> = success({ n: 1 })` and
   `const m: Record<string, 'yes' | 'no'> = success({ answer: 'yes' as const })`
-  fail with TS2322. `Record<string, unknown>`, `Record<string, string>`
-  and `{ [k: string]: string | undefined }` still fit. Every shape of the
-  marker has this cost.
+  fail with TS2322 under every shape of the marker.
+  `Record<string, unknown>` and `{ [k: string]: string | undefined }` still
+  fit under every shape, `Record<string, string>` under B2 only (A and B
+  break it, above).
 - `'stack' in r` no longer narrows a `Result` of an object to its
   `Failure`: for `r: Result<{ q: number }, Invalid>`,
   `'stack' in r ? r.kind : …` compiles on `main` and is TS2339 with the
@@ -1194,11 +1197,12 @@ Costs of the marker, measured on the prototype and known to be incomplete:
   `Result<Rec, Invalid>` to `Result<{ level: string }, Invalid>` (arrays and
   Promises of them included), and returning the literal
   `({ a: 1, stack: 'trace' })` as `Result<{ a: number }, Invalid>` are all
-  TS2322 (TS2345 as an argument) and compile on `main`. A compiles most of
-  them only because its `Success` of such a value is already `never`.
-  Likewise assigning `success({ id: 'x', stack: [1] })` through a variable
-  to `Result<{ id: string }, Invalid>` or `Result<object, Invalid>` now
-  fails with TS2322. B2 also breaks assignment in the opposite direction: a
+  TS2322 (TS2345 as an argument) and compile on `main`; the literal is
+  TS2353 under B (an excess property). A compiles most of them only because
+  its `Success` of such a value is already `never`. Likewise assigning
+  `success({ id: 'x', stack: [1] })` through a variable to
+  `Result<{ id: string }, Invalid>` or `Result<object, Invalid>` now fails
+  with TS2322. B2 also breaks assignment in the opposite direction: a
   `Success` whose value omits `stack` no longer fits a `Result` whose value
   declares an optional `stack` that cannot hold the branded string.
   Assigning `success({ id: 'x' })` through a variable to
@@ -1266,7 +1270,7 @@ diagnostics, one per closed case). Every other test passes, the Box pins and
 the consumer declaration-emit test among them, and #99's index-signature
 pin. The fit test sits in an alias of its own: nested in the object check,
 `U` reads as `U & object` there, which is `never` for a branded primitive
-such as `Branded<string, 'Id'>`, and `collect`'s results collapse (about 36
-more diagnostics: 36 in vitest's type check, 37 with `tsc --noEmit`). Not
+such as `Branded<string, 'Id'>`, and `collect`'s results collapse (36 more
+diagnostics: 36 in vitest's type check, 37 with `tsc --noEmit`). Not
 measured: compile time. The prototype stays in `prototypes/101/` as the
 record of these measurements.

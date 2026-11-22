@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PROTOTYPE #101 — measure the `stack?: never` marker in a temporary git
+# PROTOTYPE #101 — measure the `stack` marker (arms A, B, B2) in a temporary git
 # worktree of HEAD: apply an arm's patch, drop probe.ts into src/result,
 # typecheck with declaration emit on, and report which probe cases raise a
 # diagnostic and which suite files break.
@@ -24,7 +24,8 @@ cleanup() {
   rm -rf "$WT"
 }
 trap cleanup EXIT
-git -C "$ROOT" worktree add --detach "$WT" HEAD >/dev/null 2>&1
+git -C "$ROOT" worktree add --detach "$WT" HEAD >/dev/null 2>&1 ||
+  { echo "git worktree add failed" >&2; exit 2; }
 cd "$WT"
 [ "$ARM" != main ] && git apply "prototypes/101/arm-$ARM.patch"
 ln -s "$ROOT/node_modules" node_modules
