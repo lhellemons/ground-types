@@ -109,15 +109,16 @@ and string-literal unions. These are TS2322:
     const m: Record<string, 'yes' | 'no'> = success({ answer: 'yes' as const })
 
 `Record<string, unknown>` and `{ [k: string]: string | undefined }` still
-fit under every arm; `Record<string, string>` under B2 only (above). `'stack' in r` no longer narrows a `Result` of an object to its
-`Failure` (`'stack' in r ? r.kind : …` is TS2339). Members that receive
-the marker gain a readable `.stack` (TS2339 on `main`).
+fit under every arm; `Record<string, string>` under B2 only (above).
+`'stack' in r` no longer narrows a `Result` of an object to its `Failure`
+(`'stack' in r ? r.kind : …` is TS2339). Members that receive the marker
+gain a readable `.stack` (TS2339 on `main`).
 
 **What every arm breaks, on index-signature members.** They already read
 `.stack` through the index, and the marker replaces that type rather than
 adding to it: on `Success<Record<string, number>>` it is
-`NotAnErrorStack | undefined`. These are TS18048, and the `typeof` check
-narrows to `never`:
+`NotAnErrorStack | undefined` under B2 (`undefined` under A and B). These
+are TS18048, and the `typeof` check narrows to `never`:
 
     declare const sAny: Success<Record<string, any>, Invalid>
     sAny.stack.length // any on main
@@ -164,12 +165,12 @@ call fails too, where explicit type arguments cannot help; it compiles on
       return r
     }
 
-**What arms B and B2 break: lost widening.** Any value whose type declares
-a `stack` the marker does not fit, a plain `stack: string` or
-`stack?: string` included (log records, serialised errors), no longer
-fits a `Result` whose value type omits `stack`. These are TS2322 (TS2345
-as an argument; the literal is TS2353 under B, an excess property). A compiles most of them only because its `Success` of
-such a value is already `never`:
+**What arms B and B2 break: lost widening.** Any value whose type declares a
+`stack` the marker does not fit, a plain `stack: string` or `stack?: string`
+included (log records, serialised errors), no longer fits a `Result` whose
+value type omits `stack`. These are TS2322 (TS2345 as an argument; the
+literal is TS2353 under A and B, an excess property). A compiles most of
+them only because its `Success` of such a value is already `never`:
 
     declare const rec: { level: string; stack: string }
     const raw = (): Result<{ level: string }, Invalid> => rec
@@ -219,7 +220,7 @@ of one fail on `main` already; `failure()` into any `Result` is untouched.
 **Under `exactOptionalPropertyTypes`** (TypeScript 5.4.5, 5.9.3 and 7.0.2):
 the `override stack = undefined` subclass cannot be declared (TS2415), on
 `main` and B2 alike, and a raw `Error` into `Result<object, Invalid>`, open
-on `main`, is closed under B2 (TS2375). A subclass that writes `declare stack: never`
-stays legal and is admitted, on `main` and B2 alike.
+on `main`, is closed under B2 (TS2375). A subclass that writes
+`declare stack: never` stays legal and is admitted, on `main` and B2 alike.
 
 **Not measured.** Compile time.

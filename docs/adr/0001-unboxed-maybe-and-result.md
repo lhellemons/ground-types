@@ -1198,9 +1198,9 @@ Costs of the marker, measured on the prototype and known to be incomplete:
   Promises of them included), and returning the literal
   `({ a: 1, stack: 'trace' })` as `Result<{ a: number }, Invalid>` are all
   TS2322 (TS2345 as an argument) and compile on `main`; the literal is
-  TS2353 under B (an excess property). A compiles most of them only because
-  its `Success` of such a value is already `never`. Likewise assigning
-  `success({ id: 'x', stack: [1] })` through a variable to
+  TS2353 under A and B (an excess property). A compiles most of them only
+  because its `Success` of such a value is already `never`. Likewise
+  assigning `success({ id: 'x', stack: [1] })` through a variable to
   `Result<{ id: string }, Invalid>` or `Result<object, Invalid>` now fails
   with TS2322. B2 also breaks assignment in the opposite direction: a
   `Success` whose value omits `stack` no longer fits a `Result` whose value
@@ -1213,8 +1213,9 @@ Costs of the marker, measured on the prototype and known to be incomplete:
   type. A member with an index signature already read `.stack` through the
   index, and the marker replaces that type rather than adding to it: on
   `Success<Record<string, number>>`, `.stack` is
-  `NotAnErrorStack | undefined`, so `.stack + 1` is TS18048 (it was
-  `number`) and `typeof counts.stack === 'number'` narrows to `never`; on
+  `NotAnErrorStack | undefined` under B2 (`undefined` under A and B), so
+  `.stack + 1` is TS18048 (it was `number`) and
+  `typeof counts.stack === 'number'` narrows to `never`; on
   `Success<Record<string, any>>` and `Success<Record<string, string>>`,
   `.stack.length` is TS18048 (it was `any`, and `string`). The added read is
   unsound in two ways, under B2. First, when the value's static type hides a
@@ -1265,12 +1266,13 @@ Costs of the marker, measured on the prototype and known to be incomplete:
   `Partial<T>` included), raw `Error` returns into the newly closed residual
   types.
 
-In the suite, the prototype fails only the test that pins the residual (15
-diagnostics, one per closed case). Every other test passes, the Box pins and
-the consumer declaration-emit test among them, and #99's index-signature
-pin. The fit test sits in an alias of its own: nested in the object check,
-`U` reads as `U & object` there, which is `never` for a branded primitive
-such as `Branded<string, 'Id'>`, and `collect`'s results collapse (36 more
-diagnostics: 36 in vitest's type check, 37 with `tsc --noEmit`). Not
+In the suite, B2 fails only the test that pins the residual (15 diagnostics,
+one per closed case); A and B also fail #99's index-signature pin (16).
+Under B2 every other test passes, the Box pins and the consumer
+declaration-emit test among them, and #99's index-signature pin. The fit
+test sits in an alias of its own: nested in the object check, `U` reads as
+`U & object` there, which is `never` for a branded primitive such as
+`Branded<string, 'Id'>`, and `collect`'s results collapse (36 more
+diagnostics, in vitest's type check and with `tsc --noEmit` alike). Not
 measured: compile time. The prototype stays in `prototypes/101/` as the
 record of these measurements.
