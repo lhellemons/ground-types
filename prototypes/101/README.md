@@ -14,6 +14,12 @@ a diagnostic, then the diagnostics outside the probe. `--suite` also runs
 vitest with the project's TypeScript: the type tests, the Box pins and the
 consumer declaration-emit test.
 
+The arm patches apply to `src/result/index.ts` as of `main` at ebe4841 and
+stop applying once that file moves. `--suite` runs vitest with `--no-cache`,
+so it leaves no results cache, but vitest still writes temporary files into
+the invoking checkout's `node_modules` through the symlink (the config
+loader's `.vite-temp`, and a `tsconfig.tmp.tsbuildinfo` from the type check).
+
 | File           | What                                                                                                                                      |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `arm-a.patch`  | `readonly stack?: never` added to `SuccessMarkers`: every `SuccessArm` carries it                                                         |
@@ -141,10 +147,12 @@ it change:
     type Columns = Record<Extract<keyof typeof user, string>, string>
     const columns: Columns = { id: 'text' } // TS2741 on every arm
 
-**What B2 breaks: `Object.values` and `Object.entries`.** The values of a
-`Success` of a plain object include the brand (`number | NotAnErrorStack`).
-These are TS2365, TS2345 and TS2339 under B2, and compile on `main`, A and
-B:
+**What every arm changes: `Object.values` and `Object.entries`.** The values
+of a `Success` of a plain object include the brand under B2
+(`number | NotAnErrorStack`): these are TS2365, TS2345 and TS2339 there, and
+compile on `main`. Under A and B they compile, but the values are `any`
+(`Object.values(sc)` is `any[]`), so a wrong method on them compiles too
+(`Object.values(sc).map((v) => v.toUpperCase())` is TS2339 on `main` and B2):
 
     declare const sc: Success<{ a: number; b: number }, Invalid>
     Object.values(sc).reduce((x, y) => x + y, 0)
