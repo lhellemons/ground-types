@@ -24,7 +24,7 @@ loader's `.vite-temp`, and a `tsconfig.tmp.tsbuildinfo` from the type check).
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `arm-a.patch`  | `readonly stack?: never` added to `SuccessMarkers`: every `SuccessArm` carries it                                                         |
 | `arm-b.patch`  | the marker only on object members of `T` that still fit the marked type; a declared `stack` (public, private or protected) keeps its type |
-| `arm-b2.patch` | arm B with the marker typed as a branded string (`string & { '#notAnErrorStack': true }`) in place of `never`                             |
+| `arm-b2.patch` | arm B with the marker typed as a branded string (`string & { readonly '#notAnErrorStack': true }`) in place of `never`                    |
 | `probe.ts`     | the cases: raw `Error` returns the marker should close, and `stack`-carrying types it may break                                           |
 | `example.ts`   | a standalone model of the four shapes side by side, for reading; it typechecks as written                                                 |
 
@@ -80,8 +80,10 @@ rejected by every arm. A declared `stack?: any` fits the marker, so B and B2
 mark it (it keeps `any`) and a raw `Error` into
 `Result<{ stack?: any }, Invalid>`, open on `main`, is closed.
 
-**What arm A breaks.** A required `stack` member makes the whole arm
-`never`: TypeScript reduces `{ id; stack: Frame[] } & { stack?: never }`
+**What arm A breaks.** An object constituent of `T` with a required
+`stack` that cannot hold `undefined` reduces to `never`; other union
+constituents survive. A required `stack: string | undefined` does not
+collapse the object. TypeScript reduces `{ id; stack: Frame[] } & { stack?: never }`
 to `never`, so after `isSuccess` even `r.id` is TS2339, a raw `T` no longer
 fits `Result<T>`, and `success(trace)` compiles silently to `never`. An
 optional `stack?: string` keeps the object but its `stack` becomes

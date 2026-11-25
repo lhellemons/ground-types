@@ -1118,9 +1118,12 @@ on TypeScript 5.4.5, 5.9.3 and 7.0.2, with identical results on all three)
 measured three shapes of it, called arms A, B and B2 below.
 
 - **Arm A: `readonly stack?: never` on every `SuccessArm`** closes every object
-  case in the residual list and `{ stack?: string }`. It makes the whole arm
-  `never` for a `T` with a required `stack` (a parsed call stack, an editor with
-  an undo stack, a parser state holding a stack): TypeScript reduces
+  case in the residual list and `{ stack?: string }`. An object constituent
+  of `T` with a required `stack` that cannot hold `undefined` reduces to
+  `never`; other union constituents survive. A required
+  `stack: string | undefined` does not collapse the object. For a parsed call
+  stack, an editor with an undo stack, or a parser state holding a stack,
+  TypeScript reduces
   `{ id: string; stack: Frame[] } & { stack?: never }` to `never`, so after
   `isSuccess` even `r.id` is TS2339, a raw `T` no longer fits `Result<T>`, and
   `success(trace)` compiles silently to `never`. Rejected.
@@ -1231,7 +1234,8 @@ Costs of the marker, measured on the prototype and known to be incomplete:
   `undefined` under arms A and B and as the brand or `undefined` under arm B2;
   under arms B and B2, members that declare their own `stack` keep its type,
   while under arm A a declared `stack?: string` reads `undefined` and a required
-  one that cannot hold `undefined` makes the whole `SuccessArm` `never` (above).
+  one that cannot hold `undefined` reduces that object constituent to
+  `never`; other union constituents survive (above).
   A member with an index signature already read `.stack` through the index, and
   the marker replaces that type rather than adding to it: on
   `Success<Record<string, number>>`, `.stack` is `NotAnErrorStack | undefined`
@@ -1279,8 +1283,9 @@ Costs of the marker, measured on the prototype and known to be incomplete:
   `function partial<T>(r: Result<T>): Result<Partial<T>> { return r }` is
   TS2322, and so is the `Success` version; both compile on `main` and under
   arm A.
-- `SuccessArm` gains a conditional type over each member of `T`, one more
-  thing to read in its definition.
+- Under arms B and B2, `SuccessArm` gains a conditional type over each
+  member of `T`, one more thing to read in its definition. Arm A only adds
+  `readonly stack?: never` to `SuccessMarkers`.
 - Breaking, had it shipped (some items under only some arms, above):
   index-signature assignment, `'stack' in` narrowing, assignments between
   Results when only one value type declares `stack` (any `stack` the marker does
