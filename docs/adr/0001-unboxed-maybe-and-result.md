@@ -24,6 +24,11 @@ compiler rather than assumed:
   assignable back to `Result<T>`. Once a Result nests, it is stuck —
   there is no generic way to un-nest it back to the outer shape.
 
+**Update, 2026-11-25:** the no-nesting invariant holds for a primitive
+success type such as `number`, but not where `T` is `object` or `unknown`.
+See the corrected primitive-lift passage in the 2026-11-14 amendment below
+and `src/result/nesting.test-d.ts`.
+
 **Update, 2026-11-15:** a `Maybe<Result<T, E>>` is not a nest of that kind.
 It reads as `Result<T | undefined, E>`, matching the runtime, where
 `isSuccess(undefined)` is true (the 2026-11-15 amendment below).
@@ -169,8 +174,9 @@ Two things were checked, not assumed, before settling this:
   become mutually assignable with `Success<T, E>` — a real, if narrow,
   collapse — but `Failure` carries its own separate `[_phantom]?: T`
   marker, so the ADR's core invariant (`Result<Result<T>>` is not
-  assignable back to `Result<T>`) survives untouched, and every existing
-  type-level test — including the one encoding `map`'s nesting trap — stays
+  assignable back to `Result<T>`) survives for a primitive `T`, but not
+  for `object` or `unknown` (see the Update under the Decision). Every
+  existing type-level test — including the one encoding `map`'s nesting trap — stays
   green. `andThen`'s distinctness from `map` doesn't depend on this
   phantom either; that guard runs through `NotAResult`, `ValueOf`, and
   `ErrorOf`, none of which read `Success`'s `E` phantom. On top of that,
@@ -418,8 +424,9 @@ direct assignment of
 `Result<Result<number, Invalid>, Invalid>` to `Result<number, Invalid>`
 still fails. This no-nesting guarantee does not extend to `object` or
 `unknown`, where direct assignment compiles even with a distinguishing
-error subclass. The residual no type closes without a cost, as before: a raw `Error` returned without
-`failure()` compiles where `T` is `object`, a union with `object`, or an
+error subclass. The residual no type closes without a cost, as before:
+a raw `Error` returned without `failure()` compiles where `T` is `object`,
+a union with `object`, or an
 object type whose required members a plain `Error` has (`Result<object,
 Invalid>`, `Result<{ name: string }, Invalid>`, `Result<number | object,
 Invalid>`); where `T` is an all-optional object with a key `Error` has,
@@ -658,8 +665,10 @@ TypeScript 5.4.5, 5.9.3 and 7.0.2:
 Other>` is `undefined`, `Success<Invalid, Other>` is `never`, no `Error`
   and no `Failure` is assignable to `Success<number | undefined, E>`, and
   the `success` guard (`NotPossiblyAnError`) is untouched.
-- `Result<Result<T>>` is still not assignable to `Result<T>`, for a `T`
-  with and without a nullish member. A `Maybe<Result<T, E>>` reads as
+- `Result<Result<T>>` is still not assignable to `Result<T>` for a primitive
+  `T`, with and without a nullish member; this does not extend to `object`
+  or `unknown` (see the Update under the Decision).
+  A `Maybe<Result<T, E>>` reads as
   `Result<T | undefined, E>`, which matches the runtime, where
   `isSuccess(undefined)` is true.
 - Every earlier type test passes unchanged except two Box pins, below.
