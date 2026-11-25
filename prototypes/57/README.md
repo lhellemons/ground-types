@@ -114,9 +114,13 @@ it is 515 passed, 4 failed). The four:
 InvalidUser>` yields `Result<Success<BoxUser, InvalidUser>, Error |
 Failure<BoxUser, InvalidUser>>`, not assignable to the flat type, so
   `box` keeps its job for object values. For a primitive-valued Result the
-  overload's output flattens: `result(nested)` with `nested:
-Result<Result<number, Invalid>, Invalid>` is `Result<number, Invalid>`,
-  where main rejects it (the nesting invariant on the types is untouched).
+  overload's output is assignable to the flat type: `result(nested)` with
+  `nested: Result<Result<number, Invalid>, Invalid>` is assignable to
+  `Result<number, Invalid>`, where main rejected it. Its inferred type
+  retains the nested phantom types rather than being exactly the flat type.
+  Direct assignment of that nested number Result still fails; the
+  no-nesting guarantee does not extend to `object` or `unknown`, where
+  direct assignment compiles even with a distinguishing error subclass.
   `Result.success` has no guard; handed to the implementation task and #89.
   The raw object case at `:126` does not move (an object keeps `Error`
   under the conservative arm). Four expectations move in all. The

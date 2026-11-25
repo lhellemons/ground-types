@@ -351,11 +351,14 @@ is not assignable to the flat `Result`, so `box` keeps its job for
 object values); `from` of an object raw value keeps `Error` and does not
 move. For a primitive-valued `Result` the picture differs:
 `result(nested)` with `nested: Result<Result<number, Invalid>, Invalid>`
-is `Result<number, Invalid>`, assignable to the flat type, where the old
-signature rejected it; the nesting invariant itself is untouched
-(`Result<Result<T>>` is still not assignable to `Result<T>`), only the
-overload's output for a primitive flattens. That primitive/object split
-is the premise #89 starts from. With the two in `index.test-d.ts`, four
+is assignable to `Result<number, Invalid>`, where the old signature
+rejected it. Its inferred type retains the nested phantom types; it is
+not exactly the flat type. Direct assignment of
+`Result<Result<number, Invalid>, Invalid>` to `Result<number, Invalid>`
+still fails, but nesting is not rejected for every success type:
+`object` and `unknown` allow direct assignment even with a distinguishing
+error subclass. That primitive/object split is the premise #89 starts
+from. With the two in `index.test-d.ts`, four
 expectations move. `ErrorArmOf` is module-private to `/result`, so it
 goes to `./internal.ts` for `box.ts` to share. The overload breaks a
 different promise: `box`'s docblock said a raw non-Result value
@@ -411,8 +414,11 @@ object type an `Error` subclass could hide in, through `success` of an
 `unknown`, `object`, all-optional, `Error`-union or `Result` value,
 through a bare `Failure<_, Error>`, and, through `failure`, at a target
 whose `T` is `unknown`, `object`, `{}` or an all-optional object; and
-`Result<Result<T>>` is still not assignable to `Result<T>`. The residual
-no type closes without a cost, as before: a raw `Error` returned without
+direct assignment of
+`Result<Result<number, Invalid>, Invalid>` to `Result<number, Invalid>`
+still fails. This no-nesting guarantee does not extend to `object` or
+`unknown`, where direct assignment compiles even with a distinguishing
+error subclass. The residual no type closes without a cost, as before: a raw `Error` returned without
 `failure()` compiles where `T` is `object`, a union with `object`, or an
 object type whose required members a plain `Error` has (`Result<object,
 Invalid>`, `Result<{ name: string }, Invalid>`, `Result<number | object,
