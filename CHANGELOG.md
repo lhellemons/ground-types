@@ -24,8 +24,10 @@ later is required.
   type arguments. A `Success` carries `E = never` and a `Failure` carries
   `T = never`, and both flow into any `Result<T, E>`. A plain `Error` is still
   rejected, through calls to `failure`, `result` and `success`, where a narrower
-  class is expected, and `Result<Result<T>>` is still not assignable to
-  `Result<T>`. A raw `Error` returned without `failure()` still compiles where
+  class is expected. Nested Results are still not assignable to the flat
+  type for a primitive success type such as `number`; `object` and `unknown`
+  allow direct assignment. A raw `Error` returned without `failure()` still
+  compiles where
   `T` is `object`, a union with `object`, an object type whose required members
   a plain `Error` has (`{ name: string }`), an all-optional object with a key
   `Error` has, typed so that `Error`'s member fits (`name`, `message`, `stack`,
